@@ -5,6 +5,7 @@ import android.graphics.Color;
 import android.hardware.Camera;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
 import android.view.KeyEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
@@ -31,16 +32,13 @@ public class MainActivity extends BaseActivity implements SurfaceHolder.Callback
     private TextView mStatusText;
     
     private boolean mIsTakingPicture = false;
-
-    // LUT Variables
-    private List<String> availableLuts = new ArrayList<>();
+    private List<String> availableLuts = new ArrayList<String>();
     private String selectedLutPath = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Build a clean, full-screen UI programmatically
         FrameLayout layout = new FrameLayout(this);
         layout.setBackgroundColor(Color.BLACK);
 
@@ -50,55 +48,45 @@ public class MainActivity extends BaseActivity implements SurfaceHolder.Callback
         mSurfaceHolder.addCallback(this);
         layout.addView(surfaceView);
 
-        // Status Text (e.g., "Cooking Image...")
         mStatusText = new TextView(this);
         mStatusText.setTextColor(Color.WHITE);
         mStatusText.setTextSize(24);
-        mStatusText.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
         mStatusText.setVisibility(View.GONE);
-        
-        FrameLayout.LayoutParams statusParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-        );
-        statusParams.gravity = android.view.Gravity.CENTER;
-        mStatusText.setLayoutParams(statusParams);
-        layout.addView(mStatusText);
+        FrameLayout.LayoutParams sParams = new FrameLayout.LayoutParams(-2, -2);
+        sParams.gravity = 17; // Center
+        layout.addView(mStatusText, sParams);
 
-        // Recipe Overlay Text
         mRecipeText = new TextView(this);
-        mRecipeText.setTextColor(Color.parseColor("#ff5000")); // Sony Alpha Orange
+        mRecipeText.setTextColor(Color.parseColor("#ff5000"));
         mRecipeText.setTextSize(18);
         mRecipeText.setPadding(20, 20, 20, 20);
-        
-        FrameLayout.LayoutParams recipeParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-        );
-        recipeParams.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL;
-        mRecipeText.setLayoutParams(recipeParams);
-        layout.addView(mRecipeText);
+        FrameLayout.LayoutParams rParams = new FrameLayout.LayoutParams(-2, -2);
+        rParams.gravity = 81; // Bottom Center
+        layout.addView(mRecipeText, rParams);
 
         setContentView(layout);
 
-        loadAvailableLUTs();
+        // LAZY LOADING: Wait for the OS to breathe before scanning SD card
+        new Handler().postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                loadAvailableLUTs();
+            }
+        }, 500);
     }
 
     private void loadAvailableLUTs() {
-        File lutDirectory = new File(Environment.getExternalStorageDirectory(), "LUTs");
-        if (!lutDirectory.exists()) {
-            lutDirectory.mkdirs(); 
-        }
+        File lutDir = new File(Environment.getExternalStorageDirectory(), "LUTs");
+        if (!lutDir.exists()) lutDir.mkdirs();
 
-        File[] files = lutDirectory.listFiles();
+        File[] files = lutDir.listFiles();
         if (files != null) {
-            for (File file : files) {
-                if (file.getName().toLowerCase().endsWith(".cube")) {
-                    availableLuts.add(file.getAbsolutePath());
+            for (int i = 0; i < files.length; i++) {
+                if (files[i].getName().toLowerCase().endsWith(".cube")) {
+                    availableLuts.add(files[i].getAbsolutePath());
                 }
             }
         }
-        
         updateRecipeUI();
     }
 
@@ -107,8 +95,7 @@ public class MainActivity extends BaseActivity implements SurfaceHolder.Callback
             mRecipeText.setText("Recipe: Standard (No LUTs found)");
         } else {
             selectedLutPath = availableLuts.get(0);
-            File lutFile = new File(selectedLutPath);
-            mRecipeText.setText("Recipe: " + lutFile.getName().replace(".cube", ""));
+            mRecipeText.setText("Recipe: " + new File(selectedLutPath).getName().replace(".cube", ""));
         }
     }
 
@@ -118,14 +105,11 @@ public class MainActivity extends BaseActivity implements SurfaceHolder.Callback
         try {
             mCameraEx = CameraEx.open(0, null);
             mNormalCamera = mCameraEx.getNormalCamera();
-
-            Camera.Parameters params = mNormalCamera.getParameters();
-            params.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
-            params.setSceneMode(Camera.Parameters.SCENE_MODE_AUTO);
-            mNormalCamera.setParameters(params);
-
+            Camera.Parameters p = mNormalCamera.getParameters();
+            p.setFocusMode("auto");
+            mNormalCamera.setParameters(p);
         } catch (Exception e) {
-            Toast.makeText(this, "Camera Error", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Sensor Error", 1).show();
         }
     }
 
@@ -135,81 +119,57 @@ public class MainActivity extends BaseActivity implements SurfaceHolder.Callback
         if (mNormalCamera != null) {
             mNormalCamera.stopPreview();
             mCameraEx.release();
-            mCameraEx = null;
             mNormalCamera = null;
         }
     }
-
-    // --- HARDWARE BUTTON INTERCEPTS ---
 
     @Override
     protected boolean onShutterKeyDown() {
         if (mNormalCamera != null && !mIsTakingPicture) {
             mIsTakingPicture = true;
-            
             mStatusText.setText("Cooking Image...");
             mStatusText.setVisibility(View.VISIBLE);
             mRecipeText.setVisibility(View.GONE);
-            
             mNormalCamera.takePicture(null, null, mPictureCallback);
         }
         return true;
     }
 
     @Override
-    protected boolean onShutterKeyUp() {
-        return true;
-    }
+    protected boolean onShutterKeyUp() { return true; }
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        
-        // FIX FOR COMPILE ERROR: Use scanCode 644 for Shutter Half-Press
-        if (keyCode == KeyEvent.KEYCODE_FOCUS || event.getScanCode() == 644) {
-            if (mNormalCamera != null && !mIsTakingPicture) {
-                mNormalCamera.autoFocus(null); 
-            }
+        // FIXED: Using raw ScanCodes to satisfy the compiler
+        // 644 = Sony Shutter Half-Press
+        if (event.getScanCode() == 644) {
+            if (mNormalCamera != null && !mIsTakingPicture) mNormalCamera.autoFocus(null);
             return true;
         }
 
-        // D-Pad Left/Right: Cycle Recipes
         if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT || keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
             if (!availableLuts.isEmpty()) {
-                int currentIndex = availableLuts.indexOf(selectedLutPath);
-                if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                    currentIndex = (currentIndex + 1) % availableLuts.size();
-                } else {
-                    currentIndex = (currentIndex - 1 + availableLuts.size()) % availableLuts.size();
-                }
-                selectedLutPath = availableLuts.get(currentIndex);
-                File lutFile = new File(selectedLutPath);
-                mRecipeText.setText("Recipe: " + lutFile.getName().replace(".cube", ""));
+                int idx = availableLuts.indexOf(selectedLutPath);
+                idx = (keyCode == 22) ? (idx + 1) % availableLuts.size() : (idx - 1 + availableLuts.size()) % availableLuts.size();
+                selectedLutPath = availableLuts.get(idx);
+                mRecipeText.setText("Recipe: " + new File(selectedLutPath).getName().replace(".cube", ""));
             }
             return true;
         }
-
         return super.onKeyDown(keyCode, event);
     }
 
-    // --- THE BAKER CALLBACK ---
     private Camera.PictureCallback mPictureCallback = new Camera.PictureCallback() {
         @Override
         public void onPictureTaken(byte[] data, Camera camera) {
-            
-            // TODO: Phase 2 NDK Hook goes here
-            
             File dir = new File(Environment.getExternalStorageDirectory(), "DCIM/COOKBOOK");
             if (!dir.exists()) dir.mkdirs();
-            
             File file = new File(dir, "DSC_" + System.currentTimeMillis() + ".JPG");
             try {
                 FileOutputStream fos = new FileOutputStream(file);
                 fos.write(data);
                 fos.close();
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-
+            } catch (Exception e) {}
             mStatusText.setVisibility(View.GONE);
             mRecipeText.setVisibility(View.VISIBLE);
             camera.startPreview();
@@ -217,19 +177,10 @@ public class MainActivity extends BaseActivity implements SurfaceHolder.Callback
         }
     };
 
-    // --- SURFACE CALLBACKS ---
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
-        try {
-            if (mNormalCamera != null) {
-                mNormalCamera.setPreviewDisplay(holder);
-                mNormalCamera.startPreview();
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        try { if (mNormalCamera != null) { mNormalCamera.setPreviewDisplay(holder); mNormalCamera.startPreview(); } } catch (IOException e) {}
     }
-
-    @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {}
-    @Override public void surfaceDestroyed(SurfaceHolder holder) {}
+    @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int h2) {}
+    @Override public void surfaceDestroyed(SurfaceHolder h) {}
 }
