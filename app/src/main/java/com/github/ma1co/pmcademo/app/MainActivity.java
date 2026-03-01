@@ -66,7 +66,7 @@ public class MainActivity extends BaseActivity implements SurfaceHolder.Callback
 
         setContentView(layout);
 
-        // LAZY LOADING: Wait for the OS to breathe before scanning SD card
+        // Wait 500ms to let the camera sensor initialize before reading SD
         new Handler().postDelayed(new Runnable() {
             @Override
             public void run() {
@@ -140,14 +140,15 @@ public class MainActivity extends BaseActivity implements SurfaceHolder.Callback
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        // FIXED: Using raw ScanCodes to satisfy the compiler
-        // 644 = Sony Shutter Half-Press
-        if (event.getScanCode() == 644) {
+        // Raw ScanCode 644 is Shutter Half-Press
+        // Raw keyCode 80 is Focus
+        if (event.getScanCode() == 644 || keyCode == 80) {
             if (mNormalCamera != null && !mIsTakingPicture) mNormalCamera.autoFocus(null);
             return true;
         }
 
-        if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT || keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+        // Raw keyCode 22 is Right, 21 is Left
+        if (keyCode == 22 || keyCode == 21) {
             if (!availableLuts.isEmpty()) {
                 int idx = availableLuts.indexOf(selectedLutPath);
                 idx = (keyCode == 22) ? (idx + 1) % availableLuts.size() : (idx - 1 + availableLuts.size()) % availableLuts.size();

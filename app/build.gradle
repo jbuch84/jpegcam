@@ -1,36 +1,14 @@
 apply plugin: 'com.android.application'
 
-repositories {
-    google()
-    mavenCentral()
-    jcenter()
-    maven { url 'https://jitpack.io' }
-}
-
 android {
     compileSdkVersion 25
-    buildToolsVersion "25.0.2"
+    buildToolsVersion "26.0.2"
 
     defaultConfig {
         applicationId "com.jpgcookbook.baker"
-        minSdkVersion 10
-        targetSdkVersion 10
+        minSdkVersion 9
+        targetSdkVersion 25
         versionCode 1
         versionName "1.0"
     }
-
-    // Renames the output APK from app-debug.apk to Sony-JpgCookbook-v1.0.apk
-    applicationVariants.all { variant ->
-        variant.outputs.all { output ->
-            outputFileName = "Sony-JpgCookbook-v${variant.versionName}.apk"
-        }
-    }
-}
-
-dependencies {
-    implementation 'com.github.ma1co.OpenMemories-Framework:framework:-SNAPSHOT'
-    compileOnly 'com.github.ma1co.OpenMemories-Framework:stubs:-SNAPSHOT'
-    
-    // CRITICAL FIX: The correct Maven Group ID is org.nanohttpd
-    implementation 'org.nanohttpd:nanohttpd:2.2.0' 
 }
