@@ -8,6 +8,7 @@ import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.FileObserver;
 import android.util.Pair;
 import android.view.KeyEvent;
 import android.view.SurfaceHolder;
@@ -20,7 +21,7 @@ import java.io.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.List;
+import java.util.List; 
 
 public class MainActivity extends Activity implements SurfaceHolder.Callback, CameraEx.ShutterSpeedChangeListener {
     private CameraEx mCameraEx;
@@ -34,7 +35,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     
     private LutCooker mCooker = new LutCooker();
     
-    // BULLETPROOF AUTO-COOK POLLING
     private boolean isPolling = false;
     private long lastNewestFileTime = 0;
 
@@ -71,7 +71,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             public void run() {
                 while (isPolling) {
                     try {
-                        Thread.sleep(1000); // Check folder every 1 second
+                        Thread.sleep(1000); 
                         if (!isBaking && recipeIndex > 0) {
                             File dcim = new File(Environment.getExternalStorageDirectory(), "DCIM");
                             File sonyDir = new File(dcim, "100MSDCF");
@@ -90,10 +90,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                                     }
                                     if (newest != null) {
                                         if (lastNewestFileTime == 0) {
-                                            lastNewestFileTime = maxModified; // Initialize on boot
+                                            lastNewestFileTime = maxModified; 
                                         } else if (maxModified > lastNewestFileTime) {
-                                            // BRAND NEW PHOTO TIMESTAMP DETECTED!
-                                            Thread.sleep(2000); // Wait 2 secs for BIONZ hardware write to finish
+                                            Thread.sleep(2000); 
                                             lastNewestFileTime = maxModified;
                                             final String path = newest.getAbsolutePath();
                                             runOnUiThread(new Runnable() {
@@ -113,9 +112,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         }).start();
     }
 
-    private void stopAutoCookPolling() {
-        isPolling = false;
-    }
+    private void stopAutoCookPolling() { isPolling = false; }
 
     private class BakeTask extends AsyncTask<String, Integer, String> {
         @Override protected void onPreExecute() { 
@@ -165,20 +162,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 
                 if (original == null || !original.exists()) return "ERR: NO JPG";
 
+                // MEMORY HEIST: 6 Megapixels + RGB_565 Halved Footprint
                 BitmapFactory.Options opt = new BitmapFactory.Options();
-                
-                // *** RESOLUTION BUMP: Now pulling 6 Megapixels! ***
-                opt.inSampleSize = 2; 
-                
-                Bitmap bmp = BitmapFactory.decodeFile(original.getAbsolutePath(), opt);
-                if (bmp == null) return "ERR: DECODE FAIL";
+                opt.inSampleSize = 2; // 6MP!
+                opt.inPreferredConfig = Bitmap.Config.RGB_565; // Force 16-bit to cut memory in half
+                Bitmap rawBmp = BitmapFactory.decodeFile(original.getAbsolutePath(), opt);
+                if (rawBmp == null) return "ERR: DECODE FAIL";
 
-                int width = bmp.getWidth();
-                int height = bmp.getHeight();
-                int[] pixels = new int[width * height];
-                bmp.getPixels(pixels, 0, width, 0, 0, width, height);
-                bmp.recycle();
-                bmp = null;
+                // Create a mutable copy we can write directly onto, then immediately trash the original
+                Bitmap cookedBmp = rawBmp.copy(Bitmap.Config.RGB_565, true);
+                rawBmp.recycle();
+                rawBmp = null;
 
                 if (recipeIndex > 0) {
                     File lutDir = new File(Environment.getExternalStorageDirectory(), "LUTS");
@@ -192,16 +186,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                             publishProgress(-1); 
                             if (!mCooker.loadLut(cubeFile, selectedRecipe)) return "ERR: BAD LUT FILE";
                         }
-                        mCooker.applyLutToPixels(pixels, new LutCooker.ProgressCallback() {
+                        
+                        // Pass the actual image directly to the cooker
+                        mCooker.applyLutToBitmap(cookedBmp, new LutCooker.ProgressCallback() {
                             public void onProgress(int percent) { publishProgress(percent); }
                         }); 
                     } else {
                         return "ERR: LUT NOT FOUND";
                     }
                 }
-
-                Bitmap cookedBmp = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888);
-                pixels = null;
 
                 File rootDir = Environment.getExternalStorageDirectory();
                 File cookedDir = new File(rootDir, "COOKED");
@@ -216,9 +209,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 File outFile = new File(cookedDir, newName);
 
                 FileOutputStream fos = new FileOutputStream(outFile);
-                
-                // Save at slightly higher compression to keep the 6MP file size manageable
-                cookedBmp.compress(Bitmap.CompressFormat.JPEG, 85, fos); 
+                cookedBmp.compress(Bitmap.CompressFormat.JPEG, 90, fos); 
                 fos.flush();
                 fos.close();
                 cookedBmp.recycle();
@@ -313,9 +304,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         
         if (lutDir.exists() && lutDir.listFiles() != null) {
             for (File f : lutDir.listFiles()) {
-                // THE PHYSICAL SIZE FILTER: Skips tiny 4KB Mac metadata files
-                if (f.length() < 10240) continue; 
-                
+                if (f.length() < 10240) continue; // Mac Ghost file filter
                 String name = f.getName().toUpperCase();
                 if (name.contains("CUB")) recipeList.add(f.getName());
             }
@@ -346,13 +335,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     @Override protected void onResume() { 
         super.onResume(); 
         if (mCamera != null) syncUI(); 
-        startAutoCookPolling(); // TURN ON BACKGROUND RADAR
+        startAutoCookPolling(); 
     }
     
     @Override protected void onPause() { 
         super.onPause(); 
         if (mCameraEx != null) mCameraEx.release(); 
-        stopAutoCookPolling(); // TURN OFF RADAR
+        stopAutoCookPolling(); 
     }
     
     @Override public void onShutterSpeedChange(CameraEx.ShutterSpeedInfo i, CameraEx c) { syncUI(); }
