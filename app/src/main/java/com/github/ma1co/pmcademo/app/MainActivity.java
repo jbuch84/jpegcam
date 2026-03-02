@@ -53,20 +53,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         recipeList.clear();
         recipeList.add("NONE (DEFAULT)");
 
-        // TARGETED SCAN: Explicitly look at the path identified in the Root Dirs list
-        File lutDir = new File("/sdcard/LUTs");
+        // VERIFIED PATH: Using the exact "LUTS" folder name found in your root scan
+        File lutDir = new File("/sdcard/LUTS");
         
-        // Case-insensitive fallback
-        if (!lutDir.exists()) {
-            lutDir = new File("/sdcard/luts");
-        }
+        // Final fallback to lowercase if uppercase LUTS folder isn't found
+        if (!lutDir.exists()) lutDir = new File("/sdcard/LUTs");
 
         if (lutDir.exists() && lutDir.isDirectory()) {
             File[] files = lutDir.listFiles();
             if (files != null) {
                 for (File f : files) {
-                    String n = f.getName().toLowerCase();
-                    if (n.endsWith(".cube") || n.endsWith(".png")) {
+                    String n = f.getName().toUpperCase();
+                    // Checking for common LUT extensions
+                    if (n.endsWith(".CUBE") || n.endsWith(".PNG")) {
                         recipeList.add(f.getName());
                     }
                 }
@@ -74,16 +73,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
 
         if (recipeList.size() <= 1) {
-            // EXPLORER MODE: If LUTs not found, list what IS inside /sdcard
-            String sdContents = "";
-            File sdRoot = new File("/sdcard");
-            String[] list = sdRoot.list();
-            if (list != null) {
-                for (String s : list) sdContents += s + " ";
-            } else {
-                sdContents = "SDCARD UNREADABLE";
-            }
-            tvRecipe.setText("SDCARD CONTAINS: " + sdContents);
+            tvRecipe.setText("LUTS FOLDER EMPTY");
         } else {
             updateRecipeDisplay();
         }
