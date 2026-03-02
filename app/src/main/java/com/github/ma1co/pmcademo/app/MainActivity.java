@@ -37,9 +37,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private Handler m_handler = new Handler();
     private boolean isBaking = false;
 
-    enum DialMode { shutter, aperture, iso, exposure, recipe }
+    public enum DialMode { shutter, aperture, iso, exposure, recipe }
     private DialMode mDialMode = DialMode.shutter;
-    
     private List<Integer> supportedIsos;
     private int curIso;
     private int curExpComp;
@@ -92,9 +91,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                         }
                     }
                 }
-                m_handler.postDelayed(this, 1500);
+                m_handler.postDelayed(this, 2000); // 2 sec poll for total stability
             }
-        }, 1500);
+        }, 2000);
     }
 
     private class CubeLUT {
@@ -123,6 +122,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         }
         int mapColor(int color) {
             if (size == 0 || data == null) return color;
+            // The percentage-based mapping works regardless of bit-depth!
             float r = (Color.red(color) / 255.0f) * (size - 1);
             float g = (Color.green(color) / 255.0f) * (size - 1);
             float b = (Color.blue(color) / 255.0f) * (size - 1);
@@ -138,37 +138,44 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
 
         @Override protected void onPreExecute() { 
             isBaking = true;
-            tvRecipe.setText("FAST BAKE (6MP)...");
+            tvRecipe.setText("BAKING (6MP PROXY)...");
             tvRecipe.setTextColor(Color.RED);
-            if (mCamera != null) {
-                mCamera.stopPreview();
-                mSurfaceView.setVisibility(View.INVISIBLE);
+            // CRITICAL: Fully release hardware to give Android all the RAM
+            if (mCameraEx != null) {
+                m_autoReviewControl.setPictureReviewTime(m_pictureReviewTime);
+                mCameraEx.release();
+                mCameraEx = null;
+                mCamera = null;
             }
+            mSurfaceView.setVisibility(View.INVISIBLE);
+            System.gc(); 
         }
 
         @Override protected Boolean doInBackground(Void... voids) {
             try {
-                Thread.sleep(500); 
+                Thread.sleep(1000); // Wait for Sony's own save to finish
                 File lutFile = new File("/sdcard/LUTS/" + recipeList.get(recipeIndex));
                 CubeLUT lut = new CubeLUT(lutFile);
                 File original = new File(SONY_PATH, fileName);
-                
+
                 BitmapFactory.Options opt = new BitmapFactory.Options();
-                opt.inSampleSize = 2; // LOAD AT HALF RES (6MP)
+                opt.inSampleSize = 2; // 6MP to fit in small RAM windows
+                opt.inPreferredConfig = Bitmap.Config.RGB_565;
                 opt.inMutable = true;
-                Bitmap bmp = BitmapFactory.decodeFile(original.getAbsolutePath(), opt);
                 
+                Bitmap bmp = BitmapFactory.decodeFile(original.getAbsolutePath(), opt);
                 if (bmp != null) {
-                    int w = bmp.getWidth();
-                    int h = bmp.getHeight();
-                    int[] pixels = new int[w * h];
-                    bmp.getPixels(pixels, 0, w, 0, 0, w, h);
-                    for (int i = 0; i < pixels.length; i++) pixels[i] = lut.mapColor(pixels[i]);
-                    bmp.setPixels(pixels, 0, w, 0, 0, w, h);
-                    
+                    int width = bmp.getWidth();
+                    int height = bmp.getHeight();
+                    int[] row = new int[width]; 
+                    for (int y = 0; y < height; y++) {
+                        bmp.getPixels(row, 0, width, 0, y, width, 1);
+                        for (int x = 0; x < width; x++) { row[x] = lut.mapColor(row[x]); }
+                        bmp.setPixels(row, 0, width, 0, y, width, 1);
+                    }
                     File cooked = new File(SONY_PATH, "COOKED_" + fileName);
                     FileOutputStream fos = new FileOutputStream(cooked);
-                    bmp.compress(Bitmap.CompressFormat.JPEG, 92, fos);
+                    bmp.compress(Bitmap.CompressFormat.JPEG, 90, fos);
                     fos.close();
                     bmp.recycle();
                     sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(cooked)));
@@ -180,38 +187,34 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
 
         @Override protected void onPostExecute(Boolean success) {
             isBaking = false;
-            if (mCamera != null) {
-                mSurfaceView.setVisibility(View.VISIBLE);
-                mCamera.startPreview();
-            }
+            mSurfaceView.setVisibility(View.VISIBLE);
+            // Re-open hardware after processing is done
+            reopenCamera();
             updateRecipeDisplay();
             setDialMode(mDialMode);
         }
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
+    private void reopenCamera() {
         try {
             mCameraEx = CameraEx.open(0, null);
             mCamera = mCameraEx.getNormalCamera();
             mCameraEx.startDirectShutter();
             m_autoReviewControl = new CameraEx.AutoPictureReviewControl();
             mCameraEx.setAutoPictureReviewControl(m_autoReviewControl);
-            m_pictureReviewTime = m_autoReviewControl.getPictureReviewTime();
             m_autoReviewControl.setPictureReviewTime(0);
-
-            Camera.Parameters p = mCamera.getParameters();
-            CameraEx.ParametersModifier pm = mCameraEx.createParametersModifier(p);
-            supportedIsos = (List<Integer>) pm.getSupportedISOSensitivities();
-            curIso = pm.getISOSensitivity();
-            curExpComp = p.getExposureCompensation();
-            expStep = p.getExposureCompensationStep();
-
             mCameraEx.setShutterSpeedChangeListener(this);
-            sendSonyBroadcast(true); 
+            mCamera.setPreviewDisplay(mSurfaceView.getHolder());
+            mCamera.startPreview();
             syncUI();
         } catch (Exception e) {}
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        reopenCamera();
+        sendSonyBroadcast(true); 
     }
 
     private void syncUI() {
