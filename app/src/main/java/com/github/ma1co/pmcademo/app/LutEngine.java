@@ -4,7 +4,6 @@ import android.graphics.Bitmap;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
-import java.util.ArrayList;
 
 public class LutEngine {
     private int lutSize = 0;
@@ -28,9 +27,8 @@ public class LutEngine {
         try {
             BufferedReader br = new BufferedReader(new FileReader(cubeFile));
             String line;
-            ArrayList<Integer> rawR = new ArrayList<Integer>();
-            ArrayList<Integer> rawG = new ArrayList<Integer>();
-            ArrayList<Integer> rawB = new ArrayList<Integer>();
+            int idx = 0;
+            int expectedColors = 0;
 
             while ((line = br.readLine()) != null) {
                 line = line.trim();
@@ -38,48 +36,50 @@ public class LutEngine {
 
                 if (line.startsWith("LUT_3D_SIZE")) {
                     String[] parts = line.split("\\s+");
-                    if (parts.length > 1) lutSize = Integer.parseInt(parts[1]);
+                    if (parts.length > 1) {
+                        lutSize = Integer.parseInt(parts[1]);
+                        expectedColors = lutSize * lutSize * lutSize;
+                        // EXTREME SPEED: Pre-allocate memory instantly
+                        lutR = new int[expectedColors];
+                        lutG = new int[expectedColors];
+                        lutB = new int[expectedColors];
+                    }
                     continue;
                 }
                 
-                if (line.matches("^[a-zA-Z_]+.*")) continue;
+                // Fast check to skip text headers
+                char firstChar = line.charAt(0);
+                if (firstChar < '0' || firstChar > '9') continue;
 
-                String[] rgb = line.split("\\s+");
-                if (rgb.length >= 3) {
-                    try {
-                        int r = (int) (Float.parseFloat(rgb[0]) * 255);
-                        int g = (int) (Float.parseFloat(rgb[1]) * 255);
-                        int b = (int) (Float.parseFloat(rgb[2]) * 255);
-                        
-                        rawR.add(Math.max(0, Math.min(255, r)));
-                        rawG.add(Math.max(0, Math.min(255, g)));
-                        rawB.add(Math.max(0, Math.min(255, b)));
-                    } catch (Exception e) {}
+                if (idx < expectedColors) {
+                    String[] rgb = line.split("\\s+");
+                    if (rgb.length >= 3) {
+                        try {
+                            float r = Float.parseFloat(rgb[0]) * 255;
+                            float g = Float.parseFloat(rgb[1]) * 255;
+                            float b = Float.parseFloat(rgb[2]) * 255;
+                            
+                            lutR[idx] = (int) Math.max(0, Math.min(255, r));
+                            lutG[idx] = (int) Math.max(0, Math.min(255, g));
+                            lutB[idx] = (int) Math.max(0, Math.min(255, b));
+                            idx++;
+                        } catch (Exception e) {}
+                    }
                 }
             }
             br.close();
 
-            int expectedColors = lutSize * lutSize * lutSize;
-            
-            if (lutSize > 0 && rawR.size() > 0) {
-                lutR = new int[expectedColors];
-                lutG = new int[expectedColors];
-                lutB = new int[expectedColors];
-                
-                for (int i = 0; i < expectedColors; i++) {
-                    if (i < rawR.size()) {
-                        lutR[i] = rawR.get(i);
-                        lutG[i] = rawG.get(i);
-                        lutB[i] = rawB.get(i);
-                    } else {
-                        lutR[i] = rawR.get(rawR.size() - 1);
-                        lutG[i] = rawG.get(rawG.size() - 1);
-                        lutB[i] = rawB.get(rawB.size() - 1);
-                    }
-                }
-                currentLutName = lutName;
-                return true;
+            // Fault-tolerant padding if file was truncated
+            while (idx > 0 && idx < expectedColors) {
+                lutR[idx] = lutR[idx - 1];
+                lutG[idx] = lutG[idx - 1];
+                lutB[idx] = lutB[idx - 1];
+                idx++;
             }
+
+            currentLutName = lutName;
+            return true;
+            
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -93,11 +93,6 @@ public class LutEngine {
         int height = bitmap.getHeight();
         int[] row = new int[width]; 
         
-        int totalPixels = width * height;
-        int pixelsProcessed = 0;
-        int step = totalPixels / 100;
-        if (step == 0) step = 1;
-
         for (int y = 0; y < height; y++) {
             bitmap.getPixels(row, 0, width, 0, y, width, 1);
             
@@ -118,15 +113,15 @@ public class LutEngine {
                 int z1 = Math.min(z0 + 1, lutSize - 1);
 
                 float dx = fX - x0; float dy = fY - y0; float dz = fZ - z0;
-                float idx = 1.0f - dx; float idy = 1.0f - dy; float idz = 1.0f - dz;
+                float idx_x = 1.0f - dx; float idy = 1.0f - dy; float idz = 1.0f - dz;
 
-                float w000 = idx * idy * idz;
+                float w000 = idx_x * idy * idz;
                 float w100 = dx * idy * idz;
-                float w010 = idx * dy * idz;
+                float w010 = idx_x * dy * idz;
                 float w110 = dx * dy * idz;
-                float w001 = idx * idy * dz;
+                float w001 = idx_x * idy * dz;
                 float w101 = dx * idy * dz;
-                float w011 = idx * dy * dz;
+                float w011 = idx_x * dy * dz;
                 float w111 = dx * dy * dz;
 
                 int i000 = x0 + y0 * lutSize + z0 * lutSize * lutSize;
@@ -143,11 +138,6 @@ public class LutEngine {
                 int outB = (int) (lutB[i000]*w000 + lutB[i100]*w100 + lutB[i010]*w010 + lutB[i110]*w110 + lutB[i001]*w001 + lutB[i101]*w101 + lutB[i011]*w011 + lutB[i111]*w111);
 
                 row[x] = (0xFF << 24) | (outR << 16) | (outG << 8) | outB;
-                pixelsProcessed++;
-                
-                if (callback != null && pixelsProcessed % step == 0) {
-                    callback.onProgress((pixelsProcessed * 100) / totalPixels);
-                }
             }
             bitmap.setPixels(row, 0, width, 0, y, width, 1);
         }

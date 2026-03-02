@@ -28,11 +28,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private Camera mCamera;
     private SurfaceView mSurfaceView;
     private TextView tvShutter, tvAperture, tvISO, tvExposure, tvRecipe;
-    private TextView tvStatus; 
+    private TextView tvStatus, tvQuality; 
     
     private ArrayList<String> recipeList = new ArrayList<String>();
     private int recipeIndex = 0;
+    
+    // 0 = 1.5MP Proxy, 1 = 6.0MP High
+    private int qualityIndex = 0; 
+    
     private boolean isProcessing = false;
+    private boolean isReady = false; // Prevents shooting while parsing
     
     private LutEngine mEngine = new LutEngine();
     private PreloadLutTask currentPreloadTask = null; 
@@ -40,7 +45,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private boolean isPolling = false;
     private long lastNewestFileTime = 0;
 
-    public enum DialMode { shutter, aperture, iso, exposure, recipe }
+    // ADDED QUALITY TO THE MENU
+    public enum DialMode { shutter, aperture, iso, exposure, recipe, quality }
     private DialMode mDialMode = DialMode.shutter;
 
     @Override
@@ -65,6 +71,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         tvStatus.setTextSize(18); 
         tvStatus.setPadding(0, 10, 0, 0);
         layout.addView(tvStatus);
+
+        tvQuality = new TextView(this);
+        tvQuality.setText("SIZE: PROXY (1.5MP)");
+        tvQuality.setTextColor(Color.LTGRAY);
+        tvQuality.setTextSize(18); 
+        layout.addView(tvQuality);
         
         ViewGroup root = (ViewGroup) ((ViewGroup) this.findViewById(android.R.id.content)).getChildAt(0);
         root.setFocusable(true);
@@ -82,7 +94,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 while (isPolling) {
                     try {
                         Thread.sleep(1000); 
-                        if (!isProcessing && recipeIndex > 0) {
+                        // ONLY TRIGGER IF ENGINE IS FULLY LOADED
+                        if (!isProcessing && isReady && recipeIndex > 0) {
                             File dcim = new File(Environment.getExternalStorageDirectory(), "DCIM");
                             File sonyDir = new File(dcim, "100MSDCF");
                             if (sonyDir.exists()) {
@@ -91,7 +104,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                                     File newest = null;
                                     long maxModified = 0;
                                     for (File f : files) {
-                                        // Simplified check: we just care about native JPEGs in the Sony folder
                                         if (f.getName().toUpperCase().endsWith(".JPG")) {
                                             if (f.lastModified() > maxModified) {
                                                 maxModified = f.lastModified();
@@ -127,6 +139,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
 
     private class PreloadLutTask extends AsyncTask<Integer, Void, Boolean> {
         @Override protected void onPreExecute() {
+            isReady = false;
+            // HARDWARE LOCK: Prevent taking a photo while parsing!
+            if (mCameraEx != null) {
+                mCameraEx.stopDirectShutter(new CameraEx.DirectShutterStoppedCallback() {
+                    @Override public void onShutterStopped(CameraEx cameraEx) {}
+                });
+            }
             tvStatus.setText("STATUS: PRELOADING...");
             tvStatus.setTextColor(Color.CYAN);
         }
@@ -147,8 +166,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
 
         @Override protected void onPostExecute(Boolean success) {
             if (isCancelled()) return; 
+            
+            // UNLOCK HARDWARE SHUTTER
+            if (mCameraEx != null) mCameraEx.startDirectShutter();
+
             if (success) {
-                tvStatus.setText("STATUS: READY");
+                isReady = true;
+                tvStatus.setText("STATUS: READY TO SHOOT");
                 tvStatus.setTextColor(Color.GREEN);
             } else {
                 tvStatus.setText("STATUS: BAD LUT FILE");
@@ -170,84 +194,77 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         }
 
         @Override protected void onProgressUpdate(Integer... values) {
-            if (values[0] == -1) {
-                tvStatus.setText("STATUS: READING DATA..."); 
-            } else {
-                tvStatus.setText("STATUS: PROCESSING [" + values[0] + "%]");
-            }
+            tvStatus.setText("STATUS: PROCESSING [" + values[0] + "%]");
         }
 
         @Override protected String doInBackground(String... params) {
             try {
                 File original = null;
-                
                 if (params != null && params.length > 0) {
                     original = new File(params[0]);
                 } else {
-                    File dcim = new File(Environment.getExternalStorageDirectory(), "DCIM");
-                    File sonyDir = new File(dcim, "100MSDCF");
-                    File[] files = sonyDir.listFiles();
-                    if (files != null) {
-                        Arrays.sort(files, new Comparator<File>() {
-                            public int compare(File f1, File f2) {
-                                return Long.valueOf(f2.lastModified()).compareTo(f1.lastModified());
-                            }
-                        });
-                        for (File f : files) {
-                            if (f.getName().toUpperCase().endsWith(".JPG")) {
-                                original = f; break;
-                            }
-                        }
-                    }
+                    return "ERR: NO FILE PROVIDED";
                 }
-                
                 if (original == null || !original.exists()) return "ERR: NO JPG FOUND";
 
-                BitmapFactory.Options opt = new BitmapFactory.Options();
-                opt.inSampleSize = 2; 
-                opt.inPreferredConfig = Bitmap.Config.RGB_565;
-                Bitmap rawBmp = BitmapFactory.decodeFile(original.getAbsolutePath(), opt);
-                if (rawBmp == null) return "ERR: DECODE FAIL";
+                // CHUNKING ENGINE: Prevents OOM by decoding in strips!
+                int sample = (qualityIndex == 1) ? 2 : 4; // 2 = 6MP, 4 = 1.5MP
+                
+                BitmapFactory.Options boundsOpt = new BitmapFactory.Options();
+                boundsOpt.inJustDecodeBounds = true;
+                BitmapFactory.decodeFile(original.getAbsolutePath(), boundsOpt);
+                int rawWidth = boundsOpt.outWidth;
+                int rawHeight = boundsOpt.outHeight;
 
-                Bitmap processedBmp = rawBmp.copy(Bitmap.Config.RGB_565, true);
-                rawBmp.recycle();
-                rawBmp = null;
+                int targetW = rawWidth / sample;
+                int targetH = rawHeight / sample;
 
-                if (recipeIndex > 0) {
-                    File lutDir = new File(Environment.getExternalStorageDirectory(), "LUTS");
-                    if (!lutDir.exists()) lutDir = new File("/storage/sdcard0/LUTS");
+                // Create the blank master canvas (12MB max)
+                Bitmap finalBmp = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.RGB_565);
+                Canvas canvas = new Canvas(finalBmp);
+
+                BitmapRegionDecoder decoder = BitmapRegionDecoder.newInstance(original.getAbsolutePath(), false);
+                BitmapFactory.Options stripOpt = new BitmapFactory.Options();
+                stripOpt.inSampleSize = sample;
+                stripOpt.inPreferredConfig = Bitmap.Config.RGB_565;
+
+                // Process in chunks to save memory
+                int stripHeight = (rawHeight / 10 / sample) * sample; 
+                int destY = 0;
+
+                for (int y = 0; y < rawHeight; y += stripHeight) {
+                    int h = Math.min(stripHeight, rawHeight - y);
+                    Rect rect = new Rect(0, y, rawWidth, y + h);
                     
-                    String selectedRecipe = recipeList.get(recipeIndex);
-                    File cubeFile = new File(lutDir, selectedRecipe);
+                    // Pull a small slice
+                    Bitmap strip = decoder.decodeRegion(rect, stripOpt);
+                    Bitmap mutableStrip = strip.copy(Bitmap.Config.RGB_565, true);
+                    strip.recycle();
+
+                    // Cook just that slice
+                    mEngine.applyLutToBitmap(mutableStrip, null);
                     
-                    if (cubeFile.exists()) {
-                        if (!selectedRecipe.equals(mEngine.getCurrentLutName())) {
-                            publishProgress(-1); 
-                            if (!mEngine.loadLut(cubeFile, selectedRecipe)) return "ERR: BAD LUT FILE";
-                        }
-                        
-                        mEngine.applyLutToBitmap(processedBmp, new LutEngine.ProgressCallback() {
-                            public void onProgress(int percent) { publishProgress(percent); }
-                        }); 
-                    } else {
-                        return "ERR: LUT NOT FOUND";
-                    }
+                    // Glue it to the master canvas
+                    canvas.drawBitmap(mutableStrip, 0, destY, null);
+                    destY += mutableStrip.getHeight();
+                    mutableStrip.recycle();
+
+                    publishProgress((int) (((float) (y + h) / rawHeight) * 100));
                 }
+                decoder.recycle();
 
-                // DEDICATED RENDER FOLDER
                 File rootDir = Environment.getExternalStorageDirectory();
                 File processedDir = new File(rootDir, "PROCESSED");
                 if (!processedDir.exists()) processedDir.mkdirs();
                 
-                // PRESERVING EXACT ORIGINAL FILENAME
                 String newName = original.getName();
                 File outFile = new File(processedDir, newName);
 
                 FileOutputStream fos = new FileOutputStream(outFile);
-                processedBmp.compress(Bitmap.CompressFormat.JPEG, 95, fos); 
+                finalBmp.compress(Bitmap.CompressFormat.JPEG, 95, fos); 
                 fos.flush();
                 fos.close();
-                processedBmp.recycle();
+                finalBmp.recycle();
 
                 sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(outFile)));
                 return "SUCCESS: " + newName;
@@ -271,10 +288,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         int scanCode = event.getScanCode();
         if (scanCode == ScalarInput.ISV_KEY_DELETE) { finish(); return true; }
-        if (scanCode == ScalarInput.ISV_KEY_UP) { 
-            if (!isProcessing && recipeIndex > 0) new ProcessTask().execute(); 
-            return true; 
-        }
         if (!isProcessing) {
             if (scanCode == ScalarInput.ISV_KEY_DOWN) { cycleMode(); return true; }
             if (scanCode == ScalarInput.ISV_DIAL_1_CLOCKWISE) { handleInput(1); return true; }
@@ -307,14 +320,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 updateRecipeDisplay();
                 
                 if (currentPreloadTask != null) currentPreloadTask.cancel(true);
-                
                 if (recipeIndex > 0) {
                     currentPreloadTask = new PreloadLutTask();
                     currentPreloadTask.execute(recipeIndex);
                 } else {
+                    isReady = false;
                     tvStatus.setText("STATUS: RAW (NO LUT)");
                     tvStatus.setTextColor(Color.LTGRAY);
                 }
+            } else if (mDialMode == DialMode.quality) {
+                qualityIndex = (qualityIndex == 0) ? 1 : 0;
+                tvQuality.setText(qualityIndex == 0 ? "SIZE: PROXY (1.5MP)" : "SIZE: HIGH (6.0MP)");
             }
             syncUI();
         } catch (Exception e) {}
@@ -335,12 +351,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     }
 
     private void cycleMode() { setDialMode(DialMode.values()[(mDialMode.ordinal() + 1) % DialMode.values().length]); }
+    
     private void setDialMode(DialMode m) { 
         mDialMode = m; 
         tvShutter.setTextColor(m == DialMode.shutter ? Color.GREEN : Color.WHITE);
         tvAperture.setTextColor(m == DialMode.aperture ? Color.GREEN : Color.WHITE);
         tvISO.setTextColor(m == DialMode.iso ? Color.GREEN : Color.WHITE);
         tvExposure.setTextColor(m == DialMode.exposure ? Color.GREEN : Color.WHITE);
+        tvQuality.setTextColor(m == DialMode.quality ? Color.GREEN : Color.LTGRAY);
         updateRecipeDisplay(); 
     }
     
