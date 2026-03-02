@@ -54,48 +54,39 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         recipeList.clear();
         recipeList.add("NONE (DEFAULT)");
 
-        // 1. Direct check standard paths
-        String[] roots = {"/mnt/sdcard", "/storage/sdcard0", "/storage/sdcard1", "/mnt/storage/sdcard1", "/storage/external_SD"};
         File foundDir = null;
-        for (String root : roots) {
-            File t = new File(root, "LUTs");
-            if (t.exists() && t.isDirectory()) { foundDir = t; break; }
-        }
-
-        // 2. Deep scan: find any folder containing DCIM (the SD card signature)
-        if (foundDir == null) {
-            String[] probe = {"/mnt", "/storage"};
-            for (String p : probe) {
-                File dir = new File(p);
-                File[] list = dir.listFiles();
-                if (list != null) {
-                    for (File f : list) {
-                        if (new File(f, "DCIM").exists()) {
-                            File lut = new File(f, "LUTs");
-                            if (lut.exists()) { foundDir = lut; break; }
-                        }
+        // Search through every mounted system folder
+        String[] topLevels = {"/storage", "/mnt"};
+        for (String top : topLevels) {
+            File[] subs = new File(top).listFiles();
+            if (subs != null) {
+                for (File sub : subs) {
+                    File test = new File(sub, "LUTs");
+                    if (test.exists() && test.isDirectory()) {
+                        foundDir = test;
+                        break;
                     }
                 }
-                if (foundDir != null) break;
             }
+            if (foundDir != null) break;
         }
 
         if (foundDir != null) {
             File[] files = foundDir.listFiles();
             if (files != null) {
                 for (File f : files) {
-                    String name = f.getName().toLowerCase();
-                    if (name.endsWith(".cube") || name.endsWith(".png")) recipeList.add(f.getName());
+                    String n = f.getName().toLowerCase();
+                    if (n.endsWith(".cube") || n.endsWith(".png")) recipeList.add(f.getName());
                 }
             }
         }
 
         if (recipeList.size() <= 1) {
-            // DEBUG: Show available mount points on screen to help us find the card
-            String mnt = "";
-            String[] list = new File("/mnt").list();
-            if (list != null) for (String s : list) mnt += s + " ";
-            tvRecipe.setText("FOLDERS FOUND: " + mnt);
+            // DEBUG: Show /storage contents if /mnt failed
+            String debug = "";
+            File[] sList = new File("/storage").listFiles();
+            if (sList != null) for (File f : sList) debug += f.getName() + " ";
+            tvRecipe.setText("STORAGE CONTAINS: " + debug);
         } else {
             updateRecipeDisplay();
         }
@@ -113,9 +104,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             mCameraEx = CameraEx.open(0, null);
             mCamera = mCameraEx.getNormalCamera();
             mCameraEx.startDirectShutter();
+            
             CameraEx.ParametersModifier pm = mCameraEx.createParametersModifier(mCamera.getParameters());
             supportedIsos = (List<Integer>) pm.getSupportedISOSensitivities();
             curIso = pm.getISOSensitivity();
+
             notifySonyStatus(true);
             syncUI();
         } catch (Exception e) {}
