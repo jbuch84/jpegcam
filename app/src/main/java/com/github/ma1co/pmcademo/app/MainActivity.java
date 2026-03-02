@@ -8,6 +8,7 @@ import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.FileObserver;
 import android.util.Pair;
 import android.view.KeyEvent;
 import android.view.SurfaceHolder;
@@ -20,7 +21,6 @@ import java.io.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.List;
 
 public class MainActivity extends Activity implements SurfaceHolder.Callback, CameraEx.ShutterSpeedChangeListener {
     private CameraEx mCameraEx;
@@ -32,8 +32,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private int recipeIndex = 0;
     private boolean isBaking = false;
     
-    // OUR GLOBAL COOKER: This survives between button presses to remember LUTs!
     private LutCooker mCooker = new LutCooker();
+    private FileObserver photoObserver; // Watches for new photos!
 
     public enum DialMode { shutter, aperture, iso, exposure, recipe }
     private DialMode mDialMode = DialMode.shutter;
@@ -61,22 +61,44 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         setDialMode(DialMode.shutter);
     }
 
-    private class BakeTask extends AsyncTask<Void, Integer, String> {
+    // THE AUTO-COOK LISTENER
+    private void setupPhotoObserver() {
+        File dcim = new File(Environment.getExternalStorageDirectory(), "DCIM");
+        final File sonyDir = new File(dcim, "100MSDCF");
+        if (!sonyDir.exists()) return;
+
+        // Watch the directory for when a file is completely finished writing
+        photoObserver = new FileObserver(sonyDir.getAbsolutePath(), FileObserver.CLOSE_WRITE) {
+            @Override
+            public void onEvent(int event, String path) {
+                if (path != null && path.toUpperCase().endsWith(".JPG") && !path.startsWith("CKED")) {
+                    final String fullPath = new File(sonyDir, path).getAbsolutePath();
+                    
+                    // Bounce back to the main UI thread to start the Bake
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (!isBaking && recipeIndex > 0) {
+                                new BakeTask().execute(fullPath); // Pass the exact file path
+                            }
+                        }
+                    });
+                }
+            }
+        };
+        photoObserver.startWatching();
+    }
+
+    private class BakeTask extends AsyncTask<String, Integer, String> {
         @Override protected void onPreExecute() { 
             isBaking = true;
-            
-            // FIX: Pass the required callback to stop the hardware shutter
             if (mCameraEx != null) {
                 mCameraEx.stopDirectShutter(new CameraEx.DirectShutterStoppedCallback() {
-                    @Override
-                    public void onShutterStopped(CameraEx cameraEx) {
-                        // We don't need to do anything, just satisfy the compiler
-                    }
+                    @Override public void onShutterStopped(CameraEx cameraEx) {}
                 });
             }
-
             String recipeName = recipeList.get(recipeIndex).split("\\.")[0].toUpperCase();
-            tvRecipe.setText(recipeIndex == 0 ? "COPYING..." : "PREPPING " + recipeName + "...");
+            tvRecipe.setText("PREPPING " + recipeName + "...");
             tvRecipe.setTextColor(Color.YELLOW);
         }
 
@@ -89,31 +111,35 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             }
         }
 
-        @Override protected String doInBackground(Void... voids) {
+        @Override protected String doInBackground(String... params) {
             try {
-                File dcim = new File(Environment.getExternalStorageDirectory(), "DCIM");
-                File sonyDir = new File(dcim, "100MSDCF");
-                if (!sonyDir.exists()) return "ERR: NO 100MSDCF";
-                
-                File[] files = sonyDir.listFiles();
-                if (files == null || files.length == 0) return "ERR: NO FILES";
-
-                Arrays.sort(files, new Comparator<File>() {
-                    public int compare(File f1, File f2) {
-                        return Long.valueOf(f2.lastModified()).compareTo(f1.lastModified());
-                    }
-                });
-
                 File original = null;
-                for (File f : files) {
-                    if (f.getName().toUpperCase().endsWith(".JPG") && !f.getName().startsWith("CKED")) {
-                        original = f; break;
+                
+                // If the FileObserver gave us the exact path, use it! Otherwise, search (manual override)
+                if (params != null && params.length > 0) {
+                    original = new File(params[0]);
+                } else {
+                    File dcim = new File(Environment.getExternalStorageDirectory(), "DCIM");
+                    File sonyDir = new File(dcim, "100MSDCF");
+                    File[] files = sonyDir.listFiles();
+                    if (files != null) {
+                        Arrays.sort(files, new Comparator<File>() {
+                            public int compare(File f1, File f2) {
+                                return Long.valueOf(f2.lastModified()).compareTo(f1.lastModified());
+                            }
+                        });
+                        for (File f : files) {
+                            if (f.getName().toUpperCase().endsWith(".JPG") && !f.getName().startsWith("CKED")) {
+                                original = f; break;
+                            }
+                        }
                     }
                 }
-                if (original == null) return "ERR: NO JPG";
+                
+                if (original == null || !original.exists()) return "ERR: NO JPG";
 
                 BitmapFactory.Options opt = new BitmapFactory.Options();
-                opt.inSampleSize = 4;
+                opt.inSampleSize = 4; // Keep at 4 for this test
                 Bitmap bmp = BitmapFactory.decodeFile(original.getAbsolutePath(), opt);
                 if (bmp == null) return "ERR: DECODE FAIL";
 
@@ -121,7 +147,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 int height = bmp.getHeight();
                 int[] pixels = new int[width * height];
                 bmp.getPixels(pixels, 0, width, 0, 0, width, height);
-
                 bmp.recycle();
                 bmp = null;
 
@@ -133,20 +158,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                     File cubeFile = new File(lutDir, selectedRecipe);
                     
                     if (cubeFile.exists()) {
-                        // FIX: Using the global mCooker and passing both arguments for caching
                         if (!selectedRecipe.equals(mCooker.getCurrentLutName())) {
-                            publishProgress(-1); // Show "READING RECIPE DATA..."
-                            if (!mCooker.loadLut(cubeFile, selectedRecipe)) {
-                                return "ERR: BAD LUT FILE";
-                            }
+                            publishProgress(-1); 
+                            if (!mCooker.loadLut(cubeFile, selectedRecipe)) return "ERR: BAD LUT FILE";
                         }
-                        
                         mCooker.applyLutToPixels(pixels, new LutCooker.ProgressCallback() {
-                            public void onProgress(int percent) {
-                                publishProgress(percent);
-                            }
+                            public void onProgress(int percent) { publishProgress(percent); }
                         }); 
-                        
                     } else {
                         return "ERR: LUT NOT FOUND";
                     }
@@ -155,7 +173,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 Bitmap cookedBmp = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888);
                 pixels = null;
 
-                File cookedDir = new File(dcim, "COOKED");
+                // MOVED TO ROOT DIRECTORY
+                File rootDir = Environment.getExternalStorageDirectory();
+                File cookedDir = new File(rootDir, "COOKED");
                 if (!cookedDir.exists()) cookedDir.mkdirs();
                 
                 String origName = original.getName();
@@ -170,7 +190,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 cookedBmp.compress(Bitmap.CompressFormat.JPEG, 90, fos);
                 fos.flush();
                 fos.close();
-                
                 cookedBmp.recycle();
 
                 sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(outFile)));
@@ -195,6 +214,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         int scanCode = event.getScanCode();
         if (scanCode == ScalarInput.ISV_KEY_DELETE) { finish(); return true; }
+        // Manual override still available!
         if (scanCode == ScalarInput.ISV_KEY_UP) { new BakeTask().execute(); return true; }
         if (!isBaking) {
             if (scanCode == ScalarInput.ISV_KEY_DOWN) { cycleMode(); return true; }
@@ -264,7 +284,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         if (lutDir.exists() && lutDir.listFiles() != null) {
             for (File f : lutDir.listFiles()) {
                 String name = f.getName().toUpperCase();
-                // MAC GHOST FILE FILTER
                 if (name.startsWith("._") || name.startsWith(".")) continue; 
                 if (name.contains("CUB")) recipeList.add(f.getName());
             }
@@ -291,8 +310,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             syncUI();
         } catch (Exception e) {} 
     }
-    @Override protected void onResume() { super.onResume(); if (mCamera != null) syncUI(); }
-    @Override protected void onPause() { super.onPause(); if (mCameraEx != null) mCameraEx.release(); }
+    
+    @Override protected void onResume() { 
+        super.onResume(); 
+        if (mCamera != null) syncUI(); 
+        setupPhotoObserver(); // Turn on Auto-Cook
+    }
+    
+    @Override protected void onPause() { 
+        super.onPause(); 
+        if (mCameraEx != null) mCameraEx.release(); 
+        if (photoObserver != null) photoObserver.stopWatching(); // Turn off Auto-Cook
+    }
+    
     @Override public void onShutterSpeedChange(CameraEx.ShutterSpeedInfo i, CameraEx c) { syncUI(); }
     @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int h1) {}
     @Override public void surfaceDestroyed(SurfaceHolder h) {}
