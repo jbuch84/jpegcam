@@ -28,8 +28,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private ArrayList<String> recipeList = new ArrayList<String>();
     private int recipeIndex = 0;
     private FileObserver dcimObserver;
+    
+    // ISO/Exposure tracking
+    private List<Integer> supportedIsos;
+    private int curIso;
+    private int curExpComp;
+    private float expStep;
 
-    enum DialMode { shutter, aperture, recipe }
+    enum DialMode { shutter, aperture, iso, exposure, recipe }
     private DialMode mDialMode = DialMode.shutter;
 
     @Override
@@ -57,34 +63,55 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         try {
             mCameraEx = CameraEx.open(0, null);
             mCamera = mCameraEx.getNormalCamera();
-            
             mCameraEx.startDirectShutter();
             
+            // Disable Review
             m_autoReviewControl = new CameraEx.AutoPictureReviewControl();
             mCameraEx.setAutoPictureReviewControl(m_autoReviewControl);
             m_pictureReviewTime = m_autoReviewControl.getPictureReviewTime();
             m_autoReviewControl.setPictureReviewTime(0);
 
+            // Initialize Hardware Parameters
+            Camera.Parameters p = mCamera.getParameters();
+            CameraEx.ParametersModifier pm = mCameraEx.createParametersModifier(p);
+            supportedIsos = (List<Integer>) pm.getSupportedISOSensitivities();
+            curIso = pm.getISOSensitivity();
+            curExpComp = p.getExposureCompensation();
+            expStep = p.getExposureCompensationStep();
+
             mCameraEx.setShutterSpeedChangeListener(this);
-            
-            setupRecursiveObserver();
+            setupObserver();
             sendSonyBroadcast(true); 
             syncUI();
         } catch (Exception e) {}
     }
 
-    private void setupRecursiveObserver() {
-        // Watch the PARENT DCIM folder to catch 100MSDCF, 101MSDCF, etc.
-        String dcimRoot = "/sdcard/DCIM";
+    private void setupObserver() {
+        // Search for the active DCIM folder to print on screen
+        File dcim = new File("/sdcard/DCIM");
+        String activeSub = "NONE";
+        File[] subs = dcim.listFiles();
+        if (subs != null) {
+            for (File f : subs) {
+                if (f.getName().contains("MSDCF")) {
+                    activeSub = f.getName();
+                    startWatcher(f.getAbsolutePath());
+                    break;
+                }
+            }
+        }
+        // If no recipes found, show the folder we are watching for JPEGs
+        if (recipeIndex == 0) tvRecipe.setText("WATCHING: " + activeSub);
+    }
+
+    private void startWatcher(String path) {
         if (dcimObserver != null) dcimObserver.stopWatching();
-        
-        dcimObserver = new FileObserver(dcimRoot, FileObserver.CREATE | FileObserver.MOVED_TO | FileObserver.CLOSE_WRITE) {
+        dcimObserver = new FileObserver(path, FileObserver.CLOSE_WRITE) {
             @Override
-            public void onEvent(int event, final String path) {
-                // If a new file is detected anywhere in DCIM
-                if (path != null && path.toUpperCase().endsWith(".JPG")) {
+            public void onEvent(int event, final String file) {
+                if (file != null && file.toUpperCase().endsWith(".JPG")) {
                     runOnUiThread(new Runnable() {
-                        @Override public void run() { new BakeTask(path).execute(); }
+                        @Override public void run() { new BakeTask(file).execute(); }
                     });
                 }
             }
@@ -95,44 +122,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private class BakeTask extends AsyncTask<Void, Void, Boolean> {
         String fileName;
         BakeTask(String name) { this.fileName = name; }
-        @Override
-        protected void onPreExecute() {
-            // HEARTBEAT: Show that the app saw the file
+        @Override protected void onPreExecute() {
             tvRecipe.setText("BAKING: " + fileName);
             tvRecipe.setTextColor(Color.RED);
         }
-        @Override
-        protected Boolean doInBackground(Void... voids) {
+        @Override protected Boolean doInBackground(Void... voids) {
             try { Thread.sleep(2000); return true; } catch (Exception e) { return false; }
         }
-        @Override
-        protected void onPostExecute(Boolean success) {
+        @Override protected void onPostExecute(Boolean s) {
             updateRecipeDisplay();
             setDialMode(mDialMode);
         }
-    }
-
-    private void scanRecipes() {
-        recipeList.clear();
-        recipeList.add("NONE (DEFAULT)");
-        File lutDir = new File("/sdcard/LUTS");
-        if (lutDir.exists() && lutDir.isDirectory()) {
-            File[] files = lutDir.listFiles();
-            if (files != null) {
-                for (File f : files) {
-                    if (f.getName().startsWith("_")) continue;
-                    if (f.getName().toUpperCase().contains("CUB")) recipeList.add(f.getName());
-                }
-            }
-        }
-        updateRecipeDisplay();
-    }
-
-    private void updateRecipeDisplay() {
-        String name = recipeList.get(recipeIndex);
-        String display = name.split("\\.")[0];
-        tvRecipe.setText("<  " + display.toUpperCase() + "  >");
-        tvRecipe.setTextColor(mDialMode == DialMode.recipe ? Color.GREEN : Color.WHITE);
     }
 
     private void syncUI() {
@@ -140,11 +140,20 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         try {
             Camera.Parameters p = mCamera.getParameters();
             CameraEx.ParametersModifier pm = mCameraEx.createParametersModifier(p);
+            
+            // Shutter
             Pair<Integer, Integer> speed = pm.getShutterSpeed();
             if (speed.first == 1 && speed.second != 1) tvShutter.setText(speed.first + "/" + speed.second);
             else tvShutter.setText(speed.first + "\"");
+            
+            // Aperture
             tvAperture.setText("f/" + (pm.getAperture() / 100.0f));
-            tvISO.setText("ISO " + pm.getISOSensitivity());
+            
+            // ISO
+            tvISO.setText(curIso == 0 ? "ISO AUTO" : "ISO " + curIso);
+            
+            // Exposure
+            tvExposure.setText(String.format("%.1f", curExpComp * expStep));
         } catch (Exception e) {}
     }
 
@@ -161,10 +170,23 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private void handleInput(int delta) {
         if (mCameraEx == null) return;
         try {
+            Camera.Parameters p = mCamera.getParameters();
+            CameraEx.ParametersModifier pm = mCameraEx.createParametersModifier(p);
+
             if (mDialMode == DialMode.shutter) {
                 if (delta > 0) mCameraEx.incrementShutterSpeed(); else mCameraEx.decrementShutterSpeed();
             } else if (mDialMode == DialMode.aperture) {
                 if (delta > 0) mCameraEx.incrementAperture(); else mCameraEx.decrementAperture();
+            } else if (mDialMode == DialMode.iso) {
+                int idx = supportedIsos.indexOf(curIso);
+                int next = Math.max(0, Math.min(supportedIsos.size() - 1, idx + delta));
+                curIso = supportedIsos.get(next);
+                pm.setISOSensitivity(curIso);
+                mCamera.setParameters(p);
+            } else if (mDialMode == DialMode.exposure) {
+                curExpComp = Math.max(p.getMinExposureCompensation(), Math.min(p.getMaxExposureCompensation(), curExpComp + delta));
+                p.setExposureCompensation(curExpComp);
+                mCamera.setParameters(p);
             } else if (mDialMode == DialMode.recipe) {
                 recipeIndex = (recipeIndex + delta + recipeList.size()) % recipeList.size();
                 updateRecipeDisplay();
@@ -175,7 +197,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
 
     private void cycleMode() {
         if (mDialMode == DialMode.shutter) setDialMode(DialMode.aperture);
-        else if (mDialMode == DialMode.aperture) setDialMode(DialMode.recipe);
+        else if (mDialMode == DialMode.aperture) setDialMode(DialMode.iso);
+        else if (mDialMode == DialMode.iso) setDialMode(DialMode.exposure);
+        else if (mDialMode == DialMode.exposure) setDialMode(DialMode.recipe);
         else setDialMode(DialMode.shutter);
     }
 
@@ -183,7 +207,39 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         mDialMode = mode;
         tvShutter.setTextColor(mode == DialMode.shutter ? Color.GREEN : Color.WHITE);
         tvAperture.setTextColor(mode == DialMode.aperture ? Color.GREEN : Color.WHITE);
+        tvISO.setTextColor(mode == DialMode.iso ? Color.GREEN : Color.WHITE);
+        tvExposure.setTextColor(mode == DialMode.exposure ? Color.GREEN : Color.WHITE);
         updateRecipeDisplay();
+    }
+
+    private void scanRecipes() {
+        recipeList.clear();
+        recipeList.add("NONE (DEFAULT)");
+        File lutDir = new File("/sdcard/LUTS");
+        if (lutDir.exists()) {
+            File[] files = lutDir.listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    if (!f.getName().startsWith("_") && f.getName().toUpperCase().contains("CUB")) 
+                        recipeList.add(f.getName());
+                }
+            }
+        }
+        updateRecipeDisplay();
+    }
+
+    private void updateRecipeDisplay() {
+        String name = recipeList.get(recipeIndex);
+        String display = name.split("\\.")[0].toUpperCase();
+        tvRecipe.setText("<  " + display + "  >");
+        tvRecipe.setTextColor(mDialMode == DialMode.recipe ? Color.GREEN : Color.WHITE);
+    }
+
+    private void sendSonyBroadcast(boolean active) {
+        Intent intent = new Intent("com.android.server.DAConnectionManagerService.AppInfoReceive");
+        intent.putExtra("package_name", getPackageName());
+        intent.putExtra("resume_key", active ? new String[]{"on"} : new String[]{});
+        sendBroadcast(intent);
     }
 
     private void exitApp() {
@@ -196,28 +252,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         finish();
     }
 
-    private void sendSonyBroadcast(boolean active) {
-        Intent intent = new Intent("com.android.server.DAConnectionManagerService.AppInfoReceive");
-        intent.putExtra("package_name", getPackageName());
-        intent.putExtra("resume_key", active ? new String[]{"on"} : new String[]{});
-        sendBroadcast(intent);
-    }
-
     @Override public void onShutterSpeedChange(CameraEx.ShutterSpeedInfo info, CameraEx camera) { syncUI(); }
     @Override public void surfaceCreated(SurfaceHolder h) { try { if (mCamera != null) { mCamera.setPreviewDisplay(h); mCamera.startPreview(); syncUI(); } } catch (Exception e) {} }
-    
-    @Override 
-    protected void onPause() { 
-        super.onPause(); 
-        if (dcimObserver != null) dcimObserver.stopWatching(); 
-        if (mCameraEx != null) { 
-            m_autoReviewControl.setPictureReviewTime(m_pictureReviewTime);
-            mCameraEx.setAutoPictureReviewControl(null);
-            mCameraEx.release(); 
-            mCameraEx = null; 
-        } 
-    }
-    
+    @Override protected void onPause() { super.onPause(); if (dcimObserver != null) dcimObserver.stopWatching(); if (mCameraEx != null) { m_autoReviewControl.setPictureReviewTime(m_pictureReviewTime); mCameraEx.release(); mCameraEx = null; } }
     @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int h1) {}
     @Override public void surfaceDestroyed(SurfaceHolder h) {}
 }
