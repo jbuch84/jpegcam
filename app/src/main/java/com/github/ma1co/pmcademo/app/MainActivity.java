@@ -66,14 +66,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         
         ViewGroup contentRoot = (ViewGroup) findViewById(android.R.id.content);
         
-        // MOVED UI TO TOP OF SCREEN TO AVOID OVERLAP
         tvStatus = new TextView(this);
         tvStatus.setText("STATUS: STANDBY");
         tvStatus.setTextColor(Color.LTGRAY);
         tvStatus.setTextSize(18); 
         FrameLayout.LayoutParams statusParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.LEFT);
-        statusParams.setMargins(30, 80, 0, 0); // Pushed down slightly from very top
+        statusParams.setMargins(30, 80, 0, 0);
         contentRoot.addView(tvStatus, statusParams);
 
         tvQuality = new TextView(this);
@@ -222,13 +221,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 int targetW = rawWidth / sample;
                 int targetH = rawHeight / sample;
 
-                Bitmap finalBmp = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.RGB_565);
+                // RESTORED TRUE COLOR: ARGB_8888 eliminates banding
+                Bitmap finalBmp = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888);
                 Canvas canvas = new Canvas(finalBmp);
 
                 BitmapRegionDecoder decoder = BitmapRegionDecoder.newInstance(original.getAbsolutePath(), false);
                 BitmapFactory.Options stripOpt = new BitmapFactory.Options();
                 stripOpt.inSampleSize = sample;
-                stripOpt.inPreferredConfig = Bitmap.Config.RGB_565;
+                stripOpt.inPreferredConfig = Bitmap.Config.ARGB_8888;
 
                 int stripHeight = (rawHeight / 10 / sample) * sample; 
                 int destY = 0;
@@ -238,7 +238,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                     Rect rect = new Rect(0, y, rawWidth, y + h);
                     
                     Bitmap strip = decoder.decodeRegion(rect, stripOpt);
-                    Bitmap mutableStrip = strip.copy(Bitmap.Config.RGB_565, true);
+                    Bitmap mutableStrip = strip.copy(Bitmap.Config.ARGB_8888, true);
                     strip.recycle();
 
                     mEngine.applyLutToBitmap(mutableStrip, new LutEngine.ProgressCallback() {
@@ -253,14 +253,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 }
                 decoder.recycle();
 
-                // 8.3 FILENAME FIX: Creating "GRADED" directory on the root (6 chars, safe for FAT32)
                 File rootDir = Environment.getExternalStorageDirectory();
                 File processedDir = new File(rootDir, "GRADED");
                 if (!processedDir.exists()) {
                     processedDir.mkdirs();
                 }
                 
-                // EXACT ORIGINAL FILENAME NO PREFIX
                 String newName = original.getName();
                 File outFile = new File(processedDir, newName);
 
