@@ -52,26 +52,23 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         recipeList.clear();
         recipeList.add("NONE (DEFAULT)");
 
-        // SONY PATHFINDER: We check every possible mount point for the /LUTs folder
-        String[] potentialRoots = {
-            "/mnt/sdcard", 
-            "/storage/sdcard0", 
-            "/storage/sdcard1", 
-            Environment.getExternalStorageDirectory().getAbsolutePath(),
-            "/mnt/storage/sdcard1"
-        };
+        // ANCHOR SEARCH: Find the physical SD card by looking for the DCIM folder
+        String[] potentialRoots = {"/mnt/sdcard", "/storage/sdcard0", "/storage/sdcard1", "/mnt/storage/sdcard1", "/storage/external_SD"};
+        File foundLutDir = null;
 
-        File foundDir = null;
         for (String root : potentialRoots) {
-            File testDir = new File(root, "LUTs");
-            if (testDir.exists() && testDir.isDirectory()) {
-                foundDir = testDir;
-                break;
+            File dcimCheck = new File(root, "DCIM");
+            if (dcimCheck.exists()) {
+                File lutFolder = new File(root, "LUTs");
+                if (lutFolder.exists() && lutFolder.isDirectory()) {
+                    foundLutDir = lutFolder;
+                    break;
+                }
             }
         }
 
-        if (foundDir != null) {
-            File[] files = foundDir.listFiles();
+        if (foundLutDir != null) {
+            File[] files = foundLutDir.listFiles();
             if (files != null) {
                 for (File f : files) {
                     String name = f.getName().toLowerCase();
@@ -82,10 +79,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             }
         }
 
-        // Display Result or Debug Path
         if (recipeList.size() <= 1) {
-            String debugPath = (foundDir != null) ? foundDir.getAbsolutePath() : "/mnt/sdcard/LUTs";
-            tvRecipe.setText("NOT FOUND: " + debugPath);
+            // DEBUG: Show the path where we found DCIM but no LUTs
+            String rootPath = (foundLutDir != null) ? foundLutDir.getParent() : "ROOT NOT FOUND";
+            tvRecipe.setText("ERR: NO .CUBE IN " + rootPath);
         } else {
             updateRecipeDisplay();
         }
@@ -109,7 +106,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             curIso = pm.getISOSensitivity();
 
             notifySonyStatus(true);
-            syncUI();
         } catch (Exception e) {}
     }
 
@@ -118,19 +114,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         try {
             Camera.Parameters p = mCamera.getParameters();
             CameraEx.ParametersModifier pm = mCameraEx.createParametersModifier(p);
-            
-            // Format Shutter
             Pair<Integer, Integer> speed = pm.getShutterSpeed();
             if (speed.first >= speed.second) tvShutter.setText((speed.first / speed.second) + "\"");
             else tvShutter.setText(speed.first + "/" + speed.second);
-            
-            // Format Aperture
             tvAperture.setText("f/" + (pm.getAperture() / 100.0f));
-            
-            // Format ISO
             tvISO.setText(curIso == 0 ? "ISO AUTO" : "ISO " + curIso);
-            
-            // Format Exposure
             tvExposure.setText(String.format("%.1f", p.getExposureCompensation() * p.getExposureCompensationStep()));
         } catch (Exception e) {}
     }
