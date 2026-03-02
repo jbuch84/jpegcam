@@ -7,11 +7,11 @@ import android.hardware.Camera;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Environment;
 import android.util.Pair;
 import android.view.KeyEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
-import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
 import com.sony.scalar.hardware.CameraEx;
@@ -50,7 +50,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         tvExposure = (TextView) findViewById(R.id.tvExposure);
         tvRecipe = (TextView) findViewById(R.id.tvRecipe);
         
-        // Fix for Dial Focus without needing a specific ID
         ViewGroup root = (ViewGroup) ((ViewGroup) this.findViewById(android.R.id.content)).getChildAt(0);
         root.setFocusable(true);
         root.requestFocus();
@@ -62,18 +61,20 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private class FinalMirrorTask extends AsyncTask<Void, Void, String> {
         @Override protected void onPreExecute() { 
             isBaking = true;
-            tvRecipe.setText("BAKING...");
+            tvRecipe.setText("VERIFYING PATHS...");
             tvRecipe.setTextColor(Color.YELLOW);
         }
 
         @Override protected String doInBackground(Void... voids) {
             try {
-                // Verified Path from Detective
-                File dir = new File("/sdcard/DCIM/100MSDCF");
-                if (!dir.exists()) dir = new File("/storage/sdcard0/DCIM/100MSDCF");
+                // 1. Find the DCIM folder
+                File dcim = new File("/sdcard/DCIM");
+                if (!dcim.exists()) dcim = new File("/storage/sdcard0/DCIM");
                 
-                File[] files = dir.listFiles();
-                if (files == null || files.length == 0) return "ERR: NO FILES";
+                // 2. Find the Sony photo folder
+                File sonyDir = new File(dcim, "100MSDCF");
+                File[] files = sonyDir.listFiles();
+                if (files == null || files.length == 0) return "ERR: NO PHOTOS IN 100MSDCF";
 
                 Arrays.sort(files, new Comparator<File>() {
                     public int compare(File f1, File f2) {
@@ -87,27 +88,39 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                         original = f; break;
                     }
                 }
-                if (original == null) return "ERR: NO JPG";
+                if (original == null) return "ERR: NO JPG FOUND";
+
+                // CHECKPOINT: Can we actually read this specific file?
+                if (!original.canRead()) return "ERR: READ PERMISSION FAIL";
 
                 BitmapFactory.Options opt = new BitmapFactory.Options();
                 opt.inSampleSize = 4;
                 Bitmap bmp = BitmapFactory.decodeFile(original.getAbsolutePath(), opt);
-                if (bmp == null) return "ERR: BIONZ LOCK";
+                if (bmp == null) return "ERR: DECODE FAIL (FILE BUSY)";
 
-                File outDir = new File("/sdcard/DCIM/COOKED");
-                if (!outDir.exists()) outDir.mkdirs();
-                File outFile = new File(outDir, "MIRROR_" + original.getName());
+                // 3. Setup the Output
+                File cookedDir = new File(dcim, "COOKED");
+                if (!cookedDir.exists()) {
+                    if (!cookedDir.mkdirs()) return "ERR: COULD NOT CREATE COOKED FOLDER";
+                }
+                
+                File outFile = new File(cookedDir, "MIRROR_" + original.getName());
 
-                FileOutputStream fos = new FileOutputStream(outFile);
-                bmp.compress(Bitmap.CompressFormat.JPEG, 90, fos);
-                fos.flush();
-                fos.close();
-                bmp.recycle();
+                // CHECKPOINT: Writing the file
+                try {
+                    FileOutputStream fos = new FileOutputStream(outFile);
+                    bmp.compress(Bitmap.CompressFormat.JPEG, 90, fos);
+                    fos.flush();
+                    fos.close();
+                    bmp.recycle();
+                } catch (IOException e) {
+                    return "ERR: WRITE FAIL - " + e.getMessage();
+                }
 
                 sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(outFile)));
                 return "SUCCESS!";
             } catch (Exception e) {
-                return "ERR: " + e.getMessage();
+                return "ERR: SYSTEM - " + e.getMessage();
             }
         }
 
@@ -122,14 +135,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         int scanCode = event.getScanCode();
         if (scanCode == ScalarInput.ISV_KEY_DELETE) { finish(); return true; }
-        if (scanCode == ScalarInput.ISV_KEY_UP) { 
-            new FinalMirrorTask().execute(); 
-            return true; 
+        if (scanCode == ScalarInput.ISV_KEY_UP) { new FinalMirrorTask().execute(); return true; }
+        if (!isBaking) {
+            if (scanCode == ScalarInput.ISV_KEY_DOWN) { cycleMode(); return true; }
+            if (scanCode == ScalarInput.ISV_DIAL_1_CLOCKWISE) { handleInput(1); return true; }
+            if (scanCode == ScalarInput.ISV_DIAL_1_COUNTERCW) { handleInput(-1); return true; }
         }
-        if (isBaking) return true;
-        if (scanCode == ScalarInput.ISV_KEY_DOWN) { cycleMode(); return true; }
-        if (scanCode == ScalarInput.ISV_DIAL_1_CLOCKWISE) { handleInput(1); return true; }
-        if (scanCode == ScalarInput.ISV_DIAL_1_COUNTERCW) { handleInput(-1); return true; }
         return super.onKeyDown(keyCode, event);
     }
 
@@ -168,41 +179,27 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             Pair<Integer, Integer> speed = pm.getShutterSpeed();
             tvShutter.setText(speed.first == 1 && speed.second != 1 ? speed.first + "/" + speed.second : speed.first + "\"");
             tvAperture.setText("f/" + (pm.getAperture() / 100.0f));
-            int iso = pm.getISOSensitivity();
-            tvISO.setText(iso == 0 ? "ISO AUTO" : "ISO " + iso);
+            int isoValue = pm.getISOSensitivity();
+            tvISO.setText(isoValue == 0 ? "ISO AUTO" : "ISO " + isoValue);
             tvExposure.setText(String.format("%.1f", p.getExposureCompensation() * p.getExposureCompensationStep()));
         } catch (Exception e) {}
     }
 
-    private void cycleMode() {
-        DialMode[] modes = DialMode.values();
-        setDialMode(modes[(mDialMode.ordinal() + 1) % modes.length]);
+    private void cycleMode() { setDialMode(DialMode.values()[(mDialMode.ordinal() + 1) % DialMode.values().length]); }
+    private void setDialMode(DialMode m) { 
+        mDialMode = m; 
+        tvShutter.setTextColor(m == DialMode.shutter ? Color.GREEN : Color.WHITE);
+        tvAperture.setTextColor(m == DialMode.aperture ? Color.GREEN : Color.WHITE);
+        tvISO.setTextColor(m == DialMode.iso ? Color.GREEN : Color.WHITE);
+        tvExposure.setTextColor(m == DialMode.exposure ? Color.GREEN : Color.WHITE);
+        updateRecipeDisplay(); 
     }
-
-    private void setDialMode(DialMode mode) {
-        mDialMode = mode;
-        tvShutter.setTextColor(mode == DialMode.shutter ? Color.GREEN : Color.WHITE);
-        tvAperture.setTextColor(mode == DialMode.aperture ? Color.GREEN : Color.WHITE);
-        tvISO.setTextColor(mode == DialMode.iso ? Color.GREEN : Color.WHITE);
-        tvExposure.setTextColor(mode == DialMode.exposure ? Color.GREEN : Color.WHITE);
-        updateRecipeDisplay();
-    }
-
-    private void scanRecipes() {
-        recipeList.clear(); recipeList.add("NONE");
-        File lutDir = new File("/sdcard/LUTS");
-        if (lutDir.exists() && lutDir.listFiles() != null) {
-            for (File f : lutDir.listFiles()) if (f.getName().toUpperCase().contains("CUB")) recipeList.add(f.getName());
-        }
-        updateRecipeDisplay();
-    }
-
-    private void updateRecipeDisplay() {
+    private void scanRecipes() { recipeList.clear(); recipeList.add("NONE"); updateRecipeDisplay(); }
+    private void updateRecipeDisplay() { 
         String name = recipeList.get(recipeIndex);
-        tvRecipe.setText("< " + name.split("\\.")[0].toUpperCase() + " >");
+        tvRecipe.setText("< " + name.toUpperCase() + " >");
         tvRecipe.setTextColor(mDialMode == DialMode.recipe ? Color.GREEN : Color.WHITE);
     }
-
     @Override public void surfaceCreated(SurfaceHolder h) { 
         try { 
             mCameraEx = CameraEx.open(0, null);
