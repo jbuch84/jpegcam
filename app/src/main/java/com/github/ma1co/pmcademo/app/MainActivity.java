@@ -20,13 +20,19 @@ import java.io.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.List;
 
 public class MainActivity extends Activity implements SurfaceHolder.Callback, CameraEx.ShutterSpeedChangeListener {
     private CameraEx mCameraEx;
     private Camera mCamera;
     private SurfaceView mSurfaceView;
     private TextView tvShutter, tvAperture, tvISO, tvExposure, tvRecipe;
+    private ArrayList<String> recipeList = new ArrayList<String>();
+    private int recipeIndex = 0;
     private boolean isBaking = false;
+
+    public enum DialMode { shutter, aperture, iso, exposure, recipe }
+    private DialMode mDialMode = DialMode.shutter;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -43,29 +49,30 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         tvExposure = (TextView) findViewById(R.id.tvExposure);
         tvRecipe = (TextView) findViewById(R.id.tvRecipe);
         
-        // Force focus for the control wheel
         ViewGroup root = (ViewGroup) ((ViewGroup) this.findViewById(android.R.id.content)).getChildAt(0);
         root.setFocusable(true);
         root.requestFocus();
+        
+        scanRecipes();
+        setDialMode(DialMode.shutter);
     }
 
-    private class DirectSaveTask extends AsyncTask<Void, Void, String> {
+    private class FinalMirrorTask extends AsyncTask<Void, Void, String> {
         @Override protected void onPreExecute() { 
             isBaking = true;
-            tvRecipe.setText("SAVING TO 100MSDCF...");
+            tvRecipe.setText("BAKING (8.3 MODE)...");
             tvRecipe.setTextColor(Color.YELLOW);
         }
 
         @Override protected String doInBackground(Void... voids) {
             try {
-                // Find the source folder the Detective verified
-                File dir = new File("/sdcard/DCIM/100MSDCF");
-                if (!dir.exists()) dir = new File("/storage/sdcard0/DCIM/100MSDCF");
+                File dcim = new File(Environment.getExternalStorageDirectory(), "DCIM");
+                File sonyDir = new File(dcim, "100MSDCF");
+                if (!sonyDir.exists()) return "ERR: NO 100MSDCF";
                 
-                File[] files = dir.listFiles();
-                if (files == null || files.length == 0) return "ERR: NO FILES FOUND";
+                File[] files = sonyDir.listFiles();
+                if (files == null || files.length == 0) return "ERR: NO FILES";
 
-                // Find the latest JPG
                 Arrays.sort(files, new Comparator<File>() {
                     public int compare(File f1, File f2) {
                         return Long.valueOf(f2.lastModified()).compareTo(f1.lastModified());
@@ -74,21 +81,29 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
 
                 File original = null;
                 for (File f : files) {
-                    String n = f.getName().toUpperCase();
-                    if (n.endsWith(".JPG") && !n.startsWith("Z_")) {
+                    if (f.getName().toUpperCase().endsWith(".JPG") && !f.getName().startsWith("CKED")) {
                         original = f; break;
                     }
                 }
-                if (original == null) return "ERR: NO JPG FOUND";
+                if (original == null) return "ERR: NO JPG";
 
-                // Load the image
                 BitmapFactory.Options opt = new BitmapFactory.Options();
-                opt.inSampleSize = 4; // 6MP roughly
+                opt.inSampleSize = 4;
                 Bitmap bmp = BitmapFactory.decodeFile(original.getAbsolutePath(), opt);
-                if (bmp == null) return "ERR: BIONZ LOCK";
+                if (bmp == null) return "ERR: DECODE FAIL";
 
-                // SAVE DIRECTLY TO SAME FOLDER (No subfolders)
-                File outFile = new File(dir, "Z_MIRROR_" + original.getName());
+                File cookedDir = new File(dcim, "COOKED");
+                if (!cookedDir.exists()) cookedDir.mkdirs();
+                
+                // STRICT 8.3 FILENAME GENERATION
+                String origName = original.getName();
+                String numbers = origName.replaceAll("[^0-9]", "");
+                if (numbers.length() > 4) numbers = numbers.substring(numbers.length() - 4);
+                while (numbers.length() < 4) numbers = "0" + numbers;
+                
+                // Format: CKEDxxxx.JPG (Exactly 8 characters + extension)
+                String newName = "CKED" + numbers + ".JPG";
+                File outFile = new File(cookedDir, newName);
 
                 FileOutputStream fos = new FileOutputStream(outFile);
                 bmp.compress(Bitmap.CompressFormat.JPEG, 90, fos);
@@ -96,9 +111,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 fos.close();
                 bmp.recycle();
 
-                // Tell the camera to index the new file
                 sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(outFile)));
-                return "SUCCESS!";
+                return "SUCCESS: " + newName;
             } catch (Exception e) {
                 return "ERR: " + e.getMessage();
             }
@@ -107,16 +121,48 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         @Override protected void onPostExecute(String result) {
             isBaking = false;
             tvRecipe.setText(result);
-            tvRecipe.setTextColor(result.equals("SUCCESS!") ? Color.GREEN : Color.RED);
+            tvRecipe.setTextColor(result.startsWith("SUCCESS") ? Color.GREEN : Color.RED);
         }
     }
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         int scanCode = event.getScanCode();
-        if (scanCode == ScalarInput.ISV_KEY_UP) { new DirectSaveTask().execute(); return true; }
         if (scanCode == ScalarInput.ISV_KEY_DELETE) { finish(); return true; }
+        if (scanCode == ScalarInput.ISV_KEY_UP) { new FinalMirrorTask().execute(); return true; }
+        if (!isBaking) {
+            if (scanCode == ScalarInput.ISV_KEY_DOWN) { cycleMode(); return true; }
+            if (scanCode == ScalarInput.ISV_DIAL_1_CLOCKWISE) { handleInput(1); return true; }
+            if (scanCode == ScalarInput.ISV_DIAL_1_COUNTERCW) { handleInput(-1); return true; }
+        }
         return super.onKeyDown(keyCode, event);
+    }
+
+    private void handleInput(int d) {
+        if (mCameraEx == null) return;
+        try {
+            Camera.Parameters p = mCamera.getParameters();
+            CameraEx.ParametersModifier pm = mCameraEx.createParametersModifier(p);
+            if (mDialMode == DialMode.shutter) {
+                if (d > 0) mCameraEx.incrementShutterSpeed(); else mCameraEx.decrementShutterSpeed();
+            } else if (mDialMode == DialMode.aperture) {
+                if (d > 0) mCameraEx.incrementAperture(); else mCameraEx.decrementAperture();
+            } else if (mDialMode == DialMode.iso) {
+                List<Integer> isos = (List<Integer>) pm.getSupportedISOSensitivities();
+                int idx = isos.indexOf(pm.getISOSensitivity());
+                if (idx != -1) {
+                    pm.setISOSensitivity(isos.get(Math.max(0, Math.min(isos.size() - 1, idx + d))));
+                    mCamera.setParameters(p);
+                }
+            } else if (mDialMode == DialMode.exposure) {
+                p.setExposureCompensation(Math.max(p.getMinExposureCompensation(), Math.min(p.getMaxExposureCompensation(), p.getExposureCompensation() + d)));
+                mCamera.setParameters(p);
+            } else if (mDialMode == DialMode.recipe) {
+                recipeIndex = (recipeIndex + d + recipeList.size()) % recipeList.size();
+            }
+            syncUI();
+            updateRecipeDisplay();
+        } catch (Exception e) {}
     }
 
     private void syncUI() {
@@ -127,11 +173,27 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             Pair<Integer, Integer> speed = pm.getShutterSpeed();
             tvShutter.setText(speed.first == 1 && speed.second != 1 ? speed.first + "/" + speed.second : speed.first + "\"");
             tvAperture.setText("f/" + (pm.getAperture() / 100.0f));
-            tvISO.setText(pm.getISOSensitivity() == 0 ? "ISO AUTO" : "ISO " + pm.getISOSensitivity());
+            int isoValue = pm.getISOSensitivity();
+            tvISO.setText(isoValue == 0 ? "ISO AUTO" : "ISO " + isoValue);
             tvExposure.setText(String.format("%.1f", p.getExposureCompensation() * p.getExposureCompensationStep()));
         } catch (Exception e) {}
     }
 
+    private void cycleMode() { setDialMode(DialMode.values()[(mDialMode.ordinal() + 1) % DialMode.values().length]); }
+    private void setDialMode(DialMode m) { 
+        mDialMode = m; 
+        tvShutter.setTextColor(m == DialMode.shutter ? Color.GREEN : Color.WHITE);
+        tvAperture.setTextColor(m == DialMode.aperture ? Color.GREEN : Color.WHITE);
+        tvISO.setTextColor(m == DialMode.iso ? Color.GREEN : Color.WHITE);
+        tvExposure.setTextColor(m == DialMode.exposure ? Color.GREEN : Color.WHITE);
+        updateRecipeDisplay(); 
+    }
+    private void scanRecipes() { recipeList.clear(); recipeList.add("NONE"); updateRecipeDisplay(); }
+    private void updateRecipeDisplay() { 
+        String name = recipeList.get(recipeIndex);
+        tvRecipe.setText("< " + name.toUpperCase() + " >");
+        tvRecipe.setTextColor(mDialMode == DialMode.recipe ? Color.GREEN : Color.WHITE);
+    }
     @Override public void surfaceCreated(SurfaceHolder h) { 
         try { 
             mCameraEx = CameraEx.open(0, null);
@@ -145,6 +207,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             syncUI();
         } catch (Exception e) {} 
     }
+    @Override protected void onResume() { super.onResume(); if (mCamera != null) syncUI(); }
     @Override protected void onPause() { super.onPause(); if (mCameraEx != null) mCameraEx.release(); }
     @Override public void onShutterSpeedChange(CameraEx.ShutterSpeedInfo i, CameraEx c) { syncUI(); }
     @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int h1) {}
