@@ -31,6 +31,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private ArrayList<String> recipeList = new ArrayList<String>();
     private int recipeIndex = 0;
     private boolean isBaking = false;
+    
+    // OUR GLOBAL COOKER: This survives between button presses to remember LUTs!
+    private LutCooker mCooker = new LutCooker();
 
     public enum DialMode { shutter, aperture, iso, exposure, recipe }
     private DialMode mDialMode = DialMode.shutter;
@@ -62,19 +65,28 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         @Override protected void onPreExecute() { 
             isBaking = true;
             
-            // CRITICAL: Lock the hardware shutter button so the user can't interrupt the bake
+            // FIX: Pass the required callback to stop the hardware shutter
             if (mCameraEx != null) {
-                mCameraEx.stopDirectShutter();
+                mCameraEx.stopDirectShutter(new CameraEx.DirectShutterStoppedCallback() {
+                    @Override
+                    public void onShutterStopped(CameraEx cameraEx) {
+                        // We don't need to do anything, just satisfy the compiler
+                    }
+                });
             }
 
             String recipeName = recipeList.get(recipeIndex).split("\\.")[0].toUpperCase();
-            tvRecipe.setText(recipeIndex == 0 ? "COPYING..." : "COOKING " + recipeName + "...");
+            tvRecipe.setText(recipeIndex == 0 ? "COPYING..." : "PREPPING " + recipeName + "...");
             tvRecipe.setTextColor(Color.YELLOW);
         }
 
         @Override protected void onProgressUpdate(Integer... values) {
             String recipeName = recipeList.get(recipeIndex).split("\\.")[0].toUpperCase();
-            tvRecipe.setText("COOKING " + recipeName + " [" + values[0] + "%]");
+            if (values[0] == -1) {
+                tvRecipe.setText("READING RECIPE DATA...");
+            } else {
+                tvRecipe.setText("COOKING " + recipeName + " [" + values[0] + "%]");
+            }
         }
 
         @Override protected String doInBackground(Void... voids) {
@@ -117,18 +129,24 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                     File lutDir = new File(Environment.getExternalStorageDirectory(), "LUTS");
                     if (!lutDir.exists()) lutDir = new File("/storage/sdcard0/LUTS");
                     
-                    File cubeFile = new File(lutDir, recipeList.get(recipeIndex));
+                    String selectedRecipe = recipeList.get(recipeIndex);
+                    File cubeFile = new File(lutDir, selectedRecipe);
+                    
                     if (cubeFile.exists()) {
-                        LutCooker cooker = new LutCooker();
-                        if (cooker.loadLut(cubeFile)) {
-                            cooker.applyLutToPixels(pixels, new LutCooker.ProgressCallback() {
-                                public void onProgress(int percent) {
-                                    publishProgress(percent);
-                                }
-                            }); 
-                        } else {
-                            return "ERR: BAD LUT FILE";
+                        // FIX: Using the global mCooker and passing both arguments for caching
+                        if (!selectedRecipe.equals(mCooker.getCurrentLutName())) {
+                            publishProgress(-1); // Show "READING RECIPE DATA..."
+                            if (!mCooker.loadLut(cubeFile, selectedRecipe)) {
+                                return "ERR: BAD LUT FILE";
+                            }
                         }
+                        
+                        mCooker.applyLutToPixels(pixels, new LutCooker.ProgressCallback() {
+                            public void onProgress(int percent) {
+                                publishProgress(percent);
+                            }
+                        }); 
+                        
                     } else {
                         return "ERR: LUT NOT FOUND";
                     }
@@ -167,12 +185,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
 
         @Override protected void onPostExecute(String result) {
             isBaking = false;
-            
-            // CRITICAL: Re-enable the hardware shutter button so the user can shoot again
-            if (mCameraEx != null) {
-                mCameraEx.startDirectShutter();
-            }
-
+            if (mCameraEx != null) mCameraEx.startDirectShutter();
             tvRecipe.setText(result);
             tvRecipe.setTextColor(result.startsWith("SUCCESS") ? Color.GREEN : Color.RED);
         }
@@ -251,6 +264,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         if (lutDir.exists() && lutDir.listFiles() != null) {
             for (File f : lutDir.listFiles()) {
                 String name = f.getName().toUpperCase();
+                // MAC GHOST FILE FILTER
+                if (name.startsWith("._") || name.startsWith(".")) continue; 
                 if (name.contains("CUB")) recipeList.add(f.getName());
             }
         }
