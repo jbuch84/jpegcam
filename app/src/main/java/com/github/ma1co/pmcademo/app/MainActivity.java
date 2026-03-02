@@ -14,7 +14,6 @@ import android.widget.TextView;
 import com.sony.scalar.hardware.CameraEx;
 import com.sony.scalar.sysutil.ScalarInput;
 import java.io.File;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -22,10 +21,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private CameraEx mCameraEx;
     private Camera mCamera;
     private TextView tvShutter, tvAperture, tvISO, tvExposure, tvRecipe;
-    
     private List<Integer> supportedIsos;
     private int curIso;
-    
     private ArrayList<String> recipeList = new ArrayList<String>();
     private int recipeIndex = 0;
     
@@ -37,9 +34,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         
-        mSurfaceHolder = ((SurfaceView) findViewById(R.id.surfaceView)).getHolder();
-        mSurfaceHolder.addCallback(this);
-        mSurfaceHolder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
+        SurfaceView surfaceView = (SurfaceView) findViewById(R.id.surfaceView);
+        surfaceView.getHolder().addCallback(this);
+        surfaceView.getHolder().setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
         
         tvShutter = (TextView) findViewById(R.id.tvShutter);
         tvAperture = (TextView) findViewById(R.id.tvAperture);
@@ -54,25 +51,50 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private void scanRecipes() {
         recipeList.clear();
         recipeList.add("NONE (DEFAULT)");
-        
-        // Scan /sdcard/LUTs for .cube or .png files
-        File lutDir = new File(Environment.getExternalStorageDirectory(), "LUTs");
-        if (!lutDir.exists()) lutDir.mkdirs(); // Create it if missing
-        
+
+        // SONY STORAGE FIX: Try multiple possible mount points for the SD Card
+        String[] potentialPaths = {
+            Environment.getExternalStorageDirectory().getAbsolutePath(),
+            "/mnt/sdcard",
+            "/storage/sdcard0",
+            "/mnt/storage/sdcard1"
+        };
+
+        File lutDir = null;
+        for (String path : potentialPaths) {
+            File dir = new File(path, "LUTs");
+            if (dir.exists() && dir.isDirectory()) {
+                lutDir = dir;
+                break;
+            }
+        }
+
+        // If we still can't find it, try creating it in the default spot
+        if (lutDir == null) {
+            lutDir = new File(Environment.getExternalStorageDirectory(), "LUTs");
+            lutDir.mkdirs();
+        }
+
         File[] files = lutDir.listFiles();
         if (files != null) {
             for (File f : files) {
-                if (f.getName().toLowerCase().endsWith(".cube") || f.getName().toLowerCase().endsWith(".png")) {
+                String name = f.getName().toLowerCase();
+                if (name.endsWith(".cube") || name.endsWith(".png")) {
                     recipeList.add(f.getName());
                 }
             }
         }
-        updateRecipeDisplay();
+        
+        // Debug info: If only "NONE" exists, show the path we searched
+        if (recipeList.size() == 1) {
+            tvRecipe.setText("NO LUTS FOUND IN /LUTs");
+        } else {
+            updateRecipeDisplay();
+        }
     }
 
     private void updateRecipeDisplay() {
         String name = recipeList.get(recipeIndex);
-        // Added the arrows you requested to the UI text
         tvRecipe.setText("<  " + name.toUpperCase() + "  >");
     }
 
@@ -141,7 +163,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 mCameraEx.createParametersModifier(p).setISOSensitivity(curIso);
                 mCamera.setParameters(p);
             } else if (mDialMode == DialMode.recipe) {
-                // Cycle through SD Card recipes
                 recipeIndex = (recipeIndex + delta + recipeList.size()) % recipeList.size();
                 updateRecipeDisplay();
             }
@@ -171,11 +192,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         sendBroadcast(intent);
     }
 
-    @Override
-    public void surfaceCreated(SurfaceHolder h) {
+    @Override public void surfaceCreated(SurfaceHolder h) {
         try { if (mCamera != null) { mCamera.setPreviewDisplay(h); mCamera.startPreview(); } } catch (Exception e) {}
     }
-    private SurfaceHolder mSurfaceHolder;
     @Override protected void onPause() { super.onPause(); if (mCameraEx != null) { mCameraEx.release(); mCameraEx = null; } }
     @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int h1) {}
     @Override public void surfaceDestroyed(SurfaceHolder h) {}
