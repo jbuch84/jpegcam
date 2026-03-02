@@ -9,7 +9,6 @@ import android.util.Pair;
 import android.view.KeyEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
-import android.view.View;
 import android.widget.TextView;
 import com.sony.scalar.hardware.CameraEx;
 import com.sony.scalar.sysutil.ScalarInput;
@@ -23,7 +22,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     
     private int curIso;
     private List<Integer> supportedIsos;
-    private float expStep;
     
     enum DialMode { shutter, aperture, iso, recipe }
     private DialMode mDialMode = DialMode.shutter;
@@ -41,7 +39,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         tvAperture = (TextView) findViewById(R.id.tvAperture);
         tvISO = (TextView) findViewById(R.id.tvISO);
         tvExposure = (TextView) findViewById(R.id.tvExposure);
-        tvRecipe = (TextView) findViewById(R.id.tvRecipe); // New LUT title
+        tvRecipe = (TextView) findViewById(R.id.tvRecipe); 
         
         setDialMode(DialMode.shutter);
     }
@@ -52,91 +50,75 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         mCameraEx = CameraEx.open(0, null);
         mCameraEx.setShutterListener(this);
         mCameraEx.setShutterSpeedChangeListener(this);
-        
-        // ISSUE 2 & 6 FIX: Setup Aperture Listener and Restore Review Time
-        mCameraEx.setApertureChangeListener(new CameraEx.ApertureChangeListener() {
-            @Override
-            public void onApertureChange(CameraEx.ApertureInfo info, CameraEx camera) {
-                tvAperture.setText("f/" + (float)info.currentAperture / 100.0f);
-            }
-        });
-
-        // Enable 2-second image review after taking a photo
-        CameraEx.AutoPictureReviewControl arc = new CameraEx.AutoPictureReviewControl();
-        arc.setPictureReviewTime(2); // Seconds
-        mCameraEx.setAutoPictureReviewControl(arc);
-
         mCameraEx.startDirectShutter();
         
-        syncCameraParams();
+        // Auto Review for 2 seconds (Issue 6 Fix)
+        CameraEx.AutoPictureReviewControl arc = new CameraEx.AutoPictureReviewControl();
+        arc.setPictureReviewTime(2); 
+        mCameraEx.setAutoPictureReviewControl(arc);
+
+        syncParams();
         sendSonyBroadcast(true);
     }
 
-    private void syncCameraParams() {
+    private void syncParams() {
         Camera.Parameters p = mCameraEx.getNormalCamera().getParameters();
         CameraEx.ParametersModifier pm = mCameraEx.createParametersModifier(p);
         
-        // ISSUE 3 FIX: Correct ISO initialization
         supportedIsos = (List<Integer>) pm.getSupportedISOSensitivities();
         curIso = pm.getISOSensitivity();
-        tvISO.setText("ISO " + (curIso == 0 ? "AUTO" : curIso));
-        
-        // ISSUE 4 FIX: Exposure Compensation
-        expStep = p.getExposureCompensationStep();
-        tvExposure.setText(String.format("%.1f", p.getExposureCompensation() * expStep));
         
         Pair<Integer, Integer> speed = pm.getShutterSpeed();
-        tvShutter.setText(CameraUtil.formatShutterSpeed(speed.first, speed.second));
+        tvShutter.setText(formatShutter(speed.first, speed.second));
         tvAperture.setText("f/" + (float)pm.getAperture() / 100.0f);
+        tvISO.setText("ISO " + (curIso == 0 ? "AUTO" : curIso));
+        tvExposure.setText(String.format("%.1f", p.getExposureCompensation() * p.getExposureCompensationStep()));
+    }
+
+    // Integrated helper to fix Shutter display (Issue 1 Fix)
+    private String formatShutter(int n, int d) {
+        if (n >= d) return (n / d) + "\"";
+        return n + "/" + d;
     }
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         int scanCode = event.getScanCode();
         
-        if (scanCode == ScalarInput.ISV_KEY_DELETE) { sendSonyBroadcast(false); finish(); return true; }
-
-        // Mode Switching Logic
-        if (scanCode == ScalarInput.ISV_KEY_DOWN) {
-            cycleDialMode();
+        if (scanCode == ScalarInput.ISV_KEY_DELETE) {
+            sendSonyBroadcast(false);
+            finish();
             return true;
         }
 
-        // ISSUE 1 & 2 FIX: Wheel Control handling
-        if (scanCode == ScalarInput.ISV_DIAL_1_CLOCKWISE) { handleInput(1); return true; }
-        if (scanCode == ScalarInput.ISV_DIAL_1_COUNTERCW) { handleInput(-1); return true; }
+        if (scanCode == ScalarInput.ISV_KEY_DOWN) {
+            cycleMode();
+            return true;
+        }
+
+        if (scanCode == ScalarInput.ISV_DIAL_1_CLOCKWISE) { handleDial(1); return true; }
+        if (scanCode == ScalarInput.ISV_DIAL_1_COUNTERCW) { handleDial(-1); return true; }
 
         return super.onKeyDown(keyCode, event);
     }
 
-    private void handleInput(int delta) {
-        switch(mDialMode) {
-            case shutter: 
-                if (delta > 0) mCameraEx.incrementShutterSpeed(); else mCameraEx.decrementShutterSpeed();
-                break;
-            case aperture:
-                if (delta > 0) mCameraEx.incrementAperture(); else mCameraEx.decrementAperture();
-                break;
-            case iso:
-                adjustIso(delta);
-                break;
-            case recipe:
-                // future: switchLut(delta);
-                break;
+    private void handleDial(int delta) {
+        if (mDialMode == DialMode.shutter) {
+            if (delta > 0) mCameraEx.incrementShutterSpeed(); else mCameraEx.decrementShutterSpeed();
+        } else if (mDialMode == DialMode.aperture) {
+            if (delta > 0) mCameraEx.incrementAperture(); else mCameraEx.decrementAperture();
+        } else if (mDialMode == DialMode.iso) {
+            int idx = supportedIsos.indexOf(curIso);
+            int next = Math.max(0, Math.min(supportedIsos.size() - 1, idx + delta));
+            curIso = supportedIsos.get(next);
+            Camera.Parameters p = mCameraEx.getNormalCamera().getParameters();
+            mCameraEx.createParametersModifier(p).setISOSensitivity(curIso);
+            mCameraEx.getNormalCamera().setParameters(p);
+            tvISO.setText("ISO " + (curIso == 0 ? "AUTO" : curIso));
         }
     }
 
-    private void adjustIso(int delta) {
-        int idx = supportedIsos.indexOf(curIso);
-        int next = Math.max(0, Math.min(supportedIsos.size() - 1, idx + delta));
-        curIso = supportedIsos.get(next);
-        Camera.Parameters p = mCameraEx.getNormalCamera().getParameters();
-        mCameraEx.createParametersModifier(p).setISOSensitivity(curIso);
-        mCameraEx.getNormalCamera().setParameters(p);
-        tvISO.setText("ISO " + (curIso == 0 ? "AUTO" : curIso));
-    }
-
-    private void cycleDialMode() {
+    private void cycleMode() {
         if (mDialMode == DialMode.shutter) setDialMode(DialMode.aperture);
         else if (mDialMode == DialMode.aperture) setDialMode(DialMode.iso);
         else if (mDialMode == DialMode.iso) setDialMode(DialMode.recipe);
@@ -160,7 +142,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
 
     @Override
     public void onShutterSpeedChange(CameraEx.ShutterSpeedInfo info, CameraEx camera) {
-        tvShutter.setText(CameraUtil.formatShutterSpeed(info.currentShutterSpeed_n, info.currentShutterSpeed_d));
+        tvShutter.setText(formatShutter(info.currentShutterSpeed_n, info.currentShutterSpeed_d));
     }
 
     @Override
