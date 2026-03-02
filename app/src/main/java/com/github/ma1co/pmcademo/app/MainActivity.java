@@ -8,6 +8,7 @@ import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.FileObserver;
 import android.util.Pair;
 import android.view.KeyEvent;
 import android.view.SurfaceHolder;
@@ -27,12 +28,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private Camera mCamera;
     private SurfaceView mSurfaceView;
     private TextView tvShutter, tvAperture, tvISO, tvExposure, tvRecipe;
+    private TextView tvStatus; 
     
     private ArrayList<String> recipeList = new ArrayList<String>();
     private int recipeIndex = 0;
-    private boolean isBaking = false;
+    private boolean isProcessing = false;
     
-    private LutCooker mCooker = new LutCooker();
+    private LutEngine mEngine = new LutEngine();
+    private PreloadLutTask currentPreloadTask = null; 
     
     private boolean isPolling = false;
     private long lastNewestFileTime = 0;
@@ -55,6 +58,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         tvExposure = (TextView) findViewById(R.id.tvExposure);
         tvRecipe = (TextView) findViewById(R.id.tvRecipe);
         
+        ViewGroup layout = (ViewGroup) tvRecipe.getParent();
+        tvStatus = new TextView(this);
+        tvStatus.setText("STATUS: STANDBY");
+        tvStatus.setTextColor(Color.LTGRAY);
+        tvStatus.setTextSize(18); 
+        tvStatus.setPadding(0, 10, 0, 0);
+        layout.addView(tvStatus);
+        
         ViewGroup root = (ViewGroup) ((ViewGroup) this.findViewById(android.R.id.content)).getChildAt(0);
         root.setFocusable(true);
         root.requestFocus();
@@ -63,7 +74,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         setDialMode(DialMode.shutter);
     }
 
-    private void startAutoCookPolling() {
+    private void startAutoProcessPolling() {
         isPolling = true;
         new Thread(new Runnable() {
             @Override
@@ -71,7 +82,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 while (isPolling) {
                     try {
                         Thread.sleep(1000); 
-                        if (!isBaking && recipeIndex > 0) {
+                        if (!isProcessing && recipeIndex > 0) {
                             File dcim = new File(Environment.getExternalStorageDirectory(), "DCIM");
                             File sonyDir = new File(dcim, "100MSDCF");
                             if (sonyDir.exists()) {
@@ -80,7 +91,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                                     File newest = null;
                                     long maxModified = 0;
                                     for (File f : files) {
-                                        if (f.getName().toUpperCase().endsWith(".JPG") && !f.getName().startsWith("CKED")) {
+                                        // Simplified check: we just care about native JPEGs in the Sony folder
+                                        if (f.getName().toUpperCase().endsWith(".JPG")) {
                                             if (f.lastModified() > maxModified) {
                                                 maxModified = f.lastModified();
                                                 newest = f;
@@ -91,13 +103,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                                         if (lastNewestFileTime == 0) {
                                             lastNewestFileTime = maxModified; 
                                         } else if (maxModified > lastNewestFileTime) {
-                                            Thread.sleep(2000); // Let BIONZ finish writing
+                                            Thread.sleep(2000); 
                                             lastNewestFileTime = maxModified;
                                             final String path = newest.getAbsolutePath();
                                             runOnUiThread(new Runnable() {
                                                 @Override
                                                 public void run() {
-                                                    if (!isBaking) new BakeTask().execute(path);
+                                                    if (!isProcessing) new ProcessTask().execute(path);
                                                 }
                                             });
                                         }
@@ -111,16 +123,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         }).start();
     }
 
-    private void stopAutoCookPolling() { isPolling = false; }
+    private void stopAutoProcessPolling() { isPolling = false; }
 
-    // YOUR LOGIC: PRE-LOAD THE LUT WHEN THE DIAL TURNS!
-    private class PreloadLutTask extends AsyncTask<Integer, Void, Void> {
+    private class PreloadLutTask extends AsyncTask<Integer, Void, Boolean> {
         @Override protected void onPreExecute() {
-            tvRecipe.setText("PRELOADING...");
-            tvRecipe.setTextColor(Color.CYAN);
+            tvStatus.setText("STATUS: PRELOADING...");
+            tvStatus.setTextColor(Color.CYAN);
         }
 
-        @Override protected Void doInBackground(Integer... params) {
+        @Override protected Boolean doInBackground(Integer... params) {
             int index = params[0];
             if (index > 0) {
                 File lutDir = new File(Environment.getExternalStorageDirectory(), "LUTS");
@@ -128,36 +139,41 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 String selectedRecipe = recipeList.get(index);
                 File cubeFile = new File(lutDir, selectedRecipe);
                 if (cubeFile.exists()) {
-                    mCooker.loadLut(cubeFile, selectedRecipe);
+                    return mEngine.loadLut(cubeFile, selectedRecipe);
                 }
             }
-            return null;
+            return false;
         }
 
-        @Override protected void onPostExecute(Void result) {
-            updateRecipeDisplay();
+        @Override protected void onPostExecute(Boolean success) {
+            if (isCancelled()) return; 
+            if (success) {
+                tvStatus.setText("STATUS: READY");
+                tvStatus.setTextColor(Color.GREEN);
+            } else {
+                tvStatus.setText("STATUS: BAD LUT FILE");
+                tvStatus.setTextColor(Color.RED);
+            }
         }
     }
 
-    private class BakeTask extends AsyncTask<String, Integer, String> {
+    private class ProcessTask extends AsyncTask<String, Integer, String> {
         @Override protected void onPreExecute() { 
-            isBaking = true;
+            isProcessing = true;
             if (mCameraEx != null) {
                 mCameraEx.stopDirectShutter(new CameraEx.DirectShutterStoppedCallback() {
                     @Override public void onShutterStopped(CameraEx cameraEx) {}
                 });
             }
-            String recipeName = recipeList.get(recipeIndex).split("\\.")[0].toUpperCase();
-            tvRecipe.setText("PREPPING " + recipeName + "...");
-            tvRecipe.setTextColor(Color.YELLOW);
+            tvStatus.setText("STATUS: PREPARING...");
+            tvStatus.setTextColor(Color.YELLOW);
         }
 
         @Override protected void onProgressUpdate(Integer... values) {
-            String recipeName = recipeList.get(recipeIndex).split("\\.")[0].toUpperCase();
             if (values[0] == -1) {
-                tvRecipe.setText("READING RECIPE DATA..."); // Should rarely see this now!
+                tvStatus.setText("STATUS: READING DATA..."); 
             } else {
-                tvRecipe.setText("COOKING " + recipeName + " [" + values[0] + "%]");
+                tvStatus.setText("STATUS: PROCESSING [" + values[0] + "%]");
             }
         }
 
@@ -178,23 +194,22 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                             }
                         });
                         for (File f : files) {
-                            if (f.getName().toUpperCase().endsWith(".JPG") && !f.getName().startsWith("CKED")) {
+                            if (f.getName().toUpperCase().endsWith(".JPG")) {
                                 original = f; break;
                             }
                         }
                     }
                 }
                 
-                if (original == null || !original.exists()) return "ERR: NO JPG";
+                if (original == null || !original.exists()) return "ERR: NO JPG FOUND";
 
-                // REVERT TO 1.5MP FOR STABILITY
                 BitmapFactory.Options opt = new BitmapFactory.Options();
-                opt.inSampleSize = 4; 
+                opt.inSampleSize = 2; 
                 opt.inPreferredConfig = Bitmap.Config.RGB_565;
                 Bitmap rawBmp = BitmapFactory.decodeFile(original.getAbsolutePath(), opt);
                 if (rawBmp == null) return "ERR: DECODE FAIL";
 
-                Bitmap cookedBmp = rawBmp.copy(Bitmap.Config.RGB_565, true);
+                Bitmap processedBmp = rawBmp.copy(Bitmap.Config.RGB_565, true);
                 rawBmp.recycle();
                 rawBmp = null;
 
@@ -206,12 +221,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                     File cubeFile = new File(lutDir, selectedRecipe);
                     
                     if (cubeFile.exists()) {
-                        if (!selectedRecipe.equals(mCooker.getCurrentLutName())) {
+                        if (!selectedRecipe.equals(mEngine.getCurrentLutName())) {
                             publishProgress(-1); 
-                            if (!mCooker.loadLut(cubeFile, selectedRecipe)) return "ERR: BAD LUT FILE";
+                            if (!mEngine.loadLut(cubeFile, selectedRecipe)) return "ERR: BAD LUT FILE";
                         }
                         
-                        mCooker.applyLutToBitmap(cookedBmp, new LutCooker.ProgressCallback() {
+                        mEngine.applyLutToBitmap(processedBmp, new LutEngine.ProgressCallback() {
                             public void onProgress(int percent) { publishProgress(percent); }
                         }); 
                     } else {
@@ -219,23 +234,20 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                     }
                 }
 
+                // DEDICATED RENDER FOLDER
                 File rootDir = Environment.getExternalStorageDirectory();
-                File cookedDir = new File(rootDir, "COOKED");
-                if (!cookedDir.exists()) cookedDir.mkdirs();
+                File processedDir = new File(rootDir, "PROCESSED");
+                if (!processedDir.exists()) processedDir.mkdirs();
                 
-                String origName = original.getName();
-                String numbers = origName.replaceAll("[^0-9]", "");
-                if (numbers.length() > 4) numbers = numbers.substring(numbers.length() - 4);
-                while (numbers.length() < 4) numbers = "0" + numbers;
-                
-                String newName = "CKED" + numbers + ".JPG";
-                File outFile = new File(cookedDir, newName);
+                // PRESERVING EXACT ORIGINAL FILENAME
+                String newName = original.getName();
+                File outFile = new File(processedDir, newName);
 
                 FileOutputStream fos = new FileOutputStream(outFile);
-                cookedBmp.compress(Bitmap.CompressFormat.JPEG, 90, fos); 
+                processedBmp.compress(Bitmap.CompressFormat.JPEG, 95, fos); 
                 fos.flush();
                 fos.close();
-                cookedBmp.recycle();
+                processedBmp.recycle();
 
                 sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(outFile)));
                 return "SUCCESS: " + newName;
@@ -248,10 +260,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         }
 
         @Override protected void onPostExecute(String result) {
-            isBaking = false;
+            isProcessing = false;
             if (mCameraEx != null) mCameraEx.startDirectShutter();
-            tvRecipe.setText(result);
-            tvRecipe.setTextColor(result.startsWith("SUCCESS") ? Color.GREEN : Color.RED);
+            tvStatus.setText("STATUS: " + result);
+            tvStatus.setTextColor(result.startsWith("SUCCESS") ? Color.GREEN : Color.RED);
         }
     }
 
@@ -259,8 +271,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         int scanCode = event.getScanCode();
         if (scanCode == ScalarInput.ISV_KEY_DELETE) { finish(); return true; }
-        if (scanCode == ScalarInput.ISV_KEY_UP) { new BakeTask().execute(); return true; }
-        if (!isBaking) {
+        if (scanCode == ScalarInput.ISV_KEY_UP) { 
+            if (!isProcessing && recipeIndex > 0) new ProcessTask().execute(); 
+            return true; 
+        }
+        if (!isProcessing) {
             if (scanCode == ScalarInput.ISV_KEY_DOWN) { cycleMode(); return true; }
             if (scanCode == ScalarInput.ISV_DIAL_1_CLOCKWISE) { handleInput(1); return true; }
             if (scanCode == ScalarInput.ISV_DIAL_1_COUNTERCW) { handleInput(-1); return true; }
@@ -289,16 +304,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 mCamera.setParameters(p);
             } else if (mDialMode == DialMode.recipe) {
                 recipeIndex = (recipeIndex + d + recipeList.size()) % recipeList.size();
+                updateRecipeDisplay();
                 
-                // EXECUTE YOUR PRE-LOAD IDEA
+                if (currentPreloadTask != null) currentPreloadTask.cancel(true);
+                
                 if (recipeIndex > 0) {
-                    new PreloadLutTask().execute(recipeIndex);
+                    currentPreloadTask = new PreloadLutTask();
+                    currentPreloadTask.execute(recipeIndex);
                 } else {
-                    updateRecipeDisplay();
+                    tvStatus.setText("STATUS: RAW (NO LUT)");
+                    tvStatus.setTextColor(Color.LTGRAY);
                 }
             }
             syncUI();
-            if (mDialMode != DialMode.recipe) updateRecipeDisplay();
         } catch (Exception e) {}
     }
 
@@ -365,13 +383,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     @Override protected void onResume() { 
         super.onResume(); 
         if (mCamera != null) syncUI(); 
-        startAutoCookPolling(); 
+        startAutoProcessPolling(); 
     }
     
     @Override protected void onPause() { 
         super.onPause(); 
         if (mCameraEx != null) mCameraEx.release(); 
-        stopAutoCookPolling(); 
+        stopAutoProcessPolling(); 
     }
     
     @Override public void onShutterSpeedChange(CameraEx.ShutterSpeedInfo i, CameraEx c) { syncUI(); }

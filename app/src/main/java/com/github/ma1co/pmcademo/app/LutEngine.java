@@ -6,7 +6,7 @@ import java.io.File;
 import java.io.FileReader;
 import java.util.ArrayList;
 
-public class LutCooker {
+public class LutEngine {
     private int lutSize = 0;
     private String currentLutName = "";
     
@@ -86,13 +86,12 @@ public class LutCooker {
         return false;
     }
 
-    // THE SCANLINE ENGINE
     public void applyLutToBitmap(Bitmap bitmap, ProgressCallback callback) {
         if (lutR == null || lutSize == 0 || bitmap == null) return;
 
         int width = bitmap.getWidth();
         int height = bitmap.getHeight();
-        int[] row = new int[width]; // Only 1 row in memory at a time!
+        int[] row = new int[width]; 
         
         int totalPixels = width * height;
         int pixelsProcessed = 0;
@@ -100,7 +99,6 @@ public class LutCooker {
         if (step == 0) step = 1;
 
         for (int y = 0; y < height; y++) {
-            // Read one horizontal line
             bitmap.getPixels(row, 0, width, 0, y, width, 1);
             
             for (int x = 0; x < width; x++) {
@@ -151,7 +149,6 @@ public class LutCooker {
                     callback.onProgress((pixelsProcessed * 100) / totalPixels);
                 }
             }
-            // Write the processed line straight back into the image
             bitmap.setPixels(row, 0, width, 0, y, width, 1);
         }
     }
