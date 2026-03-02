@@ -68,7 +68,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
 
         @Override protected String doInBackground(Void... voids) {
             try {
-                // 1. Locate the source image
                 File dcim = new File(Environment.getExternalStorageDirectory(), "DCIM");
                 File sonyDir = new File(dcim, "100MSDCF");
                 if (!sonyDir.exists()) return "ERR: NO 100MSDCF";
@@ -90,13 +89,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 }
                 if (original == null) return "ERR: NO JPG";
 
-                // 2. Decode original image
+                // CRITICAL MEMORY FIX: inMutable = true allows us to edit the image without copying it
                 BitmapFactory.Options opt = new BitmapFactory.Options();
-                opt.inSampleSize = 4; // Keeps memory safe
+                opt.inSampleSize = 4;
+                opt.inMutable = true; 
                 Bitmap bmp = BitmapFactory.decodeFile(original.getAbsolutePath(), opt);
                 if (bmp == null) return "ERR: DECODE FAIL";
 
-                // 3. APPLY THE LUT RECIPE
+                // APPLY THE LUT RECIPE IN-PLACE
                 if (recipeIndex > 0) {
                     File lutDir = new File(Environment.getExternalStorageDirectory(), "LUTS");
                     if (!lutDir.exists()) lutDir = new File("/storage/sdcard0/LUTS");
@@ -105,9 +105,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                     if (cubeFile.exists()) {
                         LutCooker cooker = new LutCooker();
                         if (cooker.loadLut(cubeFile)) {
-                            Bitmap newBmp = cooker.applyLut(bmp);
-                            bmp.recycle(); // Free old memory
-                            bmp = newBmp;  // Use cooked image
+                            cooker.applyLutInPlace(bmp); // Modifies 'bmp' directly!
                         } else {
                             bmp.recycle();
                             return "ERR: BAD LUT FILE";
@@ -118,7 +116,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                     }
                 }
 
-                // 4. Save to COOKED folder with 8.3 compliant name
                 File cookedDir = new File(dcim, "COOKED");
                 if (!cookedDir.exists()) cookedDir.mkdirs();
                 
@@ -134,7 +131,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 bmp.compress(Bitmap.CompressFormat.JPEG, 90, fos);
                 fos.flush();
                 fos.close();
-                bmp.recycle();
+                bmp.recycle(); // Free memory immediately after saving
 
                 sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(outFile)));
                 return "SUCCESS: " + newName;
