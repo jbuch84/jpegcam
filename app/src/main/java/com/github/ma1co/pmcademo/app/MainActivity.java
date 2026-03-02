@@ -22,10 +22,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private Camera mCamera;
     private SurfaceHolder mSurfaceHolder;
     private TextView tvShutter, tvAperture, tvISO, tvExposure, tvRecipe;
-    
     private List<Integer> supportedIsos;
     private int curIso;
-    
     private ArrayList<String> recipeList = new ArrayList<String>();
     private int recipeIndex = 0;
     
@@ -40,7 +38,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         SurfaceView surfaceView = (SurfaceView) findViewById(R.id.surfaceView);
         mSurfaceHolder = surfaceView.getHolder();
         mSurfaceHolder.addCallback(this);
-        // REQUIRED: Sony a5100 buffer handshake
         mSurfaceHolder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
         
         tvShutter = (TextView) findViewById(R.id.tvShutter);
@@ -57,20 +54,28 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         recipeList.clear();
         recipeList.add("NONE (DEFAULT)");
 
-        // SEARCH: Look for LUTs next to the DCIM folder
-        String[] roots = {"/mnt/sdcard", "/storage/sdcard0", "/storage/sdcard1", "/mnt/storage/sdcard1", Environment.getExternalStorageDirectory().getAbsolutePath()};
-        File foundLutDir = null;
-
-        for (String root : roots) {
-            File testDir = new File(root, "LUTs");
-            if (testDir.exists() && testDir.isDirectory()) {
-                foundLutDir = testDir;
-                break;
+        // SONY REMOVABLE SD SCAN: Iterate through all hardware mount points
+        File foundDir = null;
+        String[] hardwareRoots = {"/mnt", "/storage"};
+        
+        for (String root : hardwareRoots) {
+            File rootDir = new File(root);
+            File[] subs = rootDir.listFiles();
+            if (subs != null) {
+                for (File sub : subs) {
+                    // Look for /LUTs inside any mounted drive
+                    File test = new File(sub, "LUTs");
+                    if (test.exists() && test.isDirectory()) {
+                        foundDir = test;
+                        break;
+                    }
+                }
             }
+            if (foundDir != null) break;
         }
 
-        if (foundLutDir != null) {
-            File[] files = foundLutDir.listFiles();
+        if (foundDir != null) {
+            File[] files = foundDir.listFiles();
             if (files != null) {
                 for (File f : files) {
                     String name = f.getName();
@@ -82,7 +87,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
 
         if (recipeList.size() <= 1) {
-            tvRecipe.setText("RECIPE: NONE (DEFAULT)");
+            // Displays the physical path where the card is mounted if it can find it
+            tvRecipe.setText("PLACE LUTS ON SD CARD ROOT");
         } else {
             updateRecipeDisplay();
         }
@@ -115,19 +121,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         try {
             Camera.Parameters p = mCamera.getParameters();
             CameraEx.ParametersModifier pm = mCameraEx.createParametersModifier(p);
-            
-            // Format Shutter (Issue 1 Fix)
             Pair<Integer, Integer> speed = pm.getShutterSpeed();
             if (speed.first >= speed.second) tvShutter.setText((speed.first / speed.second) + "\"");
             else tvShutter.setText(speed.first + "/" + speed.second);
-            
-            // Format Aperture (Issue 2 Fix)
             tvAperture.setText("f/" + (pm.getAperture() / 100.0f));
-            
-            // Format ISO (Issue 3 Fix)
             tvISO.setText(curIso == 0 ? "ISO AUTO" : "ISO " + curIso);
-            
-            // Format Exposure (Issue 4 Fix)
             tvExposure.setText(String.format("%.1f", p.getExposureCompensation() * p.getExposureCompensationStep()));
         } catch (Exception e) {}
     }
