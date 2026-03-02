@@ -49,8 +49,51 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         setDialMode(DialMode.shutter);
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        try {
+            mCameraEx = CameraEx.open(0, null);
+            mCamera = mCameraEx.getNormalCamera();
+            mCameraEx.setShutterSpeedChangeListener(this);
+            
+            // PRIORITY 1: Kill the Preview immediately
+            CameraEx.AutoPictureReviewControl arc = new CameraEx.AutoPictureReviewControl();
+            arc.setPictureReviewTime(0);
+            mCameraEx.setAutoPictureReviewControl(arc);
+
+            mCameraEx.startDirectShutter();
+            
+            findAndWatchDCIM();
+            // BetterManual Persistence handshake
+            sendSonyBroadcast(true); 
+            syncUI();
+        } catch (Exception e) {}
+    }
+
+    private class BakeTask extends AsyncTask<Void, Void, Boolean> {
+        String fileName;
+        BakeTask(String name) { this.fileName = name; }
+
+        @Override
+        protected void onPreExecute() {
+            tvRecipe.setText("BAKING: " + fileName);
+            tvRecipe.setTextColor(Color.RED);
+        }
+
+        @Override
+        protected Boolean doInBackground(Void... voids) {
+            try { Thread.sleep(2000); return true; } catch (Exception e) { return false; }
+        }
+
+        @Override
+        protected void onPostExecute(Boolean success) {
+            updateRecipeDisplay();
+            setDialMode(mDialMode);
+        }
+    }
+
     private void findAndWatchDCIM() {
-        // Broad search for the photo folder to ensure the observer hits
         String[] bases = {"/sdcard", "/storage/sdcard0", "/storage/sdcard1", "/mnt/sdcard"};
         for (String base : bases) {
             File dcim = new File(base, "DCIM/100MSDCF");
@@ -75,49 +118,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             }
         };
         dcimObserver.startWatching();
-    }
-
-    private class BakeTask extends AsyncTask<Void, Void, Boolean> {
-        String fileName;
-        BakeTask(String name) { this.fileName = name; }
-
-        @Override
-        protected void onPreExecute() {
-            tvRecipe.setText("BAKING: " + fileName);
-            tvRecipe.setTextColor(Color.RED);
-        }
-
-        @Override
-        protected Boolean doInBackground(Void... voids) {
-            // Placeholder for pixel math in the next step
-            try { Thread.sleep(2000); return true; } catch (Exception e) { return false; }
-        }
-
-        @Override
-        protected void onPostExecute(Boolean success) {
-            updateRecipeDisplay();
-            setDialMode(mDialMode);
-        }
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        try {
-            mCameraEx = CameraEx.open(0, null);
-            mCamera = mCameraEx.getNormalCamera();
-            mCameraEx.setShutterSpeedChangeListener(this);
-            mCameraEx.startDirectShutter();
-
-            // FIX: Disable native image review so the Android UI stays awake
-            CameraEx.AutoPictureReviewControl arc = new CameraEx.AutoPictureReviewControl();
-            arc.setPictureReviewTime(0); // 0 = App handles the screen
-            mCameraEx.setAutoPictureReviewControl(arc);
-
-            findAndWatchDCIM();
-            notifySonyStatus(true);
-            syncUI();
-        } catch (Exception e) {}
     }
 
     private void scanRecipes() {
@@ -152,8 +152,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             if (speed.first == 1 && speed.second != 1) tvShutter.setText(speed.first + "/" + speed.second);
             else tvShutter.setText(speed.first + "\"");
             tvAperture.setText("f/" + (pm.getAperture() / 100.0f));
-            int iso = pm.getISOSensitivity();
-            tvISO.setText(iso == 0 ? "AUTO" : "ISO " + iso);
+            tvISO.setText("ISO " + pm.getISOSensitivity());
             tvExposure.setText(String.format("%.1f", p.getExposureCompensation() * p.getExposureCompensationStep()));
         } catch (Exception e) {}
     }
@@ -161,7 +160,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         int scanCode = event.getScanCode();
-        if (scanCode == ScalarInput.ISV_KEY_DELETE) { notifySonyStatus(false); finish(); return true; }
+        if (scanCode == ScalarInput.ISV_KEY_DELETE) { sendSonyBroadcast(false); finish(); return true; }
         if (scanCode == ScalarInput.ISV_KEY_DOWN) { cycleMode(); return true; }
         if (scanCode == ScalarInput.ISV_DIAL_1_CLOCKWISE) { handleInput(1); return true; }
         if (scanCode == ScalarInput.ISV_DIAL_1_COUNTERCW) { handleInput(-1); return true; }
@@ -196,9 +195,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         updateRecipeDisplay();
     }
 
-    private void notifySonyStatus(boolean active) {
+    private void sendSonyBroadcast(boolean active) {
         Intent intent = new Intent("com.android.server.DAConnectionManagerService.AppInfoReceive");
         intent.putExtra("package_name", getPackageName());
+        intent.putExtra("class_name", getClass().getName());
         intent.putExtra("resume_key", active ? new String[]{"on"} : new String[]{});
         sendBroadcast(intent);
     }
