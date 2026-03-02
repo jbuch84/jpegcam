@@ -1,6 +1,6 @@
 package com.github.ma1co.pmcademo.app;
 
-import com.jpgcookbook.sony.R; // This is the mandatory link to your new ID
+import com.jpgcookbook.sony.R;
 import android.app.Activity;
 import android.content.Intent;
 import android.graphics.*;
@@ -34,7 +34,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     
     private ArrayList<String> recipeList = new ArrayList<String>();
     private int recipeIndex = 0;
-    private int qualityIndex = 0; // 0 = 1.5MP, 1 = 6.0MP
+    private int qualityIndex = 0; 
     
     private boolean isProcessing = false;
     private boolean isReady = false; 
@@ -241,7 +241,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 s.inPreferredConfig = Bitmap.Config.ARGB_8888;
 
                 int stripH = (b.outHeight / 10 / sample) * sample; 
-                int dY = 0;
+                int destY = 0; // FIXED VARIABLE NAME
 
                 for (int y = 0; y < b.outHeight; y += stripH) {
                     int h = Math.min(stripH, b.outHeight - y);
@@ -251,8 +251,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
 
                     mEngine.applyLutToBitmap(mutableStrip, null);
                     
-                    canvas.drawBitmap(mutableStrip, 0, dY, null);
-                    destY += mutableStrip.getHeight();
+                    canvas.drawBitmap(mutableStrip, 0, destY, null); // FIXED VARIABLE NAME
+                    destY += mutableStrip.getHeight(); // FIXED VARIABLE NAME
                     mutableStrip.recycle();
 
                     publishProgress((int) (((float) (y + h) / b.outHeight) * 100));
