@@ -52,42 +52,40 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         recipeList.clear();
         recipeList.add("NONE (DEFAULT)");
 
-        // SONY STORAGE FIX: Try multiple possible mount points for the SD Card
-        String[] potentialPaths = {
+        // SONY PATHFINDER: We check every possible mount point for the /LUTs folder
+        String[] potentialRoots = {
+            "/mnt/sdcard", 
+            "/storage/sdcard0", 
+            "/storage/sdcard1", 
             Environment.getExternalStorageDirectory().getAbsolutePath(),
-            "/mnt/sdcard",
-            "/storage/sdcard0",
             "/mnt/storage/sdcard1"
         };
 
-        File lutDir = null;
-        for (String path : potentialPaths) {
-            File dir = new File(path, "LUTs");
-            if (dir.exists() && dir.isDirectory()) {
-                lutDir = dir;
+        File foundDir = null;
+        for (String root : potentialRoots) {
+            File testDir = new File(root, "LUTs");
+            if (testDir.exists() && testDir.isDirectory()) {
+                foundDir = testDir;
                 break;
             }
         }
 
-        // If we still can't find it, try creating it in the default spot
-        if (lutDir == null) {
-            lutDir = new File(Environment.getExternalStorageDirectory(), "LUTs");
-            lutDir.mkdirs();
-        }
-
-        File[] files = lutDir.listFiles();
-        if (files != null) {
-            for (File f : files) {
-                String name = f.getName().toLowerCase();
-                if (name.endsWith(".cube") || name.endsWith(".png")) {
-                    recipeList.add(f.getName());
+        if (foundDir != null) {
+            File[] files = foundDir.listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    String name = f.getName().toLowerCase();
+                    if (name.endsWith(".cube") || name.endsWith(".png")) {
+                        recipeList.add(f.getName());
+                    }
                 }
             }
         }
-        
-        // Debug info: If only "NONE" exists, show the path we searched
-        if (recipeList.size() == 1) {
-            tvRecipe.setText("NO LUTS FOUND IN /LUTs");
+
+        // Display Result or Debug Path
+        if (recipeList.size() <= 1) {
+            String debugPath = (foundDir != null) ? foundDir.getAbsolutePath() : "/mnt/sdcard/LUTs";
+            tvRecipe.setText("NOT FOUND: " + debugPath);
         } else {
             updateRecipeDisplay();
         }
@@ -121,12 +119,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             Camera.Parameters p = mCamera.getParameters();
             CameraEx.ParametersModifier pm = mCameraEx.createParametersModifier(p);
             
+            // Format Shutter
             Pair<Integer, Integer> speed = pm.getShutterSpeed();
             if (speed.first >= speed.second) tvShutter.setText((speed.first / speed.second) + "\"");
             else tvShutter.setText(speed.first + "/" + speed.second);
             
+            // Format Aperture
             tvAperture.setText("f/" + (pm.getAperture() / 100.0f));
+            
+            // Format ISO
             tvISO.setText(curIso == 0 ? "ISO AUTO" : "ISO " + curIso);
+            
+            // Format Exposure
             tvExposure.setText(String.format("%.1f", p.getExposureCompensation() * p.getExposureCompensationStep()));
         } catch (Exception e) {}
     }
@@ -193,7 +197,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     }
 
     @Override public void surfaceCreated(SurfaceHolder h) {
-        try { if (mCamera != null) { mCamera.setPreviewDisplay(h); mCamera.startPreview(); } } catch (Exception e) {}
+        try { if (mCamera != null) { mCamera.setPreviewDisplay(h); mCamera.startPreview(); syncUI(); } } catch (Exception e) {}
     }
     @Override protected void onPause() { super.onPause(); if (mCameraEx != null) { mCameraEx.release(); mCameraEx = null; } }
     @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int h1) {}
