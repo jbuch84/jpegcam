@@ -58,16 +58,20 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         setDialMode(DialMode.shutter);
     }
 
-    // CHANGED TO <Void, Integer, String> FOR PROGRESS UPDATES
     private class BakeTask extends AsyncTask<Void, Integer, String> {
         @Override protected void onPreExecute() { 
             isBaking = true;
+            
+            // CRITICAL: Lock the hardware shutter button so the user can't interrupt the bake
+            if (mCameraEx != null) {
+                mCameraEx.stopDirectShutter();
+            }
+
             String recipeName = recipeList.get(recipeIndex).split("\\.")[0].toUpperCase();
             tvRecipe.setText(recipeIndex == 0 ? "COPYING..." : "COOKING " + recipeName + "...");
             tvRecipe.setTextColor(Color.YELLOW);
         }
 
-        // REAL-TIME SCREEN UPDATE
         @Override protected void onProgressUpdate(Integer... values) {
             String recipeName = recipeList.get(recipeIndex).split("\\.")[0].toUpperCase();
             tvRecipe.setText("COOKING " + recipeName + " [" + values[0] + "%]");
@@ -117,7 +121,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                     if (cubeFile.exists()) {
                         LutCooker cooker = new LutCooker();
                         if (cooker.loadLut(cubeFile)) {
-                            // PASS THE CALLBACK TO THE COOKER
                             cooker.applyLutToPixels(pixels, new LutCooker.ProgressCallback() {
                                 public void onProgress(int percent) {
                                     publishProgress(percent);
@@ -164,6 +167,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
 
         @Override protected void onPostExecute(String result) {
             isBaking = false;
+            
+            // CRITICAL: Re-enable the hardware shutter button so the user can shoot again
+            if (mCameraEx != null) {
+                mCameraEx.startDirectShutter();
+            }
+
             tvRecipe.setText(result);
             tvRecipe.setTextColor(result.startsWith("SUCCESS") ? Color.GREEN : Color.RED);
         }

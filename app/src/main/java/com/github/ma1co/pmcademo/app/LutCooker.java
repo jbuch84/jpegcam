@@ -9,13 +9,22 @@ import java.util.ArrayList;
 public class LutCooker {
     private int lutSize = 0;
     private int[] lutPixels;
+    private String currentLutName = "";
 
-    // The interface to talk back to the camera screen
     public interface ProgressCallback {
         void onProgress(int percent);
     }
 
-    public boolean loadLut(File cubeFile) {
+    public String getCurrentLutName() {
+        return currentLutName;
+    }
+
+    public boolean loadLut(File cubeFile, String lutName) {
+        // THE SPEED FIX: If we already loaded this exact LUT, skip the text parsing!
+        if (lutName.equals(currentLutName) && lutPixels != null) {
+            return true;
+        }
+
         try {
             BufferedReader br = new BufferedReader(new FileReader(cubeFile));
             String line;
@@ -52,17 +61,16 @@ public class LutCooker {
 
             int expectedColors = lutSize * lutSize * lutSize;
             
-            // THE FIX: Fault-tolerant padding for truncated files
             if (lutSize > 0 && colors.size() > 0) {
                 lutPixels = new int[expectedColors];
                 for (int i = 0; i < expectedColors; i++) {
                     if (i < colors.size()) {
                         lutPixels[i] = colors.get(i);
                     } else {
-                        // File is short! Pad the rest with the last known color
-                        lutPixels[i] = colors.get(colors.size() - 1);
+                        lutPixels[i] = colors.get(colors.size() - 1); // Pad if short
                     }
                 }
+                currentLutName = lutName; // Save the name so we don't load it twice
                 return true;
             }
         } catch (Exception e) {
@@ -94,7 +102,6 @@ public class LutCooker {
                 pixels[i] = lutPixels[lutIndex];
             }
 
-            // Report progress back to the UI
             if (callback != null && i % step == 0) {
                 callback.onProgress((i * 100) / total);
             }
