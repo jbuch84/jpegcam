@@ -1,6 +1,6 @@
 package com.github.ma1co.pmcademo.app;
 
-import com.jpgcookbook.sony.R;
+import com.jpgcookbook.sony.R; // This is the mandatory link to your new ID
 import android.app.Activity;
 import android.content.Intent;
 import android.graphics.*;
