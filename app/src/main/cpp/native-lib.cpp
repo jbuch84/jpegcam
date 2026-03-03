@@ -1,7 +1,7 @@
 #include <jni.h>
 #include <vector>
 #include <stdio.h>
-#include <stdlib.h> // Added for Heap Allocation (malloc/free)
+#include <stdlib.h>
 #include <string.h>
 #include <setjmp.h>
 #include "jpeglib.h"
@@ -74,7 +74,7 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
     }
 
     LOGE("C++: Allocating massive Jpeg Structs on HEAP to bypass Dalvik Stack Limits...");
-    // USING MALLOC TO SAVE 14KB OF STACK MEMORY
+    
     struct jpeg_decompress_struct* cinfo_d = (struct jpeg_decompress_struct*) malloc(sizeof(struct jpeg_decompress_struct));
     struct my_error_mgr* jerr_d = (struct my_error_mgr*) malloc(sizeof(struct my_error_mgr));
     
@@ -83,7 +83,16 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
 
     int* map = (int*) malloc(256 * sizeof(int));
 
-    // Setup Decompressor
+    if (!cinfo_d || !jerr_d || !cinfo_c || !jerr_c || !map) {
+        LOGE("C++: malloc FAILED! The camera's heap is full.");
+        return JNI_FALSE;
+    }
+
+    // Zero-out the memory so libjpeg doesn't crash on random garbage
+    memset(cinfo_d, 0, sizeof(struct jpeg_decompress_struct));
+    memset(cinfo_c, 0, sizeof(struct jpeg_compress_struct));
+
+    LOGE("C++: Setting up Decompressor Error Handler");
     cinfo_d->err = cook_jpeg_std_error(&jerr_d->pub);
     jerr_d->pub.error_exit = my_error_exit;
     
@@ -97,14 +106,16 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
         return JNI_FALSE;
     }
     
-    LOGE("C++: Creating Cloaked Decompressor...");
+    LOGE("C++: Calling cook_jpeg_create_decompress...");
     cook_jpeg_create_decompress(cinfo_d);
+    LOGE("C++: Decompressor created successfully! Internal Collision Dodged!");
+    
     cook_jpeg_stdio_src(cinfo_d, infile);
     cook_jpeg_read_header(cinfo_d, TRUE);
     cinfo_d->out_color_space = JCS_RGB; 
     cook_jpeg_start_decompress(cinfo_d);
 
-    // Setup Compressor
+    LOGE("C++: Setup Compressor Error Handler");
     cinfo_c->err = cook_jpeg_std_error(&jerr_c->pub);
     jerr_c->pub.error_exit = my_error_exit;
     
@@ -119,8 +130,10 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
         return JNI_FALSE;
     }
     
-    LOGE("C++: Creating Cloaked Compressor...");
+    LOGE("C++: Calling cook_jpeg_create_compress...");
     cook_jpeg_create_compress(cinfo_c);
+    LOGE("C++: Compressor created successfully!");
+
     cook_jpeg_stdio_dest(cinfo_c, outfile);
     
     cinfo_c->image_width = cinfo_d->output_width;
@@ -194,7 +207,6 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
     cook_jpeg_finish_decompress(cinfo_d);
     cook_jpeg_destroy_decompress(cinfo_d);
     
-    // FREE HEAP MEMORY
     free(cinfo_d); free(jerr_d); free(cinfo_c); free(jerr_c); free(map);
 
     fclose(infile);

@@ -13,13 +13,18 @@ jobs:
         tar -xzf 2.1.5.1.tar.gz
         mv libjpeg-turbo-2.1.5.1 libjpeg-turbo
 
-    - name: The Cloaking Script (DNA Mutation)
+    - name: The Cloaking Script (Total DNA Mutation)
       run: |
         cd app/src/main/cpp/libjpeg-turbo
+        # 1. Mutate Public API
         FUNCS="jpeg_std_error jpeg_CreateDecompress jpeg_create_decompress jpeg_destroy_decompress jpeg_stdio_src jpeg_read_header jpeg_start_decompress jpeg_read_scanlines jpeg_finish_decompress jpeg_CreateCompress jpeg_create_compress jpeg_destroy_compress jpeg_stdio_dest jpeg_set_defaults jpeg_set_quality jpeg_start_compress jpeg_write_scanlines jpeg_finish_compress"
         for FUNC in $FUNCS; do
           find . -type f \( -name "*.[ch]" \) -exec sed -i "s/\b$FUNC\b/cook_$FUNC/g" {} +
         done
+        
+        # 2. Mutate Internal Back Doors (The Silent Assassins)
+        find . -type f \( -name "*.[ch]" \) -exec sed -i "s/\bjinit_/cook_jinit_/g" {} +
+        find . -type f \( -name "*.[ch]" \) -exec sed -i "s/\bjsimd_/cook_jsimd_/g" {} +
 
     - name: Create Clean Room SDK & NDK
       run: |
