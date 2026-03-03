@@ -89,7 +89,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         
-        // BYPASS XML INFLATION: Builds clean layout to prevent ghost text
         FrameLayout rootLayout = new FrameLayout(this);
         mSurfaceView = new SurfaceView(this);
         mSurfaceView.getHolder().addCallback(this);
@@ -266,6 +265,21 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         for (int i = 0; i < 7; i++) {
             menuItems[i].setTextColor(i == menuSelection ? Color.GREEN : Color.WHITE);
         }
+
+        // PERFECT AUTO-CENTERING SCROLL LOGIC
+        menuScrollView.post(new Runnable() {
+            @Override
+            public void run() {
+                if (menuItems[menuSelection] != null) {
+                    int targetTop = menuItems[menuSelection].getTop();
+                    int itemHeight = menuItems[menuSelection].getHeight();
+                    int scrollHeight = menuScrollView.getHeight();
+                    // Calculates exact Y position to put the highlighted text in the absolute center
+                    int scrollY = targetTop - (scrollHeight / 2) + (itemHeight / 2);
+                    menuScrollView.smoothScrollTo(0, Math.max(0, scrollY));
+                }
+            }
+        });
     }
 
     private void cycleMode(int dir) {
