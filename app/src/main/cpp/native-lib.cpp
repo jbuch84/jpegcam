@@ -1,6 +1,7 @@
 #include <jni.h>
 #include <vector>
 #include <stdio.h>
+#include <stdlib.h> // Added for Heap Allocation (malloc/free)
 #include <string.h>
 #include <setjmp.h>
 #include "jpeglib.h"
@@ -72,70 +73,78 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
         return JNI_FALSE;
     }
 
-    LOGE("C++: Step 1 - Setting up LibJpeg Decompressor (Cloaked)");
-    struct jpeg_decompress_struct cinfo_d;
-    struct my_error_mgr jerr_d;
-    cinfo_d.err = cook_jpeg_std_error(&jerr_d.pub);
-    jerr_d.pub.error_exit = my_error_exit;
+    LOGE("C++: Allocating massive Jpeg Structs on HEAP to bypass Dalvik Stack Limits...");
+    // USING MALLOC TO SAVE 14KB OF STACK MEMORY
+    struct jpeg_decompress_struct* cinfo_d = (struct jpeg_decompress_struct*) malloc(sizeof(struct jpeg_decompress_struct));
+    struct my_error_mgr* jerr_d = (struct my_error_mgr*) malloc(sizeof(struct my_error_mgr));
     
-    if (setjmp(jerr_d.setjmp_buffer)) {
+    struct jpeg_compress_struct* cinfo_c = (struct jpeg_compress_struct*) malloc(sizeof(struct jpeg_compress_struct));
+    struct my_error_mgr* jerr_c = (struct my_error_mgr*) malloc(sizeof(struct my_error_mgr));
+
+    int* map = (int*) malloc(256 * sizeof(int));
+
+    // Setup Decompressor
+    cinfo_d->err = cook_jpeg_std_error(&jerr_d->pub);
+    jerr_d->pub.error_exit = my_error_exit;
+    
+    if (setjmp(jerr_d->setjmp_buffer)) {
         LOGE("C++: FATAL JUMP - Decompressor crashed!");
-        cook_jpeg_destroy_decompress(&cinfo_d);
+        cook_jpeg_destroy_decompress(cinfo_d);
+        free(cinfo_d); free(jerr_d); free(cinfo_c); free(jerr_c); free(map);
         fclose(infile); fclose(outfile);
         env->ReleaseStringUTFChars(inPath, in_file);
         env->ReleaseStringUTFChars(outPath, out_file);
         return JNI_FALSE;
     }
     
-    LOGE("C++: Calling cook_jpeg_create_decompress...");
-    cook_jpeg_create_decompress(&cinfo_d);
-    LOGE("C++: Decompressor created successfully! Collision Dodged!");
-    
-    cook_jpeg_stdio_src(&cinfo_d, infile);
-    cook_jpeg_read_header(&cinfo_d, TRUE);
-    cinfo_d.out_color_space = JCS_RGB; 
-    cook_jpeg_start_decompress(&cinfo_d);
+    LOGE("C++: Creating Cloaked Decompressor...");
+    cook_jpeg_create_decompress(cinfo_d);
+    cook_jpeg_stdio_src(cinfo_d, infile);
+    cook_jpeg_read_header(cinfo_d, TRUE);
+    cinfo_d->out_color_space = JCS_RGB; 
+    cook_jpeg_start_decompress(cinfo_d);
 
-    LOGE("C++: Step 2 - Setting up LibJpeg Compressor");
-    struct jpeg_compress_struct cinfo_c;
-    struct my_error_mgr jerr_c;
-    cinfo_c.err = cook_jpeg_std_error(&jerr_c.pub);
-    jerr_c.pub.error_exit = my_error_exit;
+    // Setup Compressor
+    cinfo_c->err = cook_jpeg_std_error(&jerr_c->pub);
+    jerr_c->pub.error_exit = my_error_exit;
     
-    if (setjmp(jerr_c.setjmp_buffer)) {
-        cook_jpeg_destroy_compress(&cinfo_c);
-        cook_jpeg_destroy_decompress(&cinfo_d);
+    if (setjmp(jerr_c->setjmp_buffer)) {
+        LOGE("C++: FATAL JUMP - Compressor crashed!");
+        cook_jpeg_destroy_compress(cinfo_c);
+        cook_jpeg_destroy_decompress(cinfo_d);
+        free(cinfo_d); free(jerr_d); free(cinfo_c); free(jerr_c); free(map);
         fclose(infile); fclose(outfile);
         env->ReleaseStringUTFChars(inPath, in_file);
         env->ReleaseStringUTFChars(outPath, out_file);
         return JNI_FALSE;
     }
     
-    cook_jpeg_create_compress(&cinfo_c);
-    cook_jpeg_stdio_dest(&cinfo_c, outfile);
+    LOGE("C++: Creating Cloaked Compressor...");
+    cook_jpeg_create_compress(cinfo_c);
+    cook_jpeg_stdio_dest(cinfo_c, outfile);
     
-    cinfo_c.image_width = cinfo_d.output_width;
-    cinfo_c.image_height = cinfo_d.output_height;
-    cinfo_c.input_components = 3;
-    cinfo_c.in_color_space = JCS_RGB;
-    cook_jpeg_set_defaults(&cinfo_c);
-    cook_jpeg_set_quality(&cinfo_c, 95, TRUE);
-    cook_jpeg_start_compress(&cinfo_c, TRUE);
+    cinfo_c->image_width = cinfo_d->output_width;
+    cinfo_c->image_height = cinfo_d->output_height;
+    cinfo_c->input_components = 3;
+    cinfo_c->in_color_space = JCS_RGB;
+    cook_jpeg_set_defaults(cinfo_c);
+    cook_jpeg_set_quality(cinfo_c, 95, TRUE);
+    cook_jpeg_start_compress(cinfo_c, TRUE);
 
-    int map[256];
     int lutMax = nativeLutSize - 1;
     for (int i = 0; i < 256; i++) {
         map[i] = (i * lutMax * 128) / 255;
     }
     int lutSize2 = nativeLutSize * nativeLutSize;
-    int row_stride = cinfo_d.output_width * cinfo_d.output_components;
+    int row_stride = cinfo_d->output_width * cinfo_d->output_components;
     
-    JSAMPARRAY buffer = (*cinfo_d.mem->alloc_sarray)((j_common_ptr) &cinfo_d, JPOOL_IMAGE, row_stride, 1);
+    LOGE("C++: Allocating 1-Row Line Buffer...");
+    JSAMPARRAY buffer = (*cinfo_d->mem->alloc_sarray)((j_common_ptr) cinfo_d, JPOOL_IMAGE, row_stride, 1);
 
-    LOGE("C++: Step 3 - Entering Scanline Loop");
+    LOGE("C++: Entering 24MP Scanline Loop...");
     int rows_processed = 0;
-    while (cinfo_d.output_scanline < cinfo_d.output_height) {
-        cook_jpeg_read_scanlines(&cinfo_d, buffer, 1);
+    while (cinfo_d->output_scanline < cinfo_d->output_height) {
+        cook_jpeg_read_scanlines(cinfo_d, buffer, 1);
         unsigned char* row = buffer[0];
 
         for (int x = 0; x < row_stride; x += 3) {
@@ -173,18 +182,21 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
             row[x+2] = outB > 255 ? 255 : (outB < 0 ? 0 : outB);
         }
         
-        cook_jpeg_write_scanlines(&cinfo_c, buffer, 1);
+        cook_jpeg_write_scanlines(cinfo_c, buffer, 1);
         rows_processed++;
         if (rows_processed == 1000) LOGE("C++: 1000 rows processed...");
         if (rows_processed == 3000) LOGE("C++: 3000 rows processed...");
     }
 
-    LOGE("C++: Step 4 - Image Processed. Cleaning up RAM.");
-    cook_jpeg_finish_compress(&cinfo_c);
-    cook_jpeg_destroy_compress(&cinfo_c);
-    cook_jpeg_finish_decompress(&cinfo_d);
-    cook_jpeg_destroy_decompress(&cinfo_d);
+    LOGE("C++: Scanline Loop Finished. Cleaning up Heap Memory.");
+    cook_jpeg_finish_compress(cinfo_c);
+    cook_jpeg_destroy_compress(cinfo_c);
+    cook_jpeg_finish_decompress(cinfo_d);
+    cook_jpeg_destroy_decompress(cinfo_d);
     
+    // FREE HEAP MEMORY
+    free(cinfo_d); free(jerr_d); free(cinfo_c); free(jerr_c); free(map);
+
     fclose(infile);
     fclose(outfile);
 
