@@ -14,20 +14,20 @@ jobs:
 
     - name: Hide Modern SDKs
       run: |
-        # This deletes the modern files that are confusing the old compiler
+        # Clear out modern tools that confuse the legacy compiler
         rm -rf $ANDROID_SDK_ROOT/platforms/android-3*
         rm -rf $ANDROID_SDK_ROOT/build-tools/3*
         rm -rf $ANDROID_SDK_ROOT/cmdline-tools
 
     - name: Create local.properties
       run: |
-        # This points the project to the vintage NDK already on the server
+        # Point to the vintage NDK pre-installed on the runner
         echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/21.4.7075529" > local.properties
         echo "sdk.dir=$ANDROID_SDK_ROOT" >> local.properties
 
     - name: Build APK
       run: |
-        gradle wrapper --gradle-version 4.10.3
+        # We use ./gradlew (the project's own Gradle) to avoid the version conflict
         chmod +x gradlew
         ./gradlew assembleDebug --stacktrace
 
