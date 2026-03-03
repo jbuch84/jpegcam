@@ -146,10 +146,10 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
     
     JSAMPARRAY buffer = (*cinfo_d->mem->alloc_sarray)((j_common_ptr) cinfo_d, JPOOL_IMAGE, row_stride, 1);
 
-    // CACHED RAW POINTERS FOR MAXIMUM SPEED
-    const int* pR = nativeLutR.data();
-    const int* pG = nativeLutG.data();
-    const int* pB = nativeLutB.data();
+    // CACHED RAW POINTERS FOR MAXIMUM SPEED (Safe Syntax)
+    const int* pR = &nativeLutR[0];
+    const int* pG = &nativeLutG[0];
+    const int* pB = &nativeLutB[0];
 
     while (cinfo_d->output_scanline < cinfo_d->output_height) {
         jpeg_read_scanlines(cinfo_d, buffer, 1);
