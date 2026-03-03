@@ -84,7 +84,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         setDialMode(mDialMode);
     }
 
-    // THE PROVEN POLLER
     private void startAutoProcessPolling() {
         isPolling = true;
         new Thread(new Runnable() {
@@ -92,7 +91,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             public void run() {
                 while (isPolling) {
                     try {
-                        Thread.sleep(1000); 
+                        // OPTIMIZATION 1: High-Frequency Polling (300ms instead of 1000ms)
+                        Thread.sleep(300); 
                         if (!isProcessing && isReady && recipeIndex > 0) {
                             File dcim = new File(Environment.getExternalStorageDirectory(), "DCIM");
                             File sonyDir = new File(dcim, "100MSDCF");
@@ -156,16 +156,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 File original = new File(params[0]);
                 if (!original.exists()) return "ERR: FILE MISSING";
 
-                // THE PROVEN SPIN-LOCK
+                // OPTIMIZATION 2: Low-Latency Spin-Lock
                 long lastSize = -1;
                 int timeout = 0;
-                while (timeout < 20) {
+                while (timeout < 100) { // Max 10 seconds total wait
                     long currentSize = original.length();
                     if (currentSize > 0 && currentSize == lastSize) break;
                     lastSize = currentSize;
-                    Thread.sleep(500); timeout++;
+                    Thread.sleep(100); // Check every 100ms instead of 500ms
+                    timeout++;
                 }
-                if (timeout >= 20) return "ERR: WRITE TIMEOUT";
+                if (timeout >= 100) return "ERR: WRITE TIMEOUT";
 
                 int scale = (qualityIndex == 0) ? 4 : (qualityIndex == 2 ? 1 : 2);
                 File outDir = new File(Environment.getExternalStorageDirectory(), "GRADED");
@@ -173,7 +174,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 File outFile = new File(outDir, original.getName());
 
                 if (mEngine.applyLutToJpeg(original.getAbsolutePath(), outFile.getAbsolutePath(), scale)) {
-                    copyExif(original.getAbsolutePath(), outFile.getAbsolutePath()); // THE PROVEN JAVA EXIF
+                    copyExif(original.getAbsolutePath(), outFile.getAbsolutePath()); // Proven Java EXIF Copy
                     sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(outFile)));
                     return "SUCCESS: SAVED " + (scale==1?"24MP":(scale==2?"6MP":"1.5MP"));
                 }
