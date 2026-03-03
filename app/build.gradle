@@ -16,12 +16,27 @@ android {
         minSdkVersion 10
         targetSdkVersion 25
         versionCode 1
-        versionName "1.0"
+        versionName "1.0-NDK"
+
+        // This tells the compiler to use NEON (speed) and focus on camera CPUs
+        externalNativeBuild {
+            cmake {
+                cppFlags "-O3 -mfpu=neon -mfloat-abi=softfp"
+                abiFilters "armeabi-v7a"
+            }
+        }
+    }
+
+    // This tells Gradle where to find the C++ instruction manual (which we will make next)
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+        }
     }
 
     applicationVariants.all { variant ->
         variant.outputs.all { output ->
-            outputFileName = "Sony-JPGCookbook-v${variant.versionName}.apk"
+            outputFileName = "Sony-JPGCookbook-NDK-v${variant.versionName}.apk"
         }
     }
 }
