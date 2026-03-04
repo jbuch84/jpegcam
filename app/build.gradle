@@ -15,8 +15,8 @@ android {
         applicationId "com.jpgcookbook.sony"
         minSdkVersion 10
         targetSdkVersion 25
-        versionCode 1
-        versionName "1.0-NDK"
+        versionCode 2
+        versionName "2.0-NDK"
 
         externalNativeBuild {
             cmake {
@@ -41,11 +41,11 @@ android {
 dependencies {
     implementation 'com.github.ma1co.OpenMemories-Framework:framework:-SNAPSHOT'
     compileOnly 'com.github.ma1co.OpenMemories-Framework:stubs:-SNAPSHOT'
-} // <--- Notice this closing brace here! It closes the dependencies block.
+}
 
-// The pmca block sits out here on its own:
+// FORMATTED CORRECTLY FOR THE PLUGIN:
 pmca {
-    id 'com.jpgcookbook.sony'
-    version '1.0'
-    name 'JPG Cookbook'
+    id = 'com.jpgcookbook.sony'
+    version = '2.0'
+    name = 'JPG Cookbook'
 }
