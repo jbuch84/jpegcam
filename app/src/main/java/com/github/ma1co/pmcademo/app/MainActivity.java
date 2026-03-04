@@ -18,6 +18,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.FileObserver;
 import android.text.Html;
+import android.util.Log;
 import android.util.Pair;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -744,7 +745,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         private Object scalarInstance = null;
         private Method getIntMethod = null;
         private Method getFocusAreasMethod = null;
-        private Field xField, yField, rightField, bottomField;
+        private Field xField, yField, wField, hField;
+        private boolean reflectionFailed = false;
 
         public FocusOverlayView(Context context) {
             super(context);
@@ -754,12 +756,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             greenPaint.setStrokeWidth(6);
             greenPaint.setAntiAlias(true);
 
-            // Reflection: Setup the Scalar hooks without causing build errors
+            // Reflection: Try to hook ScalarWebAPI
             try {
                 Class<?> scalarClass = Class.forName("com.sony.scalar.sysutil.ScalarWebAPI");
                 Class<?> focusClass = Class.forName("com.sony.scalar.sysutil.FocusArea");
                 
-                // Usually it's getInstance(), but could be a constructor. We try both.
                 try {
                     Method getInstance = scalarClass.getMethod("getInstance", Context.class);
                     scalarInstance = getInstance.invoke(null, context);
@@ -770,16 +771,21 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 getIntMethod = scalarClass.getMethod("getInt", String.class);
                 getFocusAreasMethod = scalarClass.getMethod("getFocusAreas");
 
+                // Note: The STUBS say 'w' and 'h', but my previous guess used 'right' and 'bottom'. 
+                // Let's grab w and h specifically based on the documentation you provided.
                 xField = focusClass.getField("x");
                 yField = focusClass.getField("y");
-                rightField = focusClass.getField("right");
-                bottomField = focusClass.getField("bottom");
+                wField = focusClass.getField("w");
+                hField = focusClass.getField("h");
 
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                Log.e("COOKBOOK_AF", "REFLECTION SETUP FAILED: " + e.getMessage(), e);
+                reflectionFailed = true;
+            }
         }
 
         public void startPolling() {
-            if (!isPolling && scalarInstance != null) {
+            if (!isPolling) {
                 isPolling = true;
                 invalidate(); 
             }
@@ -792,44 +798,57 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            if (!isPolling || scalarInstance == null) return;
+            if (!isPolling) return;
 
-            try {
-                int afStatus = (Integer) getIntMethod.invoke(scalarInstance, "afStatus");
-                
-                if (afStatus == 1) { 
-                    Object[] areas = (Object[]) getFocusAreasMethod.invoke(scalarInstance);
-                    if (areas != null) {
-                        for (Object area : areas) {
-                            
-                            float left = xField.getInt(area);
-                            float top = yField.getInt(area);
-                            float right = rightField.getInt(area);
-                            float bottom = bottomField.getInt(area);
-
-                            // Dynamic Math for different camera sensor return values
-                            if (right <= 100 && bottom <= 100) { 
-                                left = (left / 100f) * getWidth();
-                                top = (top / 100f) * getHeight();
-                                right = (right / 100f) * getWidth();
-                                bottom = (bottom / 100f) * getHeight();
-                            } else if (right <= 1000 && bottom <= 1000) { 
-                                left = (left / 1000f) * getWidth();
-                                top = (top / 1000f) * getHeight();
-                                right = (right / 1000f) * getWidth();
-                                bottom = (bottom / 1000f) * getHeight();
-                            } else if (right > 1000) { 
-                                left = (left / 6000f) * getWidth();
-                                top = (top / 4000f) * getHeight();
-                                right = (right / 6000f) * getWidth();
-                                bottom = (bottom / 4000f) * getHeight();
+            // 1. Try to use standard Android Camera API as a fallback if Scalar Reflection failed
+            if (reflectionFailed && mCamera != null) {
+                try {
+                    List<Camera.Area> areas = mCamera.getParameters().getFocusAreas();
+                    if (areas != null && !areas.isEmpty()) {
+                        for (Camera.Area a : areas) {
+                            if (a.weight > 0) {
+                                // Standard Android matrix is -1000 to +1000
+                                float left = ((a.rect.left + 1000) / 2000f) * getWidth();
+                                float top = ((a.rect.top + 1000) / 2000f) * getHeight();
+                                float right = ((a.rect.right + 1000) / 2000f) * getWidth();
+                                float bottom = ((a.rect.bottom + 1000) / 2000f) * getHeight();
+                                canvas.drawRect(left, top, right, bottom, greenPaint);
                             }
-
-                            canvas.drawRect(left, top, right, bottom, greenPaint);
                         }
                     }
+                } catch (Exception e) {
+                    Log.e("COOKBOOK_AF", "Standard Camera API Failed: " + e.getMessage());
                 }
-            } catch (Exception e) {}
+            } 
+            
+            // 2. Try the Sony Scalar API
+            else if (scalarInstance != null) {
+                try {
+                    int afStatus = (Integer) getIntMethod.invoke(scalarInstance, "afStatus");
+                    
+                    if (afStatus == 1) { 
+                        Object[] areas = (Object[]) getFocusAreasMethod.invoke(scalarInstance);
+                        if (areas != null) {
+                            for (Object area : areas) {
+                                float ax = xField.getInt(area);
+                                float ay = yField.getInt(area);
+                                float aw = wField.getInt(area);
+                                float ah = hField.getInt(area);
+
+                                // We assume percentages (0 to 100) based on typical Sony stubs
+                                float left = (ax / 100f) * getWidth();
+                                float top = (ay / 100f) * getHeight();
+                                float right = ((ax + aw) / 100f) * getWidth();
+                                float bottom = ((ay + ah) / 100f) * getHeight();
+
+                                canvas.drawRect(left, top, right, bottom, greenPaint);
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.e("COOKBOOK_AF", "SCALAR RUNTIME FAILED: " + e.getMessage(), e);
+                }
+            }
 
             postInvalidateDelayed(100); 
         }
