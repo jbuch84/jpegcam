@@ -100,12 +100,18 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
     
     jpeg_create_decompress(cinfo_d);
     jpeg_stdio_src(cinfo_d, infile);
+
+    // =========================================================================
+    // EXIF PRESERVATION: Catch the APP1 block before reading the header
+    // =========================================================================
+    jpeg_save_markers(cinfo_d, JPEG_APP0 + 1, 0xFFFF); 
+    
     jpeg_read_header(cinfo_d, TRUE);
     cinfo_d->scale_num = 1; 
     cinfo_d->scale_denom = scaleDenom; 
     cinfo_d->out_color_space = JCS_RGB; 
     
-    // QUALITY OVER SPEED: Removed IFAST and forced High-Quality Upsampling
+    // QUALITY OVER SPEED: Forced High-Quality Upsampling
     cinfo_d->dct_method = JDCT_ISLOW; 
     cinfo_d->do_fancy_upsampling = TRUE; 
 
@@ -128,7 +134,18 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
     jpeg_set_defaults(cinfo_c); 
     jpeg_set_quality(cinfo_c, 95, TRUE); 
     cinfo_c->dct_method = JDCT_ISLOW; // Maximum compression quality
+    
     jpeg_start_compress(cinfo_c, TRUE);
+
+    // =========================================================================
+    // EXIF INJECTION: Write the caught APP1 block into the new file stream
+    // =========================================================================
+    jpeg_saved_marker_ptr marker;
+    for (marker = cinfo_d->marker_list; marker != NULL; marker = marker->next) {
+        if (marker->marker == JPEG_APP0 + 1) { // APP1 Marker (0xE1)
+            jpeg_write_marker(cinfo_c, marker->marker, marker->data, marker->data_length);
+        }
+    }
 
     int lutMax = nativeLutSize > 0 ? nativeLutSize - 1 : 0;
     int lutSize2 = nativeLutSize * nativeLutSize;
@@ -163,7 +180,7 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
         long long dy_sq = dy * dy;
 
         uint32_t seed = master_seed + (current_y * 1337);
-        int prev_noise = 0; // Used to smoothly blend large grain
+        int prev_noise = 0; 
 
         for (int x = 0; x < row_stride; x += 3) {
             int origR = row[x]; int origG = row[x+1]; int origB = row[x+2];
@@ -196,7 +213,6 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
                     else { v0=i000; v1=i010; v2=i110; v3=i111; w0=128-dy_lut; w1=dy_lut-dx; w2=dx-dz; w3=dz; }
                 }
 
-                // CACHE OPTIMIZED FETCH: Sequential Interleaved Lookup
                 int id0 = v0*3; int id1 = v1*3; int id2 = v2*3; int id3 = v3*3;
 
                 int lutR = (pLut[id0]*w0 + pLut[id1]*w1 + pLut[id2]*w2 + pLut[id3]*w3) >> 7;
@@ -224,7 +240,6 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
                 int raw_noise = (fast_rand(&seed) & 0xFF) - 128; 
                 int noise;
                 
-                // NO MORE SQUARES: Soft, continuous 1D blending for larger grain
                 if (grainSize == 0) {
                     noise = raw_noise; 
                 } else if (grainSize == 1) {
@@ -237,7 +252,6 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
                 int lum = (outR*77 + outG*150 + outB*29) >> 8; 
                 int mask = lum < 128 ? lum : 255 - lum; 
                 
-                // QUADRATIC SHADOW SUPPRESSION: Protects the deep blacks from becoming noisy
                 if (lum < 64) {
                     mask = (mask * lum) >> 6; 
                 }
