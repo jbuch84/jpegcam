@@ -10,7 +10,8 @@
 #define LOG_TAG "COOKBOOK_LOG"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-std::vector<int> nativeLutR, nativeLutG, nativeLutB;
+// NEW: Interleaved RGB array fits inside L2 Cache to eliminate Memory Thrashing
+std::vector<uint8_t> nativeLut; 
 int nativeLutSize = 0;
 
 struct my_error_mgr {
@@ -25,14 +26,12 @@ METHODDEF(void) my_error_exit (j_common_ptr cinfo) {
 METHODDEF(void) my_emit_message (j_common_ptr cinfo, int msg_level) {}
 METHODDEF(void) my_output_message (j_common_ptr cinfo) {}
 
-// SPATIAL HASH: For structural clumping
 inline int spatial_noise(int x, int y, uint32_t seed) {
     uint32_t h = seed + (uint32_t)x * 374761393 + (uint32_t)y * 668265263;
     h = (h ^ (h >> 13)) * 1274126177;
     return ((h ^ (h >> 16)) & 0xFF) - 128; 
 }
 
-// FAST XOR-SHIFT: For continuous dithering
 inline uint32_t fast_rand(uint32_t* state) {
     uint32_t x = *state;
     x ^= x << 13; x ^= x >> 17; x ^= x << 5;
@@ -47,21 +46,21 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_loadLutNative(JNIEnv* env, jobject,
     env->ReleaseStringUTFChars(path, file_path);
     if (!file) return JNI_FALSE;
 
-    nativeLutR.clear(); nativeLutG.clear(); nativeLutB.clear();
+    nativeLut.clear();
     nativeLutSize = 0;
 
     char line[256];
     while(fgets(line, sizeof(line), file)) {
         if (strncmp(line, "LUT_3D_SIZE", 11) == 0) {
             sscanf(line, "LUT_3D_SIZE %d", &nativeLutSize);
-            int expected = nativeLutSize * nativeLutSize * nativeLutSize;
-            nativeLutR.reserve(expected); nativeLutG.reserve(expected); nativeLutB.reserve(expected);
+            int expected = nativeLutSize * nativeLutSize * nativeLutSize * 3;
+            nativeLut.reserve(expected);
         }
         float r, g, b;
         if (sscanf(line, "%f %f %f", &r, &g, &b) == 3) {
-            nativeLutR.push_back((int)(r * 255.0f));
-            nativeLutG.push_back((int)(g * 255.0f));
-            nativeLutB.push_back((int)(b * 255.0f));
+            nativeLut.push_back((uint8_t)(r * 255.0f));
+            nativeLut.push_back((uint8_t)(g * 255.0f));
+            nativeLut.push_back((uint8_t)(b * 255.0f));
         }
     }
     fclose(file);
@@ -110,12 +109,8 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
     cinfo_d->scale_num = 1; 
     cinfo_d->scale_denom = scaleDenom; 
     cinfo_d->out_color_space = JCS_RGB; 
-    
-    // --- TURBO SPEED OPTIMIZATIONS (Bypasses ARM Floating Point Math) ---
     cinfo_d->dct_method = JDCT_IFAST; 
     cinfo_d->do_fancy_upsampling = FALSE; 
-    // --------------------------------------------------------------------
-
     jpeg_start_decompress(cinfo_d);
 
     cinfo_c->err = jpeg_std_error(&jerr_c->pub);
@@ -134,11 +129,7 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
     cinfo_c->in_color_space = JCS_RGB;
     jpeg_set_defaults(cinfo_c); 
     jpeg_set_quality(cinfo_c, 95, TRUE); 
-
-    // --- TURBO SPEED OPTIMIZATIONS (Bypasses ARM Floating Point Math) ---
     cinfo_c->dct_method = JDCT_IFAST; 
-    // --------------------------------------------------------------------
-
     jpeg_start_compress(cinfo_c, TRUE);
 
     int lutMax = nativeLutSize > 0 ? nativeLutSize - 1 : 0;
@@ -154,7 +145,7 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
     int row_stride = cinfo_d->output_width * cinfo_d->output_components;
     JSAMPARRAY buffer = (*cinfo_d->mem->alloc_sarray)((j_common_ptr) cinfo_d, JPOOL_IMAGE, row_stride, 1);
 
-    const int* pR = hasLut ? &nativeLutR[0] : NULL; const int* pG = hasLut ? &nativeLutG[0] : NULL; const int* pB = hasLut ? &nativeLutB[0] : NULL;
+    const uint8_t* pLut = hasLut ? &nativeLut[0] : NULL;
 
     long long cx = cinfo_d->output_width / 2; long long cy = cinfo_d->output_height / 2;
     long long max_dist_sq = cx*cx + cy*cy; if (max_dist_sq == 0) max_dist_sq = 1;
@@ -210,9 +201,12 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
                     else { v0=i000; v1=i010; v2=i110; v3=i111; w0=128-dy_lut; w1=dy_lut-dx; w2=dx-dz; w3=dz; }
                 }
 
-                int lutR = (pR[v0]*w0 + pR[v1]*w1 + pR[v2]*w2 + pR[v3]*w3) >> 7;
-                int lutG = (pG[v0]*w0 + pG[v1]*w1 + pG[v2]*w2 + pG[v3]*w3) >> 7;
-                int lutB = (pB[v0]*w0 + pB[v1]*w1 + pB[v2]*w2 + pB[v3]*w3) >> 7;
+                // CACHE OPTIMIZED FETCH: Sequential Interleaved Lookup
+                int id0 = v0*3; int id1 = v1*3; int id2 = v2*3; int id3 = v3*3;
+
+                int lutR = (pLut[id0]*w0 + pLut[id1]*w1 + pLut[id2]*w2 + pLut[id3]*w3) >> 7;
+                int lutG = (pLut[id0+1]*w0 + pLut[id1+1]*w1 + pLut[id2+1]*w2 + pLut[id3+1]*w3) >> 7;
+                int lutB = (pLut[id0+2]*w0 + pLut[id1+2]*w1 + pLut[id2+2]*w2 + pLut[id3+2]*w3) >> 7;
 
                 if (opacity < 100) {
                     outR = origR + (((lutR - origR) * opac_mapped) >> 8);

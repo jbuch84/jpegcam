@@ -1,6 +1,5 @@
 package com.github.ma1co.pmcademo.app;
 
-// NO R IMPORT - Completely Clean!
 import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -40,7 +39,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private boolean hasSurface = false; 
     
     private FrameLayout mainUIContainer;
-    private LinearLayout menuContainer; // Pure static grid.
+    private LinearLayout menuContainer; 
     private LinearLayout[] menuRows = new LinearLayout[11];
     private TextView[] menuLabels = new TextView[11];
     private TextView[] menuValues = new TextView[11];
@@ -147,7 +146,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         botParams.setMargins(0, 0, 0, 30);
         mainUIContainer.addView(tvBottomBar, botParams);
 
-        // STATIC FULL-SCREEN TABLE MENU
         menuContainer = new LinearLayout(this);
         menuContainer.setOrientation(LinearLayout.VERTICAL);
         menuContainer.setBackgroundColor(Color.argb(245, 10, 10, 10)); 
@@ -158,7 +156,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             menuRows[i].setOrientation(LinearLayout.HORIZONTAL);
             menuRows[i].setGravity(Gravity.CENTER_VERTICAL);
             
-            // Layout Weight stretches rows to fit exactly on the screen
             LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, 0, 1.0f);
             menuContainer.addView(menuRows[i], rowParams);
             
@@ -248,19 +245,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             Matrix matrix = new Matrix(); 
             if (rotationAngle != 0) matrix.postRotate(rotationAngle);
             
-            // THE SONY LCD STRETCH FIX:
-            // Android forces 4:3 OS output, but Sony physically stretches the screen to 3:2.
-            // We counter this by squeezing the X-axis mathematically.
-            float targetWidth = (rotationAngle == 90 || rotationAngle == 270) ? 480.0f : 640.0f;
-            float ratio = targetWidth / rawBitmap.getWidth();
-            
-            if (ratio < 1.0f) {
-                // Applies the squeeze AND the downscale for memory
-                matrix.postScale(ratio * 0.8888f, ratio);
-            } else {
-                // Just applies the squeeze
-                matrix.postScale(0.8888f, 1.0f);
-            }
+            // PURE ANAMORPHIC FIX: Let ImageView FIT_CENTER do the bounds scaling. 
+            // We just pre-squish the final X axis output to perfectly counter the Sony LCD stretch.
+            matrix.postScale(0.8888f, 1.0f);
 
             currentPlaybackBitmap = Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.getWidth(), rawBitmap.getHeight(), matrix, true); 
             if (currentPlaybackBitmap != rawBitmap) rawBitmap.recycle();
@@ -579,7 +566,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             @Override public void run() {
                 while (isPolling) {
                     try {
-                        // Sped up polling cycle
                         Thread.sleep(150); 
                         File dcim = new File(Environment.getExternalStorageDirectory(), "DCIM");
                         File sonyDir = new File(dcim, "100MSDCF");
@@ -627,7 +613,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 File original = new File(params[0]);
                 if (!original.exists()) return "ERR";
                 long lastSize = -1; int timeout = 0;
-                // Sped up timeout cycle logic
                 while (timeout < 100) {
                     long currentSize = original.length();
                     if (currentSize > 0 && currentSize == lastSize) break;
