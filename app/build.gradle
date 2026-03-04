@@ -41,4 +41,11 @@ android {
 dependencies {
     implementation 'com.github.ma1co.OpenMemories-Framework:framework:-SNAPSHOT'
     compileOnly 'com.github.ma1co.OpenMemories-Framework:stubs:-SNAPSHOT'
+} // <--- Notice this closing brace here! It closes the dependencies block.
+
+// The pmca block sits out here on its own:
+pmca {
+    id 'com.jpgcookbook.sony'
+    version '1.0'
+    name 'JPG Cookbook'
 }
