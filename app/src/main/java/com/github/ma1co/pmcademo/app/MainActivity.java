@@ -482,7 +482,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 tvBottomBar.setVisibility(View.GONE);
             }
             
-            // FIRE THE PROBE!
+            // FIRE THE DIAGNOSTIC PROBE!
             runAfDiagnostics();
             
             return super.onKeyDown(keyCode, event);
@@ -553,9 +553,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             if (displayState == 0 && !isMenuOpen && !isPlaybackMode) {
                 tvTopStatus.setVisibility(View.VISIBLE);
                 tvBottomBar.setVisibility(View.VISIBLE);
-            }
-            if (mCamera != null) {
-                try { mCamera.cancelAutoFocus(); } catch (Exception e) {}
             }
             return super.onKeyUp(keyCode, event);
         }
