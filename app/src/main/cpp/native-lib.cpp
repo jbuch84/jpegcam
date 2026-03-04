@@ -10,7 +10,7 @@
 #define LOG_TAG "COOKBOOK_LOG"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-// NEW: Interleaved RGB array fits inside L2 Cache to eliminate Memory Thrashing
+// Interleaved RGB array fits inside L2 Cache to eliminate Memory Thrashing
 std::vector<uint8_t> nativeLut; 
 int nativeLutSize = 0;
 
@@ -26,12 +26,7 @@ METHODDEF(void) my_error_exit (j_common_ptr cinfo) {
 METHODDEF(void) my_emit_message (j_common_ptr cinfo, int msg_level) {}
 METHODDEF(void) my_output_message (j_common_ptr cinfo) {}
 
-inline int spatial_noise(int x, int y, uint32_t seed) {
-    uint32_t h = seed + (uint32_t)x * 374761393 + (uint32_t)y * 668265263;
-    h = (h ^ (h >> 13)) * 1274126177;
-    return ((h ^ (h >> 16)) & 0xFF) - 128; 
-}
-
+// PURE FAST XOR-SHIFT: For continuous, organic, non-pixelated noise
 inline uint32_t fast_rand(uint32_t* state) {
     uint32_t x = *state;
     x ^= x << 13; x ^= x >> 17; x ^= x << 5;
@@ -109,8 +104,11 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
     cinfo_d->scale_num = 1; 
     cinfo_d->scale_denom = scaleDenom; 
     cinfo_d->out_color_space = JCS_RGB; 
-    cinfo_d->dct_method = JDCT_IFAST; 
-    cinfo_d->do_fancy_upsampling = FALSE; 
+    
+    // QUALITY OVER SPEED: Removed IFAST and forced High-Quality Upsampling
+    cinfo_d->dct_method = JDCT_ISLOW; 
+    cinfo_d->do_fancy_upsampling = TRUE; 
+
     jpeg_start_decompress(cinfo_d);
 
     cinfo_c->err = jpeg_std_error(&jerr_c->pub);
@@ -129,7 +127,7 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
     cinfo_c->in_color_space = JCS_RGB;
     jpeg_set_defaults(cinfo_c); 
     jpeg_set_quality(cinfo_c, 95, TRUE); 
-    cinfo_c->dct_method = JDCT_IFAST; 
+    cinfo_c->dct_method = JDCT_ISLOW; // Maximum compression quality
     jpeg_start_compress(cinfo_c, TRUE);
 
     int lutMax = nativeLutSize > 0 ? nativeLutSize - 1 : 0;
@@ -154,9 +152,6 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
     long long vig_coef = ((long long)vig_mapped << 24) / max_dist_sq; 
     int opac_mapped = (opacity * 256) / 100;
 
-    int base_div = 4 / scaleDenom; 
-    if (base_div < 1) base_div = 1;
-    int active_grain_div = base_div * (grainSize + 1); 
     uint32_t master_seed = 98765;
 
     while (cinfo_d->output_scanline < cinfo_d->output_height) {
@@ -166,9 +161,9 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
         
         long long dy = current_y - cy;
         long long dy_sq = dy * dy;
-        int noise_y = current_y / active_grain_div;
 
         uint32_t seed = master_seed + (current_y * 1337);
+        int prev_noise = 0; // Used to smoothly blend large grain
 
         for (int x = 0; x < row_stride; x += 3) {
             int origR = row[x]; int origG = row[x+1]; int origB = row[x+2];
@@ -226,21 +221,23 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(JNIEnv* env, job
             }
 
             if (grain > 0) {
-                int pixel_noise = (fast_rand(&seed) & 0xFF) - 128; 
+                int raw_noise = (fast_rand(&seed) & 0xFF) - 128; 
                 int noise;
                 
+                // NO MORE SQUARES: Soft, continuous 1D blending for larger grain
                 if (grainSize == 0) {
-                    noise = pixel_noise; 
+                    noise = raw_noise; 
+                } else if (grainSize == 1) {
+                    noise = (raw_noise + prev_noise) >> 1; 
                 } else {
-                    int noise_x = (x / 3) / active_grain_div;
-                    int block_noise = spatial_noise(noise_x, noise_y, master_seed);
-                    if (grainSize == 1) noise = (block_noise * 2 + pixel_noise) / 3;
-                    else noise = (block_noise * 3 + pixel_noise) / 4;
+                    noise = (raw_noise + (prev_noise * 2)) / 3; 
                 }
+                prev_noise = raw_noise;
                 
                 int lum = (outR*77 + outG*150 + outB*29) >> 8; 
                 int mask = lum < 128 ? lum : 255 - lum; 
                 
+                // QUADRATIC SHADOW SUPPRESSION: Protects the deep blacks from becoming noisy
                 if (lum < 64) {
                     mask = (mask * lum) >> 6; 
                 }
