@@ -75,7 +75,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private boolean isPolling = false;
     private long lastNewestFileTime = 0;
     
-    private FocusOverlayView afOverlay;
+    private FocusReticleView afReticle;
 
     private ArrayList<String> recipePaths = new ArrayList<String>();
     private ArrayList<String> recipeNames = new ArrayList<String>();
@@ -157,8 +157,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         botParams.setMargins(0, 0, 0, 30);
         mainUIContainer.addView(tvBottomBar, botParams);
 
-        afOverlay = new FocusOverlayView(this);
-        mainUIContainer.addView(afOverlay, new FrameLayout.LayoutParams(-1, -1));
+        afReticle = new FocusReticleView(this);
+        mainUIContainer.addView(afReticle, new FrameLayout.LayoutParams(-1, -1));
 
         menuContainer = new LinearLayout(this);
         menuContainer.setOrientation(LinearLayout.VERTICAL);
@@ -211,6 +211,50 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
 
         updateMainHUD();
         renderMenu();
+    }
+
+    // =========================================================================
+    // THE OPENMEMORIES IPC PROBE (TESTING SCALARWEBAPI)
+    // =========================================================================
+    private void testIpcTheory() {
+        Log.i("COOKBOOK_AF_IPC", "=== STARTING OPENMEMORIES IPC TEST ===");
+        try {
+            Log.i("COOKBOOK_AF_IPC", "Test 1: Checking for ScalarWebAPI class...");
+            Class<?> scalarClass = Class.forName("com.sony.scalar.sysutil.ScalarWebAPI");
+            Log.i("COOKBOOK_AF_IPC", "SUCCESS: ScalarWebAPI class found!");
+
+            Log.i("COOKBOOK_AF_IPC", "Test 2: Attempting to get Instance...");
+            Method getInstance = scalarClass.getMethod("getInstance", Context.class);
+            Object scalarInstance = getInstance.invoke(null, getApplicationContext());
+            Log.i("COOKBOOK_AF_IPC", "SUCCESS: Instance retrieved! Connection to Daemon established.");
+
+            Log.i("COOKBOOK_AF_IPC", "Test 3: Reading afStatus...");
+            Method getInt = scalarClass.getMethod("getInt", String.class);
+            int afStatus = (Integer) getInt.invoke(scalarInstance, "afStatus");
+            Log.i("COOKBOOK_AF_IPC", "SUCCESS: afStatus = " + afStatus);
+
+            Log.i("COOKBOOK_AF_IPC", "Test 4: Reading isoSensitivity...");
+            int iso = (Integer) getInt.invoke(scalarInstance, "isoSensitivity");
+            Log.i("COOKBOOK_AF_IPC", "SUCCESS: isoSensitivity = " + iso);
+
+            Log.i("COOKBOOK_AF_IPC", "Test 5: Getting Focus Areas...");
+            Method getFocusAreas = scalarClass.getMethod("getFocusAreas");
+            Object[] areas = (Object[]) getFocusAreas.invoke(scalarInstance);
+            if (areas != null) {
+                Log.i("COOKBOOK_AF_IPC", "SUCCESS: Found " + areas.length + " focus areas via IPC!");
+            } else {
+                Log.i("COOKBOOK_AF_IPC", "SUCCESS: Method called, but returned null.");
+            }
+
+        } catch (ClassNotFoundException e) {
+            Log.e("COOKBOOK_AF_IPC", "FAILED: ScalarWebAPI Class NOT FOUND in this ClassLoader.");
+        } catch (NoSuchMethodException e) {
+            Log.e("COOKBOOK_AF_IPC", "FAILED: Method not found - " + e.getMessage());
+        } catch (Exception e) {
+            Log.e("COOKBOOK_AF_IPC", "FAILED: " + e.toString());
+            if (e.getCause() != null) Log.e("COOKBOOK_AF_IPC", "Cause: " + e.getCause().toString());
+        }
+        Log.i("COOKBOOK_AF_IPC", "=== END OPENMEMORIES IPC TEST ===");
     }
 
     private void refreshPlaybackFiles() {
@@ -405,23 +449,38 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         int sc = event.getScanCode();
         
         // -------------------------------------------------------------
-        // IMMERSIVE MODE & AF OVERLAY W/ SCALARWEBAPI
+        // IMMERSIVE MODE, IPC TEST, & AF RETICLE
         // -------------------------------------------------------------
         if (sc == ScalarInput.ISV_KEY_S1_1 && event.getRepeatCount() == 0) {
+            
+            // FIRE THE IPC THEORY PROBE
+            testIpcTheory();
+
+            // Hide UI
             if (displayState == 0 && !isMenuOpen && !isPlaybackMode) {
                 tvTopStatus.setVisibility(View.GONE);
                 tvBottomBar.setVisibility(View.GONE);
             }
             
-            // Trigger actual focus hardware, then start our wrapper polling loop
-            if (mCamera != null) { try { mCamera.autoFocus(null); } catch (Exception e) {} }
-            if (afOverlay != null) { afOverlay.startPolling(); }
+            // Set reticle to Yellow (Searching) and trigger standard focus
+            afReticle.setState(FocusReticleView.State.SEARCHING);
+            if (mCamera != null) {
+                try {
+                    mCamera.autoFocus(new Camera.AutoFocusCallback() {
+                        @Override
+                        public void onAutoFocus(boolean success, Camera camera) {
+                            if (success) afReticle.setState(FocusReticleView.State.LOCKED);
+                            else afReticle.setState(FocusReticleView.State.FAILED);
+                        }
+                    });
+                } catch (Exception e) { afReticle.setState(FocusReticleView.State.IDLE); }
+            }
             
             return super.onKeyDown(keyCode, event);
         }
 
         if (sc == ScalarInput.ISV_KEY_S1_2) {
-            return super.onKeyDown(keyCode, event);
+            return super.onKeyDown(keyCode, event); // Pass through to startDirectShutter
         }
 
         if (sc == ScalarInput.ISV_KEY_DELETE) { 
@@ -484,15 +543,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     @Override public boolean onKeyUp(int keyCode, KeyEvent event) {
         int sc = event.getScanCode();
         
-        // RESTORE IMMERSIVE MODE & KILL LOOP
+        // RESTORE IMMERSIVE MODE & RETICLE RESET (HALF-PRESS RELEASE)
         if (sc == ScalarInput.ISV_KEY_S1_1) {
             if (displayState == 0 && !isMenuOpen && !isPlaybackMode) {
                 tvTopStatus.setVisibility(View.VISIBLE);
                 tvBottomBar.setVisibility(View.VISIBLE);
             }
-            if (mCamera != null) { try { mCamera.cancelAutoFocus(); } catch (Exception e) {} }
-            if (afOverlay != null) { afOverlay.stopPolling(); }
-            
+            afReticle.setState(FocusReticleView.State.IDLE);
+            if (mCamera != null) {
+                try { mCamera.cancelAutoFocus(); } catch (Exception e) {}
+            }
             return super.onKeyUp(keyCode, event);
         }
         return super.onKeyUp(keyCode, event);
@@ -747,122 +807,65 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     @Override public void onShutterSpeedChange(CameraEx.ShutterSpeedInfo i, CameraEx c) { updateMainHUD(); }
     @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int h1) {}
 
-    // =========================================================================
-    // SCALARWEBAPI IPC WRAPPER & AF HUD
-    // =========================================================================
-    private class FocusOverlayView extends View {
-        private Paint paint;
-        private Object scalarInstance;
-        private Method getIntMethod;
-        private Method getFocusAreasMethod;
-        private boolean isPolling = false;
 
-        public FocusOverlayView(Context context) {
+    // =========================================================================
+    // CUSTOM AF HUD OVERLAY (CENTER RETICLE)
+    // =========================================================================
+    private class FocusReticleView extends View {
+        private Paint paint;
+        public enum State { IDLE, SEARCHING, LOCKED, FAILED }
+        private State currentState = State.IDLE;
+
+        public FocusReticleView(Context context) {
             super(context);
             paint = new Paint();
             paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(6);
+            paint.setStrokeWidth(4);
             paint.setAntiAlias(true);
-
-            try {
-                // Since you added the <uses-library> to Manifest, Dalvik will finally allow this!
-                Class<?> scalarClass = Class.forName("com.sony.scalar.sysutil.ScalarWebAPI");
-                Constructor<?> ctor = scalarClass.getDeclaredConstructor(Context.class);
-                ctor.setAccessible(true);
-                scalarInstance = ctor.newInstance(context.getApplicationContext());
-
-                getIntMethod = scalarClass.getMethod("getInt", String.class);
-                getFocusAreasMethod = scalarClass.getMethod("getFocusAreas");
-                Log.i("COOKBOOK_AF", "SUCCESS: ScalarWebAPI IPC Connection Established!");
-            } catch (Exception e) {
-                Log.e("COOKBOOK_AF", "Failed to hook ScalarWebAPI: " + e.getMessage());
-            }
         }
 
-        public void startPolling() {
-            if (!isPolling && scalarInstance != null) {
-                isPolling = true;
-                invalidate();
-            }
-        }
-
-        public void stopPolling() {
-            isPolling = false;
-        }
-
-        public void clearBoxes() {
-            stopPolling();
-            invalidate();
+        public void setState(State state) {
+            this.currentState = state;
+            invalidate(); // Redraw the UI immediately
         }
 
         @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
+
+            // Determine color based on Focus State
+            switch (currentState) {
+                case IDLE:      paint.setColor(Color.argb(100, 255, 255, 255)); break; // Faint White
+                case SEARCHING: paint.setColor(Color.YELLOW); break;
+                case LOCKED:    paint.setColor(Color.GREEN); break;
+                case FAILED:    paint.setColor(Color.RED); break;
+            }
+
+            int cx = getWidth() / 2;
+            int cy = getHeight() / 2;
+            int size = 60; // Size of the reticle
+            int bracket = 15; // Length of the "L" bracket arms
+
+            // Draw Top-Left Bracket
+            canvas.drawLine(cx - size, cy - size, cx - size + bracket, cy - size, paint);
+            canvas.drawLine(cx - size, cy - size, cx - size, cy - size + bracket, paint);
+
+            // Draw Top-Right Bracket
+            canvas.drawLine(cx + size, cy - size, cx + size - bracket, cy - size, paint);
+            canvas.drawLine(cx + size, cy - size, cx + size, cy - size + bracket, paint);
+
+            // Draw Bottom-Left Bracket
+            canvas.drawLine(cx - size, cy + size, cx - size + bracket, cy + size, paint);
+            canvas.drawLine(cx - size, cy + size, cx - size, cy + size - bracket, paint);
+
+            // Draw Bottom-Right Bracket
+            canvas.drawLine(cx + size, cy + size, cx - size, cy + size - bracket, paint);
+            canvas.drawLine(cx + size, cy + size, cx - size, cy + size - bracket, paint);
             
-            if (!isPolling || scalarInstance == null) return;
-
-            try {
-                // 1. Get AF Status (0 = Searching/Yellow, 1 = Locked/Green)
-                int afStatus = (Integer) getIntMethod.invoke(scalarInstance, "afStatus");
-                if (afStatus == 1) {
-                    paint.setColor(Color.GREEN);
-                } else {
-                    paint.setColor(Color.YELLOW);
-                }
-
-                // 2. Extract and draw the boxes!
-                Object[] areas = (Object[]) getFocusAreasMethod.invoke(scalarInstance);
-                if (areas != null && areas.length > 0) {
-                    for (Object area : areas) {
-                        int left = 0, top = 0, right = 0, bottom = 0;
-                        
-                        try {
-                            // Try standard Camera.Area Rect mapping first
-                            Field rectField = area.getClass().getField("rect");
-                            Object rectObj = rectField.get(area);
-                            left = rectObj.getClass().getField("left").getInt(rectObj);
-                            top = rectObj.getClass().getField("top").getInt(rectObj);
-                            right = rectObj.getClass().getField("right").getInt(rectObj);
-                            bottom = rectObj.getClass().getField("bottom").getInt(rectObj);
-                        } catch (Exception e1) {
-                            try {
-                                // Fallback for custom Sony FocusArea objects (x, y, w, h)
-                                left = area.getClass().getField("x").getInt(area);
-                                top = area.getClass().getField("y").getInt(area);
-                                int w = area.getClass().getField("w").getInt(area);
-                                int h = area.getClass().getField("h").getInt(area);
-                                right = left + w;
-                                bottom = top + h;
-                            } catch (Exception e2) {}
-                        }
-
-                        // Matrix conversion math
-                        float dLeft, dTop, dRight, dBottom;
-                        if (right <= 100 && bottom <= 100) { 
-                            dLeft = (left / 100f) * getWidth();
-                            dTop = (top / 100f) * getHeight();
-                            dRight = (right / 100f) * getWidth();
-                            dBottom = (bottom / 100f) * getHeight();
-                        } else if (right <= 1000 && bottom <= 1000) { 
-                            dLeft = ((left + 1000) / 2000f) * getWidth();
-                            dTop = ((top + 1000) / 2000f) * getHeight();
-                            dRight = ((right + 1000) / 2000f) * getWidth();
-                            dBottom = ((bottom + 1000) / 2000f) * getHeight();
-                        } else { 
-                            dLeft = (left / 6000f) * getWidth();
-                            dTop = (top / 4000f) * getHeight();
-                            dRight = (right / 6000f) * getWidth();
-                            dBottom = (bottom / 4000f) * getHeight();
-                        }
-
-                        // Draw the box!
-                        canvas.drawRect(dLeft, dTop, dRight, dBottom, paint);
-                    }
-                }
-            } catch (Exception e) {}
-
-            // Poll the IPC Daemon at ~20 frames per second while S1 is held
-            postInvalidateDelayed(50);
+            // Draw Center Dot
+            paint.setStyle(Paint.Style.FILL);
+            canvas.drawCircle(cx, cy, 3, paint);
+            paint.setStyle(Paint.Style.STROKE);
         }
     }
 }
