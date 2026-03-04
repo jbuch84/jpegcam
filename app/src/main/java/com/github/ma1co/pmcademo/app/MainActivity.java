@@ -30,9 +30,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.content.Context;
 
-// -----------------------------------------
 // SONY SCALAR & AF HUD IMPORTS
-// -----------------------------------------
 import com.sony.scalar.hardware.CameraEx;
 import com.sony.scalar.sysutil.ScalarInput;
 import com.sony.scalar.sysutil.ScalarWebAPI;
@@ -76,7 +74,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private boolean isPolling = false;
     private long lastNewestFileTime = 0;
 
-    private FocusOverlayView afOverlay; // The Custom AF HUD
+    private FocusOverlayView afOverlay; 
     
     private ArrayList<String> recipePaths = new ArrayList<String>();
     private ArrayList<String> recipeNames = new ArrayList<String>();
@@ -158,7 +156,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         botParams.setMargins(0, 0, 0, 30);
         mainUIContainer.addView(tvBottomBar, botParams);
 
-        // INSTANTIATE AND ADD THE AF OVERLAY (Sits exactly over the camera feed)
         afOverlay = new FocusOverlayView(this);
         mainUIContainer.addView(afOverlay, new FrameLayout.LayoutParams(-1, -1));
 
@@ -241,7 +238,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         }
         
         try {
-            // EXIF EXTRACTION
             ExifInterface exif = new ExifInterface(imgFile.getAbsolutePath());
             String fnum = exif.getAttribute("FNumber");
             String speed = exif.getAttribute("ExposureTime");
@@ -264,7 +260,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                               + apStr + " | " + speedStr + " | " + isoStr;
             tvPlaybackInfo.setText(metaText);
 
-            // DYNAMIC LCD THUMBNAIL SCALING
             BitmapFactory.Options options = new BitmapFactory.Options();
             options.inJustDecodeBounds = true; 
             BitmapFactory.decodeFile(imgFile.getAbsolutePath(), options);
@@ -686,7 +681,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 mCameraEx.setAutoPictureReviewControl(apr); apr.setPictureReviewTime(0);
                 mCamera.setPreviewDisplay(mSurfaceView.getHolder()); mCamera.startPreview(); 
                 
-                if (afOverlay != null) afOverlay.startPolling(); // START AF HUD
+                if (afOverlay != null) afOverlay.startPolling(); 
 
                 updateMainHUD();
             } catch (Exception e) {} 
@@ -694,7 +689,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     }
 
     private void closeCamera() {
-        if (afOverlay != null) afOverlay.stopPolling(); // STOP AF HUD
+        if (afOverlay != null) afOverlay.stopPolling(); 
         if (mCameraEx != null) { mCameraEx.release(); mCameraEx = null; mCamera = null; }
     }
 
@@ -720,7 +715,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
 
 
     // =========================================================================
-    // CUSTOM AF HUD OVERLAY (Dynamic Scaling Auto-Box)
+    // CUSTOM AF HUD OVERLAY
     // =========================================================================
     private class FocusOverlayView extends View {
         private Paint greenPaint;
@@ -752,9 +747,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             if (!isPolling) return;
 
             try {
-                ScalarWebAPI scalar = ScalarWebAPI.getInstance(getContext());
+                // Correctly instantiating the Scalar API object
+                ScalarWebAPI scalar = new ScalarWebAPI(getContext());
                 
-                // afStatus == 1 usually means the lens is actively locked onto a target
                 if (scalar.getInt("afStatus") == 1) { 
                     FocusArea[] areas = scalar.getFocusAreas();
                     if (areas != null) {
@@ -765,8 +760,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                             float right = area.right;
                             float bottom = area.bottom;
 
-                            // DYNAMIC MATH: Safely maps coordinates to the LCD whether 
-                            // the camera returns percentages (0-100), grids (0-1000), or raw pixels.
                             if (right <= 100 && bottom <= 100) { 
                                 left = (area.x / 100f) * getWidth();
                                 top = (area.y / 100f) * getHeight();
@@ -790,7 +783,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 }
             } catch (Exception e) {}
 
-            postInvalidateDelayed(100); // Loop this frame 10 times a second
+            postInvalidateDelayed(100); 
         }
     }
 }
