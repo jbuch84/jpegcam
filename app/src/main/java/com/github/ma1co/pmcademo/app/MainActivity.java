@@ -19,8 +19,6 @@ import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.Handler;
-import android.text.Html;
 import android.util.Pair;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -50,7 +48,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private TextView[] menuLabels = new TextView[12];
     private TextView[] menuValues = new TextView[12];
     
-    private TextView tvBottomBar, tvTopStatus, tvBattery, tvReview, tvMode, tvFocusMode; 
+    private TextView tvTopStatus, tvBattery, tvReview, tvMode, tvFocusMode; 
+    private LinearLayout llBottomBar;
+    private TextView tvValShutter, tvValAperture, tvValIso, tvValEv;
     
     private FrameLayout playbackContainer;
     private ImageView playbackImageView;
@@ -105,17 +105,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 lastBatteryLevel = (level * 100) / scale;
                 if (tvBattery != null) tvBattery.setText(lastBatteryLevel + "%");
             }
-        }
-    };
-
-    private Handler uiHandler = new Handler();
-    private Runnable liveUpdater = new Runnable() {
-        @Override
-        public void run() {
-            if (displayState == 0 && !isMenuOpen && !isPlaybackMode && !isProcessing && hasSurface && mCamera != null) {
-                updateMainHUD();
-            }
-            uiHandler.postDelayed(this, 500); 
         }
     };
 
@@ -257,14 +246,24 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         fmParams.setMargins(0, 0, 0, 100); 
         mainUIContainer.addView(focusMeter, fmParams);
 
-        tvBottomBar = new TextView(this);
-        tvBottomBar.setTextSize(26);
-        tvBottomBar.setTypeface(Typeface.DEFAULT_BOLD);
-        tvBottomBar.setShadowLayer(4, 0, 0, Color.BLACK);
-        tvBottomBar.setGravity(Gravity.CENTER_HORIZONTAL);
+        // Phase 4: CPU Optimized HTML-Free Bottom Bar
+        llBottomBar = new LinearLayout(this);
+        llBottomBar.setOrientation(LinearLayout.HORIZONTAL);
+        llBottomBar.setGravity(Gravity.CENTER);
+        
+        tvValShutter = createBottomText();
+        tvValAperture = createBottomText();
+        tvValIso = createBottomText();
+        tvValEv = createBottomText();
+
+        llBottomBar.addView(tvValShutter);
+        llBottomBar.addView(tvValAperture);
+        llBottomBar.addView(tvValIso);
+        llBottomBar.addView(tvValEv);
+
         FrameLayout.LayoutParams botParams = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
         botParams.setMargins(0, 0, 0, 25);
-        mainUIContainer.addView(tvBottomBar, botParams);
+        mainUIContainer.addView(llBottomBar, botParams);
 
         afOverlay = new ProReticleView(this);
         mainUIContainer.addView(afOverlay, new FrameLayout.LayoutParams(-1, -1));
@@ -317,6 +316,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
 
         updateMainHUD();
         renderMenu();
+    }
+
+    private TextView createBottomText() {
+        TextView tv = new TextView(this);
+        tv.setTextSize(26);
+        tv.setTypeface(Typeface.DEFAULT_BOLD);
+        tv.setShadowLayer(4, 0, 0, Color.BLACK);
+        tv.setPadding(20, 0, 20, 0); 
+        return tv;
     }
 
     private TextView createSideTextIcon(String text) {
@@ -514,7 +522,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         int sc = event.getScanCode();
         if (sc == ScalarInput.ISV_KEY_S1_1 && event.getRepeatCount() == 0) {
             if (displayState == 0 && !isMenuOpen && !isPlaybackMode) {
-                tvTopStatus.setVisibility(View.GONE); tvBottomBar.setVisibility(View.GONE);
+                tvTopStatus.setVisibility(View.GONE); llBottomBar.setVisibility(View.GONE);
                 tvBattery.setVisibility(View.GONE); tvMode.setVisibility(View.GONE); tvFocusMode.setVisibility(View.GONE); tvReview.setVisibility(View.GONE);
                 if (focusMeter != null) focusMeter.setVisibility(View.GONE);
             }
@@ -579,7 +587,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     public boolean onKeyUp(int keyCode, KeyEvent event) {
         if (event.getScanCode() == ScalarInput.ISV_KEY_S1_1) {
             if (displayState == 0 && !isMenuOpen && !isPlaybackMode) {
-                tvTopStatus.setVisibility(View.VISIBLE); tvBottomBar.setVisibility(View.VISIBLE);
+                tvTopStatus.setVisibility(View.VISIBLE); llBottomBar.setVisibility(View.VISIBLE);
                 tvBattery.setVisibility(View.VISIBLE); tvMode.setVisibility(View.VISIBLE); tvFocusMode.setVisibility(View.VISIBLE);
                 if (focusMeter != null) focusMeter.setVisibility(View.VISIBLE);
                 tvReview.setVisibility(View.VISIBLE);
@@ -704,9 +712,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             }
             updateMainHUD();
         } catch (Exception e) {}
-
-        uiHandler.removeCallbacks(liveUpdater);
-        uiHandler.postDelayed(liveUpdater, 1000); 
     }
 
     private void updateMainHUD() {
@@ -760,16 +765,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             String iso = pm.getISOSensitivity() == 0 ? "ISO AUTO" : "ISO " + pm.getISOSensitivity();
             String exp = String.format("%+.1f", params.getExposureCompensation() * params.getExposureCompensationStep());
 
-            String cAct = "<font color='#E6320F'>"; String cDef = "<font color='#FFFFFF'>"; String cEnd = "</font>";
-            String space = "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"; 
+            // Phase 4: CPU Optimized HTML-Free Text Setting
+            tvValShutter.setText(ss);
+            tvValShutter.setTextColor(mDialMode == DIAL_MODE_SHUTTER ? Color.rgb(230, 50, 15) : Color.WHITE);
 
-            StringBuilder sb = new StringBuilder();
-            sb.append(mDialMode == DIAL_MODE_SHUTTER ? cAct : cDef).append(ss).append(cEnd).append(space);
-            sb.append(mDialMode == DIAL_MODE_APERTURE ? cAct : cDef).append(ap).append(cEnd).append(space);
-            sb.append(mDialMode == DIAL_MODE_ISO ? cAct : cDef).append(iso).append(cEnd).append(space);
-            sb.append(mDialMode == DIAL_MODE_EXPOSURE ? cAct : cDef).append(exp).append(cEnd);
+            tvValAperture.setText(ap);
+            tvValAperture.setTextColor(mDialMode == DIAL_MODE_APERTURE ? Color.rgb(230, 50, 15) : Color.WHITE);
 
-            tvBottomBar.setText(Html.fromHtml(sb.toString()));
+            tvValIso.setText(iso);
+            tvValIso.setTextColor(mDialMode == DIAL_MODE_ISO ? Color.rgb(230, 50, 15) : Color.WHITE);
+
+            tvValEv.setText(exp);
+            tvValEv.setTextColor(mDialMode == DIAL_MODE_EXPOSURE ? Color.rgb(230, 50, 15) : Color.WHITE);
+
         } catch (Exception e) {}
     }
 
@@ -813,14 +821,45 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 mCamera = mCameraEx.getNormalCamera();
                 mCameraEx.startDirectShutter(); 
                 
+                // Phase 4: CPU Optimized Event-Driven Exposure Listeners via Reflection
+                try {
+                    Class<?> apListenerClass = Class.forName("com.sony.scalar.hardware.CameraEx$ApertureChangeListener");
+                    Object apProxy = java.lang.reflect.Proxy.newProxyInstance(
+                        getClass().getClassLoader(), new Class[] { apListenerClass },
+                        new java.lang.reflect.InvocationHandler() {
+                            @Override public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] args) {
+                                if (method.getName().equals("onApertureChange")) {
+                                    runOnUiThread(new Runnable() { @Override public void run() { updateMainHUD(); } });
+                                }
+                                return null;
+                            }
+                        }
+                    );
+                    mCameraEx.getClass().getMethod("setApertureChangeListener", apListenerClass).invoke(mCameraEx, apProxy);
+                } catch (Exception e) {}
+
+                try {
+                    Class<?> isoListenerClass = Class.forName("com.sony.scalar.hardware.CameraEx$AutoISOSensitivityListener");
+                    Object isoProxy = java.lang.reflect.Proxy.newProxyInstance(
+                        getClass().getClassLoader(), new Class[] { isoListenerClass },
+                        new java.lang.reflect.InvocationHandler() {
+                            @Override public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] args) {
+                                if (method.getName().equals("onChanged")) {
+                                    runOnUiThread(new Runnable() { @Override public void run() { updateMainHUD(); } });
+                                }
+                                return null;
+                            }
+                        }
+                    );
+                    mCameraEx.getClass().getMethod("setAutoISOSensitivityListener", isoListenerClass).invoke(mCameraEx, isoProxy);
+                } catch (Exception e) {}
+
                 try {
                     Class<?> listenerClass = Class.forName("com.sony.scalar.hardware.CameraEx$FocusDriveListener");
                     Object proxy = java.lang.reflect.Proxy.newProxyInstance(
-                        getClass().getClassLoader(),
-                        new Class[] { listenerClass },
+                        getClass().getClassLoader(), new Class[] { listenerClass },
                         new java.lang.reflect.InvocationHandler() {
-                            @Override
-                            public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] args) throws Throwable {
+                            @Override public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] args) throws Throwable {
                                 if (method.getName().equals("onChanged") && args != null && args.length == 2) {
                                     Object pos = args[0];
                                     if (pos != null) {
@@ -875,28 +914,30 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         if (mCamera != null) updateMainHUD(); 
         registerReceiver(batteryReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
         if (mScanner != null) mScanner.start(); 
-        uiHandler.post(liveUpdater);
     }
     
     @Override protected void onPause() { 
         super.onPause(); closeCamera(); 
         try { unregisterReceiver(batteryReceiver); } catch (Exception e) {}
         if (mScanner != null) mScanner.stop(); 
-        uiHandler.removeCallbacks(liveUpdater);
         savePreferences(); 
     }
     
-    @Override public void onShutterSpeedChange(CameraEx.ShutterSpeedInfo i, CameraEx c) { updateMainHUD(); }
+    @Override public void onShutterSpeedChange(CameraEx.ShutterSpeedInfo i, CameraEx c) { 
+        runOnUiThread(new Runnable() { @Override public void run() { updateMainHUD(); } });
+    }
+    
     @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int h1) {}
 
     // ==========================================
-    // PHASE 3: CINEMA STYLE FOCUS METER
+    // PHASE 4: BAKED CINEMA FOCUS METER
     // ==========================================
     private class AdvancedFocusMeterView extends View {
         private Paint trackPaint, needlePaint, dofPaint, textPaint;
         private float ratio = 0.5f; 
         private float aperture = 2.8f;
         private boolean isActive = false;
+        private Bitmap bgBitmap;
 
         public AdvancedFocusMeterView(Context context) {
             super(context);
@@ -905,7 +946,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             trackPaint.setStrokeWidth(4);
             
             dofPaint = new Paint(); 
-            dofPaint.setColor(Color.argb(180, 50, 150, 255)); // Cinema Blue
+            dofPaint.setColor(Color.argb(180, 50, 150, 255)); 
             dofPaint.setStrokeWidth(12);
             dofPaint.setStrokeCap(Paint.Cap.ROUND);
             
@@ -921,6 +962,26 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             textPaint.setTextAlign(Paint.Align.CENTER);
         }
 
+        @Override
+        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            super.onSizeChanged(w, h, oldw, oldh);
+            if (w > 0 && h > 0) {
+                // Bake the static geometry exactly once
+                bgBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                Canvas bgCanvas = new Canvas(bgBitmap);
+                int pad = 50;
+                int trackW = w - (pad * 2);
+                int y = h / 2 + 10;
+
+                bgCanvas.drawLine(pad, y, w - pad, y, trackPaint);
+                bgCanvas.drawText("0.1m", pad, y - 20, textPaint);
+                bgCanvas.drawText("0.5m", pad + trackW * 0.25f, y - 20, textPaint);
+                bgCanvas.drawText("1m", pad + trackW * 0.5f, y - 20, textPaint);
+                bgCanvas.drawText("5m", pad + trackW * 0.75f, y - 20, textPaint);
+                bgCanvas.drawText("INF", w - pad, y - 20, textPaint);
+            }
+        }
+
         public void update(float currentRatio, float fStop, boolean active) {
             this.ratio = currentRatio;
             this.aperture = fStop;
@@ -932,18 +993,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             if (!isActive) return;
             int w = getWidth();
             int h = getHeight();
+            
+            if (bgBitmap != null) {
+                canvas.drawBitmap(bgBitmap, 0, 0, null);
+            }
+
             int pad = 50;
             int trackW = w - (pad * 2);
             int y = h / 2 + 10;
-
-            canvas.drawLine(pad, y, w - pad, y, trackPaint);
-
-            canvas.drawText("0.1m", pad, y - 20, textPaint);
-            canvas.drawText("0.5m", pad + trackW * 0.25f, y - 20, textPaint);
-            canvas.drawText("1m", pad + trackW * 0.5f, y - 20, textPaint);
-            canvas.drawText("5m", pad + trackW * 0.75f, y - 20, textPaint);
-            canvas.drawText("INF", w - pad, y - 20, textPaint);
-
             float needleX = pad + (trackW * ratio);
 
             float baseDof = (aperture / 22.0f) * (trackW * 0.15f);
@@ -1000,6 +1057,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             switch (fallbackState) {
                 case STATE_IDLE:      paint.setColor(Color.argb(100, 255, 255, 255)); break;
                 case STATE_SEARCHING: paint.setColor(Color.YELLOW); break;
+                // Focus Lock is back to strict Green!
                 case STATE_LOCKED:    paint.setColor(Color.GREEN); break;
                 case STATE_FAILED:    paint.setColor(Color.RED); break;
             }
