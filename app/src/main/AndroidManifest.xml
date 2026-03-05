@@ -1,25 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.jpgcookbook.sony">
-
-    <uses-permission android:name="android.permission.CAMERA" />
+    package="com.github.ma1co.pmcademo.app"> <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
-        android:icon="@android:drawable/ic_menu_camera"
-        android:label="JPG Cookbook"
-        android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+        android:allowBackup="true"
+        android:icon="@drawable/icon"
+        android:label="@string/app_name"
+        android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+
+        <uses-library android:name="com.sony.scalar.hardware.avio" android:required="false" />
+        <uses-library android:name="com.sony.scalar.sysutil" android:required="false" />
+        <uses-library android:name="com.sony.imaging.app.base" android:required="false" />
 
         <activity
-            android:name="com.github.ma1co.pmcademo.app.MainActivity"
-            android:label="JPG Cookbook"
-            android:screenOrientation="landscape">
+            android:name=".MainActivity"
+            android:label="@string/app_name">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <receiver android:name=".BootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="com.sony.scalar.intent.action.INITIALIZE" />
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>

@@ -1,32 +1,54 @@
 apply plugin: 'com.android.application'
 
-repositories {
-    google()
-    mavenCentral()
-    jcenter()
-    maven { url 'https://jitpack.io' }
-}
-
 android {
     compileSdkVersion 25
-    buildToolsVersion "26.0.2"
+    buildToolsVersion "28.0.3"
 
     defaultConfig {
         applicationId "com.jpgcookbook.sony"
         minSdkVersion 10
         targetSdkVersion 25
         versionCode 1
-        versionName "1.0"
+        versionName "2.0"
+        
+        externalNativeBuild {
+            cmake {
+                cppFlags ""
+            }
+        }
+
+        // THE FIX: Forces the C++ compiler to build for the camera's older ARM architecture
+        ndk {
+            abiFilters "armeabi-v7a", "armeabi"
+        }
+    }
+    
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+    
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+        }
     }
 
     applicationVariants.all { variant ->
-        variant.outputs.all { output ->
-            outputFileName = "Sony-JPGCookbook-v${variant.versionName}.apk"
+        variant.outputs.all {
+            outputFileName = "Sony-JPGCookbook-NDK-v2.0-NDK.apk"
         }
     }
 }
 
+repositories {
+    maven { url "https://jitpack.io" }
+    jcenter()
+    google()
+}
+
 dependencies {
-    implementation 'com.github.ma1co.OpenMemories-Framework:framework:-SNAPSHOT'
     compileOnly 'com.github.ma1co.OpenMemories-Framework:stubs:-SNAPSHOT'
 }
