@@ -986,7 +986,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             int size = 60;
             int bracket = 15;
 
-            // Top Left
+            // Top Left 
             canvas.drawLine(cx - size, cy - size, cx - size + bracket, cy - size, paint);
             canvas.drawLine(cx - size, cy - size, cx - size, cy - size + bracket, paint);
             
