@@ -108,7 +108,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         }
     };
 
-    // Lag-free polling logic
     private Handler uiHandler = new Handler();
     private Runnable liveUpdater = new Runnable() {
         @Override
@@ -212,8 +211,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         batteryArea.addView(batteryIcon, new LinearLayout.LayoutParams(40, 22));
         rightBar.addView(batteryArea);
 
-        tvReview = createSideTextIcon("REV");
-        tvReview.setVisibility(View.GONE);
+        tvReview = createSideTextIcon("▶");
+        tvReview.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                mDialMode = (mDialMode == DIAL_MODE_REVIEW) ? DIAL_MODE_RTL : DIAL_MODE_REVIEW;
+                updateMainHUD();
+            }
+        });
         LinearLayout.LayoutParams rvParams = new LinearLayout.LayoutParams(-2, -2);
         rvParams.setMargins(0, 20, 0, 0);
         tvReview.setLayoutParams(rvParams);
@@ -578,7 +582,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 tvTopStatus.setVisibility(View.VISIBLE); tvBottomBar.setVisibility(View.VISIBLE);
                 tvBattery.setVisibility(View.VISIBLE); tvMode.setVisibility(View.VISIBLE); tvFocusMode.setVisibility(View.VISIBLE);
                 if (focusMeter != null) focusMeter.setVisibility(View.VISIBLE);
-                if (mDialMode == DIAL_MODE_REVIEW) tvReview.setVisibility(View.VISIBLE);
+                tvReview.setVisibility(View.VISIBLE);
             }
             if (afOverlay != null && mCamera != null) { 
                 try {
@@ -680,7 +684,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 List<String> modes = p.getSupportedSceneModes();
                 if (modes != null) { 
                     List<String> validPasm = new ArrayList<String>();
-                    // Added manual-exposure string to fix the missing M mode!
                     String[] desired = {"manual-exposure", "aperture-priority", "shutter-priority", "program-auto", "auto", "intelligent-active"};
                     for(String m : desired) { if (modes.contains(m)) validPasm.add(m); }
                     
@@ -702,7 +705,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             updateMainHUD();
         } catch (Exception e) {}
 
-        // Pause heavy polling for 1 second while turning the dial to cure lag
         uiHandler.removeCallbacks(liveUpdater);
         uiHandler.postDelayed(liveUpdater, 1000); 
     }
@@ -716,19 +718,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         
         if (!isProcessing) {
             tvTopStatus.setText("RTL " + (currentSlot + 1) + " [" + displayName + "]\n" + (isReady ? "READY" : "LOADING..."));
-            // Changed Top Status active color to Sony Orange
             tvTopStatus.setTextColor(mDialMode == DIAL_MODE_RTL ? Color.rgb(230, 50, 15) : Color.WHITE);
         }
         
-        tvReview.setVisibility(mDialMode == DIAL_MODE_REVIEW ? View.VISIBLE : View.GONE);
-        if(mDialMode == DIAL_MODE_REVIEW) tvReview.setBackgroundColor(Color.rgb(230, 50, 15)); 
-        else tvReview.setBackgroundColor(Color.argb(140, 40, 40, 40));
+        tvReview.setBackgroundColor(mDialMode == DIAL_MODE_REVIEW ? Color.rgb(230, 50, 15) : Color.argb(140, 40, 40, 40));
 
         try {
             Camera.Parameters params = mCamera.getParameters();
             CameraEx.ParametersModifier pm = mCameraEx.createParametersModifier(params);
             
-            // Changed left HUD highlights to Sony Orange
             tvMode.setBackgroundColor(mDialMode == DIAL_MODE_PASM ? Color.rgb(230, 50, 15) : Color.argb(140, 40, 40, 40));
             String sceneMode = params.getSceneMode();
             if (sceneMode != null) {
@@ -762,7 +760,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             String iso = pm.getISOSensitivity() == 0 ? "ISO AUTO" : "ISO " + pm.getISOSensitivity();
             String exp = String.format("%+.1f", params.getExposureCompensation() * params.getExposureCompensationStep());
 
-            // Changed Shutter/Aperture highlight to Sony Orange Hex
             String cAct = "<font color='#E6320F'>"; String cDef = "<font color='#FFFFFF'>"; String cEnd = "</font>";
             String space = "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"; 
 
@@ -816,7 +813,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 mCamera = mCameraEx.getNormalCamera();
                 mCameraEx.startDirectShutter(); 
                 
-                // Asynchronous hardware focus listener fixes lag and tracks needle perfectly
                 try {
                     Class<?> listenerClass = Class.forName("com.sony.scalar.hardware.CameraEx$FocusDriveListener");
                     Object proxy = java.lang.reflect.Proxy.newProxyInstance(
@@ -954,7 +950,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             float distanceMultiplier = 1.0f + (ratio * 2.0f); 
             float dofRadius = baseDof * distanceMultiplier;
 
-            // Clip the drawing bounds to avoid shifting the visual center
             canvas.save();
             canvas.clipRect(pad, 0, w - pad, h);
             canvas.drawLine(needleX - dofRadius, y, needleX + dofRadius, y, dofPaint);
@@ -1005,8 +1000,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             switch (fallbackState) {
                 case STATE_IDLE:      paint.setColor(Color.argb(100, 255, 255, 255)); break;
                 case STATE_SEARCHING: paint.setColor(Color.YELLOW); break;
-                // Updated Focus Lock to match Sony Orange!
-                case STATE_LOCKED:    paint.setColor(Color.rgb(230, 50, 15)); break;
+                case STATE_LOCKED:    paint.setColor(Color.GREEN); break;
                 case STATE_FAILED:    paint.setColor(Color.RED); break;
             }
             int cx = getWidth() / 2, cy = getHeight() / 2, size = 60, bracket = 15;
