@@ -49,8 +49,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private TextView[] menuLabels = new TextView[11];
     private TextView[] menuValues = new TextView[11];
     
-    private TextView tvBottomBar, tvTopStatus, tvBattery, tvReview; 
-    private ImageView ivMode, ivDrive; 
+    private TextView tvBottomBar, tvTopStatus, tvBattery, tvReview, tvFocusMode; 
+    private ImageView ivMode; 
     
     private FrameLayout playbackContainer;
     private ImageView playbackImageView;
@@ -87,6 +87,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     public static final int DIAL_MODE_ISO = 3;
     public static final int DIAL_MODE_EXPOSURE = 4;
     public static final int DIAL_MODE_REVIEW = 5;
+    public static final int DIAL_MODE_PASM = 6;
+    public static final int DIAL_MODE_FOCUS = 7;
     private int mDialMode = DIAL_MODE_RTL;
 
     private int lastBatteryLevel = 100;
@@ -205,15 +207,27 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         rightParams.setMargins(0, 20, 20, 0);
         mainUIContainer.addView(rightBar, rightParams);
 
-        // Phase 2: Live Hardware Icons
+        // Phase 2: Left Bar with Touch Selection
         LinearLayout leftBar = new LinearLayout(this);
         leftBar.setOrientation(LinearLayout.VERTICAL);
         
         ivMode = createSideIconImage(SonyDrawables.s_16_dd_parts_osd_icon_mode_m);
+        ivMode.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                mDialMode = DIAL_MODE_PASM;
+                handleInput(1); // Cycle forward on tap
+            }
+        });
         leftBar.addView(ivMode);
-        
-        ivDrive = createSideIconImage(SonyDrawables.p_drivemode_n_001);
-        leftBar.addView(ivDrive);
+
+        tvFocusMode = createSideTextIcon("AF-S");
+        tvFocusMode.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                mDialMode = DIAL_MODE_FOCUS;
+                handleInput(1); // Cycle forward on tap
+            }
+        });
+        leftBar.addView(tvFocusMode);
         
         FrameLayout.LayoutParams leftParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.LEFT);
         leftParams.setMargins(20, 20, 0, 0);
@@ -285,7 +299,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         ImageView iv = new ImageView(this);
         iv.setImageResource(resId);
         iv.setBackgroundColor(Color.argb(140, 40, 40, 40));
-        iv.setPadding(10, 10, 10, 10);
+        iv.setPadding(15, 15, 15, 15);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
         lp.setMargins(0, 0, 0, 10);
         iv.setLayoutParams(lp);
@@ -295,8 +309,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private TextView createSideTextIcon(String text) {
         TextView tv = new TextView(this);
         tv.setText(text); tv.setTextColor(Color.WHITE); tv.setTextSize(16);
-        tv.setTypeface(Typeface.MONOSPACE); tv.setPadding(12, 6, 12, 6);
+        tv.setTypeface(Typeface.MONOSPACE, Typeface.BOLD); tv.setPadding(12, 6, 12, 6);
         tv.setBackgroundColor(Color.argb(140, 40, 40, 40));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+        lp.setMargins(0, 0, 0, 10);
+        tv.setLayoutParams(lp);
         return tv;
     }
 
@@ -481,7 +498,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         if (sc == ScalarInput.ISV_KEY_S1_1 && event.getRepeatCount() == 0) {
             if (displayState == 0 && !isMenuOpen && !isPlaybackMode) {
                 tvTopStatus.setVisibility(View.GONE); tvBottomBar.setVisibility(View.GONE);
-                tvBattery.setVisibility(View.GONE); ivMode.setVisibility(View.GONE); ivDrive.setVisibility(View.GONE); tvReview.setVisibility(View.GONE);
+                tvBattery.setVisibility(View.GONE); ivMode.setVisibility(View.GONE); tvFocusMode.setVisibility(View.GONE); tvReview.setVisibility(View.GONE);
             }
             if (afOverlay != null) { afOverlay.startFocus(mCamera); }
             return super.onKeyDown(keyCode, event);
@@ -540,7 +557,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         if (event.getScanCode() == ScalarInput.ISV_KEY_S1_1) {
             if (displayState == 0 && !isMenuOpen && !isPlaybackMode) {
                 tvTopStatus.setVisibility(View.VISIBLE); tvBottomBar.setVisibility(View.VISIBLE);
-                tvBattery.setVisibility(View.VISIBLE); ivMode.setVisibility(View.VISIBLE); ivDrive.setVisibility(View.VISIBLE);
+                tvBattery.setVisibility(View.VISIBLE); ivMode.setVisibility(View.VISIBLE); tvFocusMode.setVisibility(View.VISIBLE);
                 if (mDialMode == DIAL_MODE_REVIEW) tvReview.setVisibility(View.VISIBLE);
             }
             if (afOverlay != null) { afOverlay.stopFocus(mCamera); }
@@ -590,7 +607,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     }
 
     private void cycleMode(int dir) {
-        mDialMode = (mDialMode + dir + 6) % 6;
+        // Cycling through 8 modes to include PASM and FOCUS
+        mDialMode = (mDialMode + dir + 8) % 8;
         updateMainHUD();
     }
 
@@ -605,12 +623,28 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             else if (mDialMode == DIAL_MODE_APERTURE) { if (d > 0) mCameraEx.incrementAperture(); else mCameraEx.decrementAperture(); }
             else if (mDialMode == DIAL_MODE_ISO) {
                 List<Integer> isos = (List<Integer>) pm.getSupportedISOSensitivities();
-                int idx = isos.indexOf(pm.getISOSensitivity());
-                if (idx != -1) { pm.setISOSensitivity(isos.get(Math.max(0, Math.min(isos.size()-1, idx + d)))); mCamera.setParameters(p); }
+                if (isos != null) {
+                    int idx = isos.indexOf(pm.getISOSensitivity());
+                    if (idx != -1) { pm.setISOSensitivity(isos.get(Math.max(0, Math.min(isos.size()-1, idx + d)))); mCamera.setParameters(p); }
+                }
             }
             else if (mDialMode == DIAL_MODE_EXPOSURE) { 
                 p.setExposureCompensation(Math.max(p.getMinExposureCompensation(), Math.min(p.getMaxExposureCompensation(), p.getExposureCompensation() + d))); 
                 mCamera.setParameters(p); 
+            }
+            else if (mDialMode == DIAL_MODE_PASM) {
+                List<String> modes = p.getSupportedSceneModes();
+                if (modes != null && modes.size() > 1) { // If > 1, the camera allows software change
+                    int idx = modes.indexOf(p.getSceneMode());
+                    if (idx != -1) { p.setSceneMode(modes.get((idx + d + modes.size()) % modes.size())); mCamera.setParameters(p); }
+                }
+            }
+            else if (mDialMode == DIAL_MODE_FOCUS) {
+                List<String> modes = p.getSupportedFocusModes();
+                if (modes != null && modes.size() > 1) {
+                    int idx = modes.indexOf(p.getFocusMode());
+                    if (idx != -1) { p.setFocusMode(modes.get((idx + d + modes.size()) % modes.size())); mCamera.setParameters(p); }
+                }
             }
             updateMainHUD();
         } catch (Exception e) {}
@@ -633,24 +667,24 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             Camera.Parameters params = mCamera.getParameters();
             CameraEx.ParametersModifier pm = mCameraEx.createParametersModifier(params);
             
-            // Live Hardware Icons Update
+            // Highlight active side icon
+            ivMode.setBackgroundColor(mDialMode == DIAL_MODE_PASM ? Color.rgb(20, 150, 20) : Color.argb(140, 40, 40, 40));
+            tvFocusMode.setBackgroundColor(mDialMode == DIAL_MODE_FOCUS ? Color.rgb(20, 150, 20) : Color.argb(140, 40, 40, 40));
+
             String sceneMode = params.getSceneMode();
             if (sceneMode != null) {
                 if (sceneMode.equals(CameraEx.ParametersModifier.SCENE_MODE_MANUAL_EXPOSURE)) ivMode.setImageResource(SonyDrawables.s_16_dd_parts_osd_icon_mode_m);
                 else if (sceneMode.equals(CameraEx.ParametersModifier.SCENE_MODE_APERTURE_PRIORITY)) ivMode.setImageResource(SonyDrawables.s_16_dd_parts_osd_icon_mode_a);
                 else if (sceneMode.equals(CameraEx.ParametersModifier.SCENE_MODE_SHUTTER_PRIORITY)) ivMode.setImageResource(SonyDrawables.s_16_dd_parts_osd_icon_mode_s);
-                else ivMode.setImageResource(SonyDrawables.p_dialogwarning);
+                else ivMode.setImageResource(SonyDrawables.p_dialogwarning); // Fallback icon for Program/Auto
             }
 
-            String driveMode = pm.getDriveMode();
-            if (driveMode != null) {
-                if (driveMode.equals(CameraEx.ParametersModifier.DRIVE_MODE_SINGLE)) ivDrive.setImageResource(SonyDrawables.p_drivemode_n_001);
-                else if (driveMode.equals(CameraEx.ParametersModifier.DRIVE_MODE_BURST)) {
-                    if (CameraEx.ParametersModifier.BURST_DRIVE_SPEED_LOW.equals(pm.getBurstDriveSpeed())) ivDrive.setImageResource(SonyDrawables.p_drivemode_n_003);
-                    else ivDrive.setImageResource(SonyDrawables.p_drivemode_n_002);
-                } else {
-                    ivDrive.setImageResource(SonyDrawables.p_drivemode_n_001);
-                }
+            String fMode = params.getFocusMode();
+            if (fMode != null) {
+                if (fMode.equals("manual")) tvFocusMode.setText("MF");
+                else if (fMode.equals("auto")) tvFocusMode.setText("AF-S");
+                else if (fMode.equals("continuous-picture")) tvFocusMode.setText("AF-C");
+                else tvFocusMode.setText(fMode.toUpperCase());
             }
 
             Pair<Integer, Integer> speed = pm.getShutterSpeed();
@@ -716,6 +750,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 apr.setPictureReviewTime(0);
                 mCamera.setPreviewDisplay(mSurfaceView.getHolder()); 
                 mCamera.startPreview(); 
+                
+                // Force Single Drive Mode on boot
+                try {
+                    Camera.Parameters params = mCamera.getParameters();
+                    CameraEx.ParametersModifier pm = mCameraEx.createParametersModifier(params);
+                    pm.setDriveMode(CameraEx.ParametersModifier.DRIVE_MODE_SINGLE);
+                    mCamera.setParameters(params);
+                } catch(Exception e) {}
+
                 updateMainHUD();
             } catch (Exception e) {} 
         }
