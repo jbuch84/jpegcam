@@ -15,6 +15,7 @@ import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.hardware.Camera;
 import android.media.ExifInterface;
+import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Bundle;
 import android.os.Environment;
@@ -131,7 +132,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     }
 
     private void setupEngines() {
-        // Initialize the Brains
         mProcessor = new ImageProcessor(this, new ImageProcessor.ProcessorCallback() {
             @Override public void onPreloadStarted() { isReady = false; runOnUiThread(new Runnable() { @Override public void run() { updateMainHUD(); } }); }
             @Override public void onPreloadFinished(boolean success) { isReady = true; runOnUiThread(new Runnable() { @Override public void run() { updateMainHUD(); } }); }
@@ -145,7 +145,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             }
         });
 
-        // Initialize the Eyes
         mScanner = new SonyFileScanner(sonyDCIMPath, new SonyFileScanner.ScannerCallback() {
             @Override public boolean isReadyToProcess() { return isReady && !isProcessing && profiles[currentSlot].lutIndex != 0; }
             @Override public void onNewPhotoDetected(final String filePath) {
