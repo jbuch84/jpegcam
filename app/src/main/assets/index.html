@@ -27,12 +27,16 @@
         .sel-indicator { position: absolute; top: 10px; left: 10px; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.4); border-radius: 4px; background: rgba(0,0,0,0.5); }
         .card.selected .sel-indicator { background: var(--accent); border-color: var(--accent); }
         .card.selected .sel-indicator::after { content: '✓'; color: white; font-size: 12px; position: absolute; left: 4px; top: 0px; font-weight: bold; }
+        
         .load-more-container { grid-column: 1 / -1; text-align: center; padding: 20px 0; }
+        
         #lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 1000; justify-content: center; align-items: center; flex-direction: column; cursor: zoom-out; }
         #lightbox img { max-width: 90%; max-height: 65vh; border-radius: 2px; transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); cursor: default; }
         .lb-meta { margin-top: 20px; text-align: center; max-width: 90%; pointer-events: none; }
         .exif-tag { color: var(--accent); font-family: monospace; font-size: 13px; font-weight: bold; text-transform: uppercase; background: rgba(255,80,0,0.1); padding: 4px 12px; border-radius: 4px; border: 1px solid rgba(255,80,0,0.2); }
         .lb-tools { margin-top: 25px; display: flex; gap: 15px; cursor: default; }
+
+        /* LUT Manager Modal */
         #lut-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(5px); }
         .modal-content { background: var(--bg-panel); padding: 30px; border-radius: 12px; border: 1px solid #333; width: 320px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
     </style>
@@ -100,6 +104,7 @@
         let rotation = 0;
         let viewName = "";
         let abortController = null;
+        
         let currentPage = 1;
         const PAGE_SIZE = 24;
 
@@ -337,7 +342,7 @@
             document.getElementById('lut-modal').style.display = 'none';
         }
         
-        // Phase 9.5: Raw Binary Stream Upload (Bypasses NanoHTTPD Temp Files entirely)
+        // Phase 9.5: Raw Binary Stream Upload
         async function handleLutSelect(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -353,11 +358,11 @@
             document.getElementById('lut-upload-status').style.color = 'yellow';
 
             try {
+                // We let the browser calculate and send the Content-Length automatically
                 const res = await fetch('/api/upload_lut', {
                     method: 'POST',
                     headers: {
                         'X-File-Name': file.name,
-                        'Content-Length': file.size,
                         'Content-Type': 'application/octet-stream'
                     },
                     body: file 
