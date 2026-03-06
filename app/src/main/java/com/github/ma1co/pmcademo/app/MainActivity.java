@@ -716,21 +716,26 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 p.setWhiteBalance(targetWb);
             }
 
-            if (p.get("sony-dro") != null) {
-                p.set("sony-dro", prof.dro.toLowerCase());
+            // PHASE 9.4: Safe DRO Injection derived from PARAMS.TXT
+            if (p.get("dro-mode") != null) {
+                if ("OFF".equals(prof.dro)) {
+                    p.set("dro-mode", "off");
+                } else if ("AUTO".equals(prof.dro)) {
+                    p.set("dro-mode", "auto");
+                } else if (prof.dro.startsWith("LV")) {
+                    p.set("dro-mode", "on"); // Mode must be 'on' to use level
+                    try {
+                        int lvl = Integer.parseInt(prof.dro.replace("LV", ""));
+                        p.set("dro-level", lvl);
+                    } catch(Exception e){}
+                }
+            } else if (p.get("sony-dro") != null) {
+                p.set("sony-dro", prof.dro.toLowerCase()); // Fallback for older firmware
             }
             
-            // PHASE 9.3: Safe Parameter Injection
-            // Only inject parameters that actually exist in the camera's firmware dictionary
-            String[] abKeys = {"light-balance-for-white-balance", "sony-wb-shift-ab", "sony-awb-shift-ab"};
-            for (String key : abKeys) {
-                if (p.get(key) != null) p.set(key, prof.wbShift);
-            }
-            
-            String[] gmKeys = {"color-compensation-for-white-balance", "sony-wb-shift-gm", "sony-awb-shift-gm"};
-            for (String key : gmKeys) {
-                if (p.get(key) != null) p.set(key, prof.wbShiftGM);
-            }
+            // PHASE 9.4: Safe WB Shift Injection derived from PARAMS.TXT
+            p.set("light-balance-for-white-balance", prof.wbShift);
+            p.set("color-compensation-for-white-balance", prof.wbShiftGM); 
             
             mCamera.setParameters(p);
         } catch (Exception e) {}

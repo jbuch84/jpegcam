@@ -22,12 +22,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-// Restored the NanoHTTPD Sub-Imports!
 import fi.iki.elonen.NanoHTTPD;
 import fi.iki.elonen.NanoHTTPD.IHTTPSession;
 import fi.iki.elonen.NanoHTTPD.Method;
 import fi.iki.elonen.NanoHTTPD.Response;
-import fi.iki.elonen.NanoHTTPD.Response.Status;
 import fi.iki.elonen.NanoHTTPD.TempFile;
 import fi.iki.elonen.NanoHTTPD.TempFileManager;
 import fi.iki.elonen.NanoHTTPD.TempFileManagerFactory;
@@ -40,7 +38,6 @@ public class HttpServer extends NanoHTTPD {
         super(PORT);
         this.context = context;
         
-        // Route NanoHTTPD Temp files to Android Cache to prevent Sony /tmp crash
         this.setTempFileManagerFactory(new TempFileManagerFactory() {
             @Override
             public TempFileManager create() {
@@ -49,7 +46,6 @@ public class HttpServer extends NanoHTTPD {
         });
     }
 
-    // Android-Safe Temporary File Handlers
     private static class AndroidTempFile implements TempFile {
         private File file;
         private OutputStream fstream;
@@ -93,7 +89,6 @@ public class HttpServer extends NanoHTTPD {
         File root = Environment.getExternalStorageDirectory();
 
         try {
-            // LUT UPLOAD ENDPOINT
             if (Method.POST.equals(session.getMethod()) && uri.equals("/api/upload_lut")) {
                 try {
                     Map<String, String> files = new HashMap<String, String>();
@@ -106,7 +101,7 @@ public class HttpServer extends NanoHTTPD {
                         if (!lutDir.exists()) lutDir.mkdirs();
                         
                         if (!originalFileName.toLowerCase().endsWith(".cube") && !originalFileName.toLowerCase().endsWith(".cub")) {
-                            return newFixedLengthResponse(Status.BAD_REQUEST, "application/json", "{\"error\":\"Only .cube files allowed\"}");
+                            return newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json", "{\"error\":\"Only .cube files allowed\"}");
                         }
 
                         File destFile = new File(lutDir, originalFileName);
@@ -122,18 +117,18 @@ public class HttpServer extends NanoHTTPD {
                         out.flush();
                         out.close();
 
-                        return newFixedLengthResponse(Status.OK, "application/json", "{\"status\":\"success\"}");
+                        return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"status\":\"success\"}");
                     } else {
-                        return newFixedLengthResponse(Status.BAD_REQUEST, "application/json", "{\"error\":\"No file provided\"}");
+                        return newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json", "{\"error\":\"No file provided\"}");
                     }
                 } catch (Exception e) {
-                    return newFixedLengthResponse(Status.INTERNAL_ERROR, "application/json", "{\"error\":\"Upload failed\"}");
+                    return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json", "{\"error\":\"Upload failed\"}");
                 }
             }
 
             if (uri.equals("/")) {
                 InputStream is = context.getAssets().open("index.html");
-                return newChunkedResponse(Status.OK, "text/html", is);
+                return newChunkedResponse(Response.Status.OK, "text/html", is);
             }
 
             if (uri.equals("/api/system")) {
@@ -142,7 +137,7 @@ public class HttpServer extends NanoHTTPD {
                 double gbAvailable = bytesAvailable / (1024.0 * 1024.0 * 1024.0);
                 boolean hasGraded = new File(root, "GRADED").exists();
                 String json = String.format("{\"storage_gb\": \"%.1f\", \"has_graded\": %b}", gbAvailable, hasGraded);
-                return newFixedLengthResponse(Status.OK, "application/json", json);
+                return newFixedLengthResponse(Response.Status.OK, "application/json", json);
             }
 
             if (uri.startsWith("/api/files")) {
@@ -163,7 +158,7 @@ public class HttpServer extends NanoHTTPD {
                     if (i < allFiles.size() - 1) json.append(",");
                 }
                 json.append("]}");
-                return newFixedLengthResponse(Status.OK, "application/json", json.toString());
+                return newFixedLengthResponse(Response.Status.OK, "application/json", json.toString());
             }
 
             if (uri.startsWith("/thumb/")) {
@@ -177,7 +172,7 @@ public class HttpServer extends NanoHTTPD {
                         try {
                             ExifInterface exif = new ExifInterface(file.getAbsolutePath());
                             byte[] thumb = exif.getThumbnail();
-                            if (thumb != null) return newFixedLengthResponse(Status.OK, "image/jpeg", new ByteArrayInputStream(thumb), thumb.length);
+                            if (thumb != null) return newFixedLengthResponse(Response.Status.OK, "image/jpeg", new ByteArrayInputStream(thumb), thumb.length);
                         } catch (Exception e) {}
                     }
                     
@@ -190,7 +185,7 @@ public class HttpServer extends NanoHTTPD {
                         bm.compress(Bitmap.CompressFormat.JPEG, 60, baos);
                         byte[] data = baos.toByteArray();
                         bm.recycle(); 
-                        return newFixedLengthResponse(Status.OK, "image/jpeg", new ByteArrayInputStream(data), data.length);
+                        return newFixedLengthResponse(Response.Status.OK, "image/jpeg", new ByteArrayInputStream(data), data.length);
                     }
                 }
             }
@@ -200,13 +195,13 @@ public class HttpServer extends NanoHTTPD {
                 String folder = params.get("folder");
                 String name = params.get("name");
                 File file = new File(root, (folder.equals("GRADED") ? "GRADED" : "DCIM/100MSDCF") + "/" + name);
-                if (file.exists()) return newFixedLengthResponse(Status.OK, "image/jpeg", new FileInputStream(file), file.length());
+                if (file.exists()) return newFixedLengthResponse(Response.Status.OK, "image/jpeg", new FileInputStream(file), file.length());
             }
 
         } catch (Exception e) {
-            return newFixedLengthResponse(Status.INTERNAL_ERROR, "text/plain", "Server Error");
+            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Server Error");
         }
-        return newFixedLengthResponse(Status.NOT_FOUND, "text/plain", "404");
+        return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "404");
     }
 
     private List<File> getMediaFiles(File dir) {
