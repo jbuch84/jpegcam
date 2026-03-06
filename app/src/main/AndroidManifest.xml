@@ -18,9 +18,9 @@
         android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
         android:hardwareAccelerated="true">
 
-        <uses-library android:name="com.sony.scalar.hardware.avio.cameracore" />
-        <uses-library android:name="com.sony.scalar.sysutil" />
-        <uses-library android:name="com.sony.wifi.direct" />
+        <uses-library android:name="com.sony.scalar.hardware.avio.cameracore" android:required="false" />
+        <uses-library android:name="com.sony.scalar.sysutil" android:required="false" />
+        <uses-library android:name="com.sony.wifi.direct" android:required="false" />
 
         <activity
             android:name=".MainActivity"
