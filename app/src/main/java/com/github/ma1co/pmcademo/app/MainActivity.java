@@ -15,7 +15,10 @@ import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.hardware.Camera;
 import android.media.ExifInterface;
-import android.net.Uri;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.BatteryManager;
 import android.os.Bundle;
 import android.os.Environment;
@@ -35,6 +38,9 @@ import android.widget.TextView;
 import java.util.List;
 import com.sony.scalar.hardware.CameraEx;
 import com.sony.scalar.sysutil.ScalarInput;
+import com.sony.wifi.direct.DirectConfiguration;
+import com.sony.wifi.direct.DirectManager;
+
 import java.io.*;
 import java.util.ArrayList;
 
@@ -100,6 +106,22 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private boolean prefShowCinemaMattes = false;
     private boolean prefShowGridLines = false;
 
+    // Phase 8: AlphaOS Networking Variables
+    private String connStatusHotspot = "Press ENTER to Start";
+    private String connStatusWifi = "Press ENTER to Start";
+    
+    private WifiManager alphaWifiManager;
+    private ConnectivityManager alphaConnManager;
+    private DirectManager alphaDirectManager;
+    private HttpServer alphaServer;
+    
+    private BroadcastReceiver alphaWifiReceiver;
+    private BroadcastReceiver alphaDirectStateReceiver;
+    private BroadcastReceiver alphaGroupCreateSuccessReceiver;
+    
+    private boolean isHomeWifiRunning = false;
+    private boolean isHotspotRunning = false;
+
     public static final int DIAL_MODE_RTL = 0;
     public static final int DIAL_MODE_SHUTTER = 1;
     public static final int DIAL_MODE_APERTURE = 2;
@@ -147,6 +169,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         mSurfaceView.getHolder().setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
         rootLayout.addView(mSurfaceView, new FrameLayout.LayoutParams(-1, -1));
         setContentView(rootLayout); 
+
+        // Init AlphaOS Network Managers
+        alphaWifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        alphaConnManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        alphaDirectManager = (DirectManager) getSystemService(DirectManager.WIFI_DIRECT_SERVICE);
+        alphaServer = new HttpServer(this);
 
         scanRecipes();
         for(int i=0; i<10; i++) profiles[i] = new RTLProfile();
@@ -388,7 +416,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         renderMenu();
     }
 
-    // Helper functions to format the Grid visually exactly like native Sony menus
     private String formatAB(int val) {
         if (val == 0) return "0";
         return val > 0 ? "A" + val : "B" + Math.abs(val);
@@ -566,7 +593,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                   .append(profiles[i].whiteBalance).append(",")
                   .append(profiles[i].wbShift).append(",")
                   .append(profiles[i].dro).append(",")
-                  .append(profiles[i].wbShiftGM).append("\n"); // Appended GM safely to the end
+                  .append(profiles[i].wbShiftGM).append("\n"); 
             }
             fos.write(sb.toString().getBytes()); fos.flush(); fos.getFD().sync(); fos.close();
             sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(backupFile)));
@@ -703,6 +730,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 } else {
                     displayState = (displayState == 0) ? 1 : 0; mainUIContainer.setVisibility(displayState == 0 ? View.VISIBLE : View.GONE);
                 }
+            } else {
+                // Phase 8: Trigger AlphaOS Connections from Page 3
+                if (currentPage == 3 && menuSelection >= 0) {
+                    if (menuSelection == 0) startAlphaOSHotspot();
+                    else if (menuSelection == 1) startAlphaOSHomeWifi();
+                    else if (menuSelection == 2) stopAlphaOSNetworking();
+                }
             }
             return true;
         }
@@ -802,9 +836,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                     case 3: prefShowCinemaMattes = !prefShowCinemaMattes; break;
                     case 4: prefShowGridLines = !prefShowGridLines; break; 
                 }
-            } else if (currentPage == 3) { // CONNECTIONS
-                // AlphaOS Integration targets
-            }
+            } 
         } catch (Exception e) {}
         renderMenu();
     }
@@ -847,20 +879,27 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             }
         }
         else if (currentPage == 3) { 
-            currentItemCount = 2;
-            String[] cLabels = {"Smartphone Sync", "PC Transfer"};
-            String[] cValues = {"Ready", "Ready"};
-            for(int i=0; i<2; i++) {
-                menuLabels[i].setText(cLabels[i]); menuValues[i].setText(cValues[i]); menuRows[i].setVisibility(View.VISIBLE);
+            currentItemCount = 3;
+            String[] cLabels = {"Camera Hotspot (Direct)", "Home Wi-Fi (Network)", "Stop Networking"};
+            String[] cValues = {connStatusHotspot, connStatusWifi, ""};
+            for(int i=0; i<3; i++) {
+                menuLabels[i].setText(cLabels[i]); 
+                menuValues[i].setText(cValues[i]); 
+                // Highlight active network connection orange
+                if (cValues[i].startsWith("http")) menuValues[i].setTextColor(Color.rgb(230, 50, 15));
+                else menuValues[i].setTextColor(Color.WHITE);
+                menuRows[i].setVisibility(View.VISIBLE);
             }
         }
 
         for (int i = 0; i < currentItemCount; i++) {
             boolean sel = (i == menuSelection);
             menuRows[i].setBackgroundColor(sel ? Color.rgb(230, 50, 15) : Color.TRANSPARENT);
-            boolean locked = (currentPage == 3);
-            menuLabels[i].setTextColor(sel ? Color.WHITE : (locked ? Color.GRAY : Color.WHITE));
-            menuValues[i].setTextColor(sel ? Color.WHITE : (locked ? Color.GRAY : Color.WHITE));
+            menuLabels[i].setTextColor(sel ? Color.WHITE : Color.WHITE);
+            // Ignore color override if it's a live IP address link on page 3
+            if (currentPage != 3 || !menuValues[i].getText().toString().startsWith("http")) {
+                menuValues[i].setTextColor(sel ? Color.WHITE : Color.WHITE);
+            }
         }
     }
 
@@ -1129,6 +1168,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         try { unregisterReceiver(batteryReceiver); } catch (Exception e) {}
         if (mScanner != null) mScanner.stop(); 
         uiHandler.removeCallbacks(liveUpdater);
+        
+        // Safety hook: If you exit the entire app, kill the server to save battery
+        stopAlphaOSNetworking();
         savePreferences(); 
     }
     
@@ -1139,7 +1181,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int h1) {}
 
     // ==========================================
-    // PHASE 7: GRID LINES
+    // UI RENDER CLASSES
     // ==========================================
     private class GridLinesView extends View {
         private Paint paint;
@@ -1167,9 +1209,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         }
     }
 
-    // ==========================================
-    // CINEMATIC MATTE BARS (2.35:1)
-    // ==========================================
     private class CinemaMatteView extends View {
         private Paint mattePaint;
         public CinemaMatteView(Context context) {
@@ -1331,5 +1370,114 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             paint.setStyle(Paint.Style.FILL); canvas.drawCircle(cx, cy, 3, paint); paint.setStyle(Paint.Style.STROKE);
             postInvalidateDelayed(50);
         }
+    }
+
+    // ==========================================
+    // ALPHAOS NETWORKING INTEGRATION
+    // ==========================================
+    
+    private void setAutoPowerOffMode(boolean enable) {
+        String mode = enable ? "APO/NORMAL" : "APO/NO";
+        Intent intent = new Intent();
+        intent.setAction("com.android.server.DAConnectionManagerService.apo");
+        intent.putExtra("apo_info", mode);
+        sendBroadcast(intent);
+    }
+
+    private void updateConnectionStatus(final String target, final String newStatus) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if ("HOTSPOT".equals(target)) {
+                    connStatusHotspot = newStatus;
+                } else if ("WIFI".equals(target)) {
+                    connStatusWifi = newStatus;
+                }
+                if (isMenuOpen && currentPage == 3) renderMenu(); 
+            }
+        });
+    }
+
+    private void startAlphaOSHomeWifi() {
+        stopAlphaOSNetworking();
+        isHomeWifiRunning = true;
+        updateConnectionStatus("WIFI", "Connecting to Router...");
+        
+        alphaWifiReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                NetworkInfo info = alphaConnManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
+                if (info != null && info.isConnected()) {
+                    WifiInfo wifiInfo = alphaWifiManager.getConnectionInfo();
+                    int ip = wifiInfo.getIpAddress();
+                    if (ip != 0) {
+                        String ipAddress = String.format("%d.%d.%d.%d", (ip & 0xff), (ip >> 8 & 0xff), (ip >> 16 & 0xff), (ip >> 24 & 0xff));
+                        updateConnectionStatus("WIFI", "http://" + ipAddress + ":" + HttpServer.PORT);
+                        try { if (!alphaServer.isAlive()) alphaServer.start(); } catch (Exception e) {}
+                        setAutoPowerOffMode(false); 
+                    }
+                } else {
+                    updateConnectionStatus("WIFI", "Searching for network...");
+                }
+            }
+        };
+        registerReceiver(alphaWifiReceiver, new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION));
+        if (!alphaWifiManager.isWifiEnabled()) alphaWifiManager.setWifiEnabled(true);
+    }
+
+    private void startAlphaOSHotspot() {
+        stopAlphaOSNetworking();
+        isHotspotRunning = true;
+        updateConnectionStatus("HOTSPOT", "Starting Hotspot...");
+        
+        alphaDirectStateReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                int state = intent.getIntExtra(DirectManager.EXTRA_DIRECT_STATE, DirectManager.DIRECT_STATE_UNKNOWN);
+                if (state == DirectManager.DIRECT_STATE_ENABLED) {
+                    List<DirectConfiguration> configs = alphaDirectManager.getConfigurations();
+                    if (!configs.isEmpty()) {
+                        alphaDirectManager.startGo(configs.get(configs.size() - 1).getNetworkId());
+                    }
+                }
+            }
+        };
+        
+        alphaGroupCreateSuccessReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                DirectConfiguration config = intent.getParcelableExtra(DirectManager.EXTRA_DIRECT_CONFIG);
+                if (config != null) {
+                    updateConnectionStatus("HOTSPOT", "http://192.168.122.1:8080 (PW: " + config.getPreSharedKey() + ")");
+                    try { if (!alphaServer.isAlive()) alphaServer.start(); } catch (Exception e) {}
+                    setAutoPowerOffMode(false); 
+                }
+            }
+        };
+        
+        registerReceiver(alphaDirectStateReceiver, new IntentFilter(DirectManager.DIRECT_STATE_CHANGED_ACTION));
+        registerReceiver(alphaGroupCreateSuccessReceiver, new IntentFilter(DirectManager.GROUP_CREATE_SUCCESS_ACTION));
+        
+        alphaWifiManager.setWifiEnabled(true);
+        alphaDirectManager.setDirectEnabled(true);
+    }
+
+    private void stopAlphaOSNetworking() {
+        if (alphaServer != null && alphaServer.isAlive()) alphaServer.stop();
+        
+        if (isHomeWifiRunning) {
+            try { unregisterReceiver(alphaWifiReceiver); } catch (Exception e) {}
+            isHomeWifiRunning = false;
+        }
+        if (isHotspotRunning) {
+            try { unregisterReceiver(alphaDirectStateReceiver); } catch (Exception e) {}
+            try { unregisterReceiver(alphaGroupCreateSuccessReceiver); } catch (Exception e) {}
+            alphaDirectManager.setDirectEnabled(false);
+            isHotspotRunning = false;
+        }
+        
+        updateConnectionStatus("WIFI", "Press ENTER to Start");
+        updateConnectionStatus("HOTSPOT", "Press ENTER to Start");
+        setAutoPowerOffMode(true); 
     }
 }

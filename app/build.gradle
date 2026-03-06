@@ -51,4 +51,7 @@ repositories {
 
 dependencies {
     compileOnly 'com.github.ma1co.OpenMemories-Framework:stubs:-SNAPSHOT'
+    
+    // ALPHAOS DASHBOARD HTTP SERVER
+    implementation 'org.nanohttpd:nanohttpd:2.3.1'
 }
