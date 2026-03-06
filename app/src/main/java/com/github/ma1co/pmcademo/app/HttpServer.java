@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory;
 import android.media.ExifInterface;
 import android.os.Environment;
 import android.os.StatFs;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -21,7 +22,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+// Restored the NanoHTTPD Sub-Imports!
 import fi.iki.elonen.NanoHTTPD;
+import fi.iki.elonen.NanoHTTPD.IHTTPSession;
+import fi.iki.elonen.NanoHTTPD.Method;
+import fi.iki.elonen.NanoHTTPD.Response;
+import fi.iki.elonen.NanoHTTPD.Response.Status;
+import fi.iki.elonen.NanoHTTPD.TempFile;
+import fi.iki.elonen.NanoHTTPD.TempFileManager;
+import fi.iki.elonen.NanoHTTPD.TempFileManagerFactory;
 
 public class HttpServer extends NanoHTTPD {
     public static final int PORT = 8080;
@@ -31,7 +40,7 @@ public class HttpServer extends NanoHTTPD {
         super(PORT);
         this.context = context;
         
-        // PHASE 9.3: Route NanoHTTPD Temp files to Android Cache to prevent Sony /tmp crash
+        // Route NanoHTTPD Temp files to Android Cache to prevent Sony /tmp crash
         this.setTempFileManagerFactory(new TempFileManagerFactory() {
             @Override
             public TempFileManager create() {
