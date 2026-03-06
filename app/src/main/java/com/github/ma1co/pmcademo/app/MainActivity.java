@@ -17,7 +17,7 @@ import android.hardware.Camera;
 import android.media.ExifInterface;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
-import android.net.Uri; // <--- THE MISSING IMPORT HAS RETURNED!
+import android.net.Uri; 
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.BatteryManager;
@@ -596,7 +596,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                   .append(profiles[i].wbShiftGM).append("\n"); 
             }
             fos.write(sb.toString().getBytes()); fos.flush(); fos.getFD().sync(); fos.close();
-            // Using correct URI package now!
             sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(backupFile)));
         } catch (Exception e) {}
     }
@@ -677,8 +676,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             }
 
             p.set("sony-dro", prof.dro.toLowerCase());
+            
+            // Phase 8.2: Brute forcing Sony's undocumented AWB Shift parameters
             p.set("sony-wb-shift-ab", prof.wbShift);
             p.set("sony-wb-shift-gm", prof.wbShiftGM);
+            p.set("sony-awb-shift-ab", prof.wbShift);
+            p.set("sony-awb-shift-gm", prof.wbShiftGM);
             
             mCamera.setParameters(p);
         } catch (Exception e) {}
@@ -797,7 +800,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private void handleMenuChange(int dir) {
         RTLProfile p = profiles[currentSlot];
         try {
-            if (currentPage == 1) { // REAL TIME LOOKS
+            if (currentPage == 1) { 
                 switch(menuSelection) {
                     case 0: currentSlot = (currentSlot + dir + 10) % 10; break; 
                     case 1: p.lutIndex = (p.lutIndex + dir + recipePaths.size()) % recipePaths.size(); break;
@@ -819,7 +822,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                         p.dro = droLabels[(droi + dir + droLabels.length) % droLabels.length];
                         applyProfileSettings(); break;
                 }
-            } else if (currentPage == 2) { // GLOBAL SETTINGS
+            } else if (currentPage == 2) { 
                 switch(menuSelection) {
                     case 0: qualityIndex = (qualityIndex + dir + 3) % 3; break;
                     case 1: 
@@ -885,18 +888,24 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             for(int i=0; i<3; i++) {
                 menuLabels[i].setText(cLabels[i]); 
                 menuValues[i].setText(cValues[i]); 
-                if (cValues[i].startsWith("http")) menuValues[i].setTextColor(Color.rgb(230, 50, 15));
-                else menuValues[i].setTextColor(Color.WHITE);
                 menuRows[i].setVisibility(View.VISIBLE);
             }
         }
 
+        // Phase 8.2 Text Color Fix
         for (int i = 0; i < currentItemCount; i++) {
             boolean sel = (i == menuSelection);
             menuRows[i].setBackgroundColor(sel ? Color.rgb(230, 50, 15) : Color.TRANSPARENT);
-            menuLabels[i].setTextColor(sel ? Color.WHITE : Color.WHITE);
-            if (currentPage != 3 || !menuValues[i].getText().toString().startsWith("http")) {
-                menuValues[i].setTextColor(sel ? Color.WHITE : Color.WHITE);
+            
+            // Labels are always white
+            menuLabels[i].setTextColor(Color.WHITE);
+            
+            // If it's a successful URL on page 3, make it orange. 
+            // EXCEPT if it is currently highlighted, in which case force it to White so it doesn't disappear against the orange bar!
+            if (currentPage == 3 && menuValues[i].getText().toString().startsWith("http")) {
+                menuValues[i].setTextColor(sel ? Color.WHITE : Color.rgb(230, 50, 15));
+            } else {
+                menuValues[i].setTextColor(Color.WHITE);
             }
         }
     }
@@ -1362,7 +1371,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             int cx = getWidth() / 2, cy = getHeight() / 2, size = 60, bracket = 15;
             canvas.drawLine(cx-size, cy-size, cx-size+bracket, cy-size, paint); canvas.drawLine(cx-size, cy-size, cx-size, cy-size+bracket, paint);
             canvas.drawLine(cx+size, cy-size, cx+size-bracket, cy-size, paint); canvas.drawLine(cx+size, cy-size, cx+size, cy-size+bracket, paint);
-            canvas.drawLine(cx-size, cy+size, cx-size+bracket, cy+size, paint); canvas.drawLine(cx-size, cy+size, cx-size, cy+size-bracket, paint);
+            canvas.drawLine(cx-size, cy+size, cx-size+bracket, cy+size, paint); canvas.drawLine(cx-size, cy+size, cx-size, cy-size-bracket, paint);
             canvas.drawLine(cx+size, cy+size, cx+size-bracket, cy+size, paint); canvas.drawLine(cx+size, cy+size, cx+size, cy+size-bracket, paint);
             paint.setStyle(Paint.Style.FILL); canvas.drawCircle(cx, cy, 3, paint); paint.setStyle(Paint.Style.STROKE);
             postInvalidateDelayed(50);
@@ -1370,7 +1379,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     }
 
     // ==========================================
-    // ALPHAOS NETWORKING INTEGRATION
+    // PHASE 8.2: FIXED NETWORKING INTEGRATION
     // ==========================================
     
     private void setAutoPowerOffMode(boolean enable) {
@@ -1403,23 +1412,40 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         alphaWifiReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                NetworkInfo info = alphaConnManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
-                if (info != null && info.isConnected()) {
-                    WifiInfo wifiInfo = alphaWifiManager.getConnectionInfo();
-                    int ip = wifiInfo.getIpAddress();
-                    if (ip != 0) {
-                        String ipAddress = String.format("%d.%d.%d.%d", (ip & 0xff), (ip >> 8 & 0xff), (ip >> 16 & 0xff), (ip >> 24 & 0xff));
-                        updateConnectionStatus("WIFI", "http://" + ipAddress + ":" + HttpServer.PORT);
-                        try { if (!alphaServer.isAlive()) alphaServer.start(); } catch (Exception e) {}
-                        setAutoPowerOffMode(false); 
+                String action = intent.getAction();
+                if (WifiManager.WIFI_STATE_CHANGED_ACTION.equals(action)) {
+                    int state = intent.getIntExtra(WifiManager.EXTRA_WIFI_STATE, WifiManager.WIFI_STATE_UNKNOWN);
+                    if (state == WifiManager.WIFI_STATE_ENABLED) {
+                        alphaWifiManager.reconnect(); // Force connection to saved AP now that it's awake
                     }
-                } else {
-                    updateConnectionStatus("WIFI", "Searching for network...");
+                } else if (ConnectivityManager.CONNECTIVITY_ACTION.equals(action)) {
+                    NetworkInfo info = alphaConnManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
+                    if (info != null && info.isConnected()) {
+                        WifiInfo wifiInfo = alphaWifiManager.getConnectionInfo();
+                        int ip = wifiInfo.getIpAddress();
+                        if (ip != 0) {
+                            String ipAddress = String.format("%d.%d.%d.%d", (ip & 0xff), (ip >> 8 & 0xff), (ip >> 16 & 0xff), (ip >> 24 & 0xff));
+                            updateConnectionStatus("WIFI", "http://" + ipAddress + ":" + HttpServer.PORT);
+                            try { if (!alphaServer.isAlive()) alphaServer.start(); } catch (Exception e) {}
+                            setAutoPowerOffMode(false); 
+                        }
+                    } else {
+                        updateConnectionStatus("WIFI", "Searching for network...");
+                    }
                 }
             }
         };
-        registerReceiver(alphaWifiReceiver, new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION));
-        if (!alphaWifiManager.isWifiEnabled()) alphaWifiManager.setWifiEnabled(true);
+        
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(ConnectivityManager.CONNECTIVITY_ACTION);
+        filter.addAction(WifiManager.WIFI_STATE_CHANGED_ACTION);
+        registerReceiver(alphaWifiReceiver, filter);
+        
+        if (!alphaWifiManager.isWifiEnabled()) {
+            alphaWifiManager.setWifiEnabled(true);
+        } else {
+            alphaWifiManager.reconnect();
+        }
     }
 
     private void startAlphaOSHotspot() {
@@ -1433,7 +1459,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 int state = intent.getIntExtra(DirectManager.EXTRA_DIRECT_STATE, DirectManager.DIRECT_STATE_UNKNOWN);
                 if (state == DirectManager.DIRECT_STATE_ENABLED) {
                     List<DirectConfiguration> configs = alphaDirectManager.getConfigurations();
-                    if (!configs.isEmpty()) {
+                    if (configs != null && !configs.isEmpty()) {
                         alphaDirectManager.startGo(configs.get(configs.size() - 1).getNetworkId());
                     }
                 }
@@ -1454,9 +1480,23 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         
         registerReceiver(alphaDirectStateReceiver, new IntentFilter(DirectManager.DIRECT_STATE_CHANGED_ACTION));
         registerReceiver(alphaGroupCreateSuccessReceiver, new IntentFilter(DirectManager.GROUP_CREATE_SUCCESS_ACTION));
-        
-        alphaWifiManager.setWifiEnabled(true);
-        alphaDirectManager.setDirectEnabled(true);
+
+        // Wait for WiFi hardware to wake up before telling DirectManager to start
+        if (alphaWifiManager.isWifiEnabled()) {
+            alphaDirectManager.setDirectEnabled(true);
+        } else {
+            alphaWifiReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    int state = intent.getIntExtra(WifiManager.EXTRA_WIFI_STATE, WifiManager.WIFI_STATE_UNKNOWN);
+                    if (state == WifiManager.WIFI_STATE_ENABLED) {
+                        alphaDirectManager.setDirectEnabled(true);
+                    }
+                }
+            };
+            registerReceiver(alphaWifiReceiver, new IntentFilter(WifiManager.WIFI_STATE_CHANGED_ACTION));
+            alphaWifiManager.setWifiEnabled(true);
+        }
     }
 
     private void stopAlphaOSNetworking() {
@@ -1469,6 +1509,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         if (isHotspotRunning) {
             try { unregisterReceiver(alphaDirectStateReceiver); } catch (Exception e) {}
             try { unregisterReceiver(alphaGroupCreateSuccessReceiver); } catch (Exception e) {}
+            try { unregisterReceiver(alphaWifiReceiver); } catch (Exception e) {} 
             alphaDirectManager.setDirectEnabled(false);
             isHotspotRunning = false;
         }
