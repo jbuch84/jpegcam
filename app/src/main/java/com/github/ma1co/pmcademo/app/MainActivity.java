@@ -45,15 +45,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private boolean hasSurface = false; 
     
     private FrameLayout mainUIContainer;
-    
-    // Paginated Menu Elements
     private LinearLayout menuContainer; 
     private TextView tvMenuTitle;
     private TextView[] tvPageNumbers = new TextView[3];
     private LinearLayout menuHeaderLayout;
-    private LinearLayout[] menuRows = new LinearLayout[10]; // Max items per page
-    private TextView[] menuLabels = new TextView[10];
-    private TextView[] menuValues = new TextView[10];
+    private LinearLayout[] menuRows = new LinearLayout[12]; 
+    private TextView[] menuLabels = new TextView[12];
+    private TextView[] menuValues = new TextView[12];
     
     private TextView tvTopStatus, tvBattery, tvReview, tvMode, tvFocusMode; 
     private LinearLayout llBottomBar;
@@ -79,6 +77,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private ProReticleView afOverlay;
     private AdvancedFocusMeterView focusMeter; 
     private CinemaMatteView cinemaMattes;
+    private GridLinesView gridLines; // Phase 7: Grid Lines
+    
     private ArrayList<String> recipePaths = new ArrayList<String>();
     private ArrayList<String> recipeNames = new ArrayList<String>();
 
@@ -89,18 +89,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
 
     private RTLProfile[] profiles = new RTLProfile[10];
     
-    // Application State
     private int currentSlot = 0; 
     private int qualityIndex = 1; 
     
-    // Pagination State
-    private int currentPage = 1; // 1: RTL, 2: Global, 3: Connections
-    private int menuSelection = 0; // -1 means the Header/Page Selector is highlighted
+    private int currentPage = 1; 
+    private int menuSelection = 0; 
     private int currentItemCount = 0; 
 
-    // Global Settings
     private boolean prefShowFocusMeter = true;
     private boolean prefShowCinemaMattes = false;
+    private boolean prefShowGridLines = false; // Phase 7 toggle
 
     public static final int DIAL_MODE_RTL = 0;
     public static final int DIAL_MODE_SHUTTER = 1;
@@ -199,6 +197,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private void buildUI(FrameLayout rootLayout) {
         mainUIContainer = new FrameLayout(this);
         rootLayout.addView(mainUIContainer, new FrameLayout.LayoutParams(-1, -1));
+
+        // Drawing order matters! Grid goes under the mattes, mattes go under the UI
+        gridLines = new GridLinesView(this);
+        mainUIContainer.addView(gridLines, new FrameLayout.LayoutParams(-1, -1));
 
         cinemaMattes = new CinemaMatteView(this);
         mainUIContainer.addView(cinemaMattes, new FrameLayout.LayoutParams(-1, -1));
@@ -301,13 +303,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         afOverlay = new ProReticleView(this);
         mainUIContainer.addView(afOverlay, new FrameLayout.LayoutParams(-1, -1));
 
-        // Phase 6: Native Sony Paginated Menu
         menuContainer = new LinearLayout(this);
         menuContainer.setOrientation(LinearLayout.VERTICAL);
         menuContainer.setBackgroundColor(Color.argb(250, 15, 15, 15)); 
         menuContainer.setPadding(30, 30, 30, 30);
         
-        // Header Row
         menuHeaderLayout = new LinearLayout(this);
         menuHeaderLayout.setOrientation(LinearLayout.HORIZONTAL);
         menuHeaderLayout.setGravity(Gravity.CENTER_VERTICAL);
@@ -339,8 +339,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         divParams.setMargins(0, 0, 0, 15);
         menuContainer.addView(headerDivider, divParams);
 
-        // Max 10 dynamic rows per page
-        for (int i = 0; i < 10; i++) { 
+        for (int i = 0; i < 12; i++) { 
             menuRows[i] = new LinearLayout(this);
             menuRows[i].setOrientation(LinearLayout.HORIZONTAL);
             menuRows[i].setGravity(Gravity.CENTER_VERTICAL);
@@ -354,7 +353,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             menuRows[i].addView(menuLabels[i], new LinearLayout.LayoutParams(0, -2, 1.0f));
             menuRows[i].addView(menuValues[i], new LinearLayout.LayoutParams(-2, -2));
 
-            if (i < 9) {
+            if (i < 11) {
                 View divider = new View(this); divider.setBackgroundColor(Color.DKGRAY);
                 menuContainer.addView(divider, new LinearLayout.LayoutParams(-1, 1));
             }
@@ -363,7 +362,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         menuContainer.setVisibility(View.GONE);
         rootLayout.addView(menuContainer, new FrameLayout.LayoutParams(-1, -1));
 
-        // Playback Container
         playbackContainer = new FrameLayout(this);
         playbackContainer.setBackgroundColor(Color.BLACK);
         playbackContainer.setVisibility(View.GONE);
@@ -521,6 +519,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         editor.putInt("currentSlot", currentSlot);
         editor.putBoolean("showFocusMeter", prefShowFocusMeter);
         editor.putBoolean("showCinemaMattes", prefShowCinemaMattes);
+        editor.putBoolean("showGridLines", prefShowGridLines); // Phase 7 Toggle
 
         for(int i=0; i<10; i++) {
             editor.putString("slot_" + i + "_lutPath", recipePaths.get(profiles[i].lutIndex));
@@ -594,6 +593,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         currentSlot = prefs.getInt("currentSlot", 0);
         prefShowFocusMeter = prefs.getBoolean("showFocusMeter", true);
         prefShowCinemaMattes = prefs.getBoolean("showCinemaMattes", false);
+        prefShowGridLines = prefs.getBoolean("showGridLines", false);
 
         for(int i=0; i<10; i++) {
             String savedPath = prefs.getString("slot_" + i + "_lutPath", "NONE"); int foundIndex = recipePaths.indexOf(savedPath);
@@ -661,7 +661,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         if (sc == ScalarInput.ISV_KEY_MENU) {
             isMenuOpen = !isMenuOpen;
             if (isMenuOpen) {
-                // Reset menu cursor to top of Page 1 on open
                 currentPage = 1; menuSelection = 0; 
                 menuContainer.setVisibility(View.VISIBLE); mainUIContainer.setVisibility(View.GONE); renderMenu();
             } else {
@@ -688,22 +687,22 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             if (isMenuOpen) {
                 if (sc == ScalarInput.ISV_KEY_UP) { 
                     menuSelection--; 
-                    if (menuSelection < -1) menuSelection = currentItemCount - 1; // Loop to bottom
+                    if (menuSelection < -1) menuSelection = currentItemCount - 1; 
                     renderMenu(); return true; 
                 }
                 if (sc == ScalarInput.ISV_KEY_DOWN) { 
                     menuSelection++;
-                    if (menuSelection >= currentItemCount) menuSelection = -1; // Loop to header
+                    if (menuSelection >= currentItemCount) menuSelection = -1; 
                     renderMenu(); return true; 
                 }
                 if (sc == ScalarInput.ISV_KEY_LEFT || sc == ScalarInput.ISV_DIAL_1_COUNTERCW) { 
-                    if (menuSelection == -1) { // Header selected, change page
+                    if (menuSelection == -1) { 
                         currentPage = (currentPage == 1) ? 3 : currentPage - 1; renderMenu();
                     } else { handleMenuChange(-1); }
                     return true; 
                 }
                 if (sc == ScalarInput.ISV_KEY_RIGHT || sc == ScalarInput.ISV_DIAL_1_CLOCKWISE) { 
-                    if (menuSelection == -1) { // Header selected, change page
+                    if (menuSelection == -1) { 
                         currentPage = (currentPage == 3) ? 1 : currentPage + 1; renderMenu();
                     } else { handleMenuChange(1); }
                     return true; 
@@ -776,31 +775,29 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                         break;
                     case 2: prefShowFocusMeter = !prefShowFocusMeter; break;
                     case 3: prefShowCinemaMattes = !prefShowCinemaMattes; break;
+                    case 4: prefShowGridLines = !prefShowGridLines; break; // Toggle Grid Lines
                 }
             } else if (currentPage == 3) { // CONNECTIONS
-                // Currently Placeholders
+                // AlphaOS Integration targets
             }
         } catch (Exception e) {}
         renderMenu();
     }
 
     private void renderMenu() {
-        // Render Header
         tvMenuTitle.setText(currentPage == 1 ? "Real Time Looks" : currentPage == 2 ? "Global Settings" : "Connections");
         for(int i=0; i<3; i++) {
             boolean isCurPage = (currentPage == i+1);
             boolean isHeaderSelected = (menuSelection == -1);
-            // Highlight page number orange if active, underline if header is selected
             tvPageNumbers[i].setTextColor(isCurPage ? Color.rgb(230, 50, 15) : Color.WHITE);
             tvPageNumbers[i].setPaintFlags(isCurPage && isHeaderSelected ? Paint.UNDERLINE_TEXT_FLAG : 0);
         }
 
-        // Hide all rows initially
         for(int i=0; i<10; i++) menuRows[i].setVisibility(View.GONE);
 
         RTLProfile p = profiles[currentSlot];
 
-        if (currentPage == 1) { // REAL TIME LOOKS
+        if (currentPage == 1) { 
             currentItemCount = 10;
             String[] rLabels = {"RTL Slot", "LUT", "Opacity", "Grain Amount", "Grain Size", "Highlight Roll", "Vignette", "White Balance", "WB Shift", "DRO"};
             String[] rValues = {
@@ -812,19 +809,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 menuLabels[i].setText(rLabels[i]); menuValues[i].setText(rValues[i]); menuRows[i].setVisibility(View.VISIBLE);
             }
         } 
-        else if (currentPage == 2) { // GLOBAL SETTINGS
-            currentItemCount = 4;
+        else if (currentPage == 2) { 
+            currentItemCount = 5;
             String[] qLabels = {"PROXY (1.5MP)", "HIGH (6MP)", "ULTRA (24MP)"};
             String currentScene = "UNKNOWN";
             try { if(mCamera != null) { String sm = mCamera.getParameters().getSceneMode(); if(sm != null) currentScene = sm.toUpperCase(); } } catch(Exception e){}
             
-            String[] gLabels = {"Global Quality", "Base Scene", "Cinema Focus Meter", "Anamorphic Crop (2.35:1)"};
-            String[] gValues = {qLabels[qualityIndex], currentScene, prefShowFocusMeter ? "ON" : "OFF", prefShowCinemaMattes ? "ON" : "OFF"};
-            for(int i=0; i<4; i++) {
+            String[] gLabels = {"Global Quality", "Base Scene", "Cinema Focus Meter", "Anamorphic Crop (2.35:1)", "Rule of Thirds Grid"};
+            String[] gValues = {qLabels[qualityIndex], currentScene, prefShowFocusMeter ? "ON" : "OFF", prefShowCinemaMattes ? "ON" : "OFF", prefShowGridLines ? "ON" : "OFF"};
+            for(int i=0; i<5; i++) {
                 menuLabels[i].setText(gLabels[i]); menuValues[i].setText(gValues[i]); menuRows[i].setVisibility(View.VISIBLE);
             }
         }
-        else if (currentPage == 3) { // CONNECTIONS
+        else if (currentPage == 3) { 
             currentItemCount = 2;
             String[] cLabels = {"Smartphone Sync", "PC Transfer"};
             String[] cValues = {"Ready", "Ready"};
@@ -833,11 +830,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             }
         }
 
-        // Handle Row Selection Highlighting
         for (int i = 0; i < currentItemCount; i++) {
             boolean sel = (i == menuSelection);
             menuRows[i].setBackgroundColor(sel ? Color.rgb(230, 50, 15) : Color.TRANSPARENT);
-            // Gray out unselectable items on page 3 for now
             boolean locked = (currentPage == 3);
             menuLabels[i].setTextColor(sel ? Color.WHITE : (locked ? Color.GRAY : Color.WHITE));
             menuValues[i].setTextColor(sel ? Color.WHITE : (locked ? Color.GRAY : Color.WHITE));
@@ -855,11 +850,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             Camera.Parameters p = mCamera.getParameters();
             CameraEx.ParametersModifier pm = mCameraEx.createParametersModifier(p);
             
-            if (mDialMode == DIAL_MODE_RTL) { 
-                currentSlot = (currentSlot + d + 10) % 10; 
-                applyProfileSettings(); 
-                triggerLutPreload(); 
-            }
+            if (mDialMode == DIAL_MODE_RTL) { currentSlot = (currentSlot + d + 10) % 10; applyProfileSettings(); triggerLutPreload(); }
             else if (mDialMode == DIAL_MODE_SHUTTER) { if (d > 0) mCameraEx.incrementShutterSpeed(); else mCameraEx.decrementShutterSpeed(); }
             else if (mDialMode == DIAL_MODE_APERTURE) { if (d > 0) mCameraEx.incrementAperture(); else mCameraEx.decrementAperture(); }
             else if (mDialMode == DIAL_MODE_ISO) {
@@ -916,7 +907,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         
         tvReview.setBackgroundColor(mDialMode == DIAL_MODE_REVIEW ? Color.rgb(230, 50, 15) : Color.argb(140, 40, 40, 40));
 
-        // Toggle visibility based on preferences
+        gridLines.setVisibility(prefShowGridLines ? View.VISIBLE : View.GONE);
         cinemaMattes.setVisibility(prefShowCinemaMattes ? View.VISIBLE : View.GONE);
         if(focusMeter != null) focusMeter.setVisibility(prefShowFocusMeter ? View.VISIBLE : View.GONE);
 
@@ -1123,35 +1114,53 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int h1) {}
 
     // ==========================================
+    // PHASE 7: GRID LINES
+    // ==========================================
+    private class GridLinesView extends View {
+        private Paint paint;
+        public GridLinesView(Context context) {
+            super(context);
+            paint = new Paint();
+            paint.setColor(Color.argb(120, 255, 255, 255)); // Semi-transparent white
+            paint.setStrokeWidth(2);
+        }
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            int w = getWidth();
+            int h = getHeight();
+            // Vertical thirds
+            canvas.drawLine(w / 3f, 0, w / 3f, h, paint);
+            canvas.drawLine((w * 2f) / 3f, 0, (w * 2f) / 3f, h, paint);
+            // Horizontal thirds
+            canvas.drawLine(0, h / 3f, w, h / 3f, paint);
+            canvas.drawLine(0, (h * 2f) / 3f, w, (h * 2f) / 3f, paint);
+        }
+    }
+
+    // ==========================================
     // CINEMATIC MATTE BARS (2.35:1)
     // ==========================================
     private class CinemaMatteView extends View {
         private Paint mattePaint;
-
         public CinemaMatteView(Context context) {
             super(context);
             mattePaint = new Paint();
             mattePaint.setColor(Color.BLACK);
             mattePaint.setStyle(Paint.Style.FILL);
         }
-
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             int w = getWidth();
             int h = getHeight();
-            // Calculate 2.35:1 letterbox height
             int targetHeight = (int)(w / 2.35f); 
             int barHeight = (h - targetHeight) / 2;
             if (barHeight > 0) {
-                canvas.drawRect(0, 0, w, barHeight, mattePaint); // Top bar
-                canvas.drawRect(0, h - barHeight, w, h, mattePaint); // Bottom bar
+                canvas.drawRect(0, 0, w, barHeight, mattePaint); 
+                canvas.drawRect(0, h - barHeight, w, h, mattePaint); 
             }
         }
     }
 
-    // ==========================================
-    // PHASE 4: BAKED CINEMA FOCUS METER
-    // ==========================================
     private class AdvancedFocusMeterView extends View {
         private Paint trackPaint, needlePaint, dofPaint, textPaint;
         private float ratio = 0.5f; 
