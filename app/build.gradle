@@ -5,11 +5,14 @@ android {
     buildToolsVersion "28.0.3"
 
     defaultConfig {
-        applicationId "com.jpgcookbook.sony"
+        // Leave this for one more build so it gracefully updates your existing app!
+        applicationId "com.jpgcookbook.sony" 
         minSdkVersion 10
         targetSdkVersion 25
-        versionCode 1
-        versionName "2.0"
+        
+        // Bumped versioning for the filmOS era
+        versionCode 2
+        versionName "3.0"
         
         externalNativeBuild {
             cmake {
@@ -36,9 +39,10 @@ android {
         }
     }
 
+    // Renamed the final output file
     applicationVariants.all { variant ->
         variant.outputs.all {
-            outputFileName = "Sony-JPGCookbook-NDK-v2.0-NDK.apk"
+            outputFileName = "filmOS-v3.0.apk"
         }
     }
 }
@@ -51,4 +55,7 @@ repositories {
 
 dependencies {
     compileOnly 'com.github.ma1co.OpenMemories-Framework:stubs:-SNAPSHOT'
+    
+    // ALPHAOS DASHBOARD HTTP SERVER
+    implementation 'org.nanohttpd:nanohttpd:2.3.1'
 }

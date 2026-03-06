@@ -1,4 +1,4 @@
-package com.obsidium.bettermanual;
+package com.github.ma1co.pmcademo.app;
 
 public class SonyDrawables
 {
