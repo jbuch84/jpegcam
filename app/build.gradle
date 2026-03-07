@@ -54,8 +54,7 @@ repositories {
 }
 
 dependencies {
-    // OFFLINE FIX: Bypasses JitPack completely and uses the local jar file
-    compileOnly files('libs/openmemories-stubs.jar')
+    compileOnly 'com.github.ma1co.OpenMemories-Framework:stubs:-SNAPSHOT'
     
     // ALPHAOS DASHBOARD HTTP SERVER
     implementation 'org.nanohttpd:nanohttpd:2.3.1'
