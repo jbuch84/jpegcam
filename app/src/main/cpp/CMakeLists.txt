@@ -23,10 +23,11 @@ target_include_directories(native-lib PRIVATE
 
 set_target_properties(native-lib PROPERTIES LINK_FLAGS "-Wl,-Bsymbolic -Wl,--exclude-libs,ALL")
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -mfloat-abi=hard -mfpu=neon")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -mfloat-abi=hard -mfpu=neon")
-set(CMAKE_CXX_FLAGS_DEBUG "-O3 -mfloat-abi=hard -mfpu=neon")
-set(CMAKE_C_FLAGS_DEBUG "-O3 -mfloat-abi=hard -mfpu=neon")
+# Restored the clean -O3 optimization flags to fix the Hard vs Soft FP mismatch
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3")
+set(CMAKE_CXX_FLAGS_DEBUG "-O3")
+set(CMAKE_C_FLAGS_DEBUG "-O3")
 
 find_library(log-lib log)
 target_link_libraries(native-lib jpeg-static ${log-lib})
