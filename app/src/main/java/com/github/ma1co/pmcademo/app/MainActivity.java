@@ -217,12 +217,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             }
             @Override 
             public void onNewPhotoDetected(final String path) { 
-                runOnUiThread(new Runnable() { 
+                // RACE CONDITION FIX: Wait 800ms to allow camera hardware to finish writing massive file
+                uiHandler.postDelayed(new Runnable() { 
                     public void run() { 
                         File outDir = new File(Environment.getExternalStorageDirectory(), "GRADED");
                         mProcessor.processJpeg(path, outDir.getAbsolutePath(), recipeManager.getQualityIndex(), recipeManager.getCurrentProfile()); 
                     } 
-                }); 
+                }, 800); 
             }
         });
         mScanner.start();
@@ -236,7 +237,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override 
     public void onShutterHalfPressed() {
-        // PLAYBACK FIX: Let half-press safely escape playback
         if (isPlaybackMode) { 
             exitPlayback(); 
             return; 
@@ -274,7 +274,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override 
     public void onMenuPressed() {
-        // PLAYBACK FIX: Let menu button safely escape playback
         if (isPlaybackMode) { 
             exitPlayback(); 
             return; 
@@ -298,7 +297,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override 
     public void onEnterPressed() {
-        // PLAYBACK FIX: Let Enter button safely escape playback
         if (isPlaybackMode) { 
             exitPlayback(); 
             return; 
@@ -526,16 +524,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         playbackContainer.setVisibility(View.GONE);
         mainUIContainer.setVisibility(displayState == 0 ? View.VISIBLE : View.GONE);
         
+        // MEMORY CRASH FIX: Sweep viewer memory instantly when exiting
+        playbackImageView.setImageBitmap(null);
         if (currentPlaybackBitmap != null) { 
             currentPlaybackBitmap.recycle(); 
             currentPlaybackBitmap = null; 
         }
+        System.gc();
     }
 
     private void showPlaybackImage(int idx) {
         if (playbackFiles.isEmpty()) return;
         
-        // Wrap around logic for endless scrolling
         if (idx < 0) {
             idx = playbackFiles.size() - 1; 
         }
@@ -547,20 +547,29 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         File file = playbackFiles.get(idx);
         
         try {
-            // CORRUPT FILE FIX: Display safe error instead of crashing
+            // MEMORY CRASH FIX: Ensure previous giant bitmap is destroyed before decoding next
+            playbackImageView.setImageBitmap(null);
+            if (currentPlaybackBitmap != null) {
+                currentPlaybackBitmap.recycle();
+                currentPlaybackBitmap = null;
+            }
+            System.gc();
+
             if (file.length() == 0) {
                 tvPlaybackInfo.setText((idx + 1) + "/" + playbackFiles.size() + "\n[ERROR: 0-BYTE FILE]");
-                playbackImageView.setImageBitmap(null);
                 return;
             }
             
             ExifInterface exif = new ExifInterface(file.getAbsolutePath());
             tvPlaybackInfo.setText((idx + 1) + "/" + playbackFiles.size() + "\n" + file.getName());
             
+            // MEMORY CRASH FIX: Downsample 8x instead of 2x. Uses 1.5MB instead of 24MB.
             BitmapFactory.Options opts = new BitmapFactory.Options(); 
-            opts.inSampleSize = 2;
+            opts.inSampleSize = 8; 
             Bitmap raw = BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
             
+            if (raw == null) return;
+
             int orient = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
             int rot = 0; 
             if (orient == ExifInterface.ORIENTATION_ROTATE_90) rot = 90; 
@@ -569,14 +578,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             
             Matrix m = new Matrix(); 
             if (rot != 0) m.postRotate(rot); 
-            m.postScale(0.8888f, 1.0f); // Fix for physical screen pixel ratio
+            m.postScale(0.8888f, 1.0f);
             
             Bitmap bmp = Bitmap.createBitmap(raw, 0, 0, raw.getWidth(), raw.getHeight(), m, true);
             playbackImageView.setImageBitmap(bmp);
-            
-            if (currentPlaybackBitmap != null) {
-                currentPlaybackBitmap.recycle();
-            }
             currentPlaybackBitmap = bmp;
             
         } catch (Exception e) {}
@@ -704,7 +709,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         String displayName = name.length() > 15 ? name.substring(0, 12) + "..." : name;
         
         tvTopStatus.setText("RTL " + (recipeManager.getCurrentSlot() + 1) + " [" + displayName + "]\n" + (isReady ? "READY" : "LOADING.."));
-        tvTopStatus.setTextColor(mDialMode == DIAL_MODE_RTL ? Color.rgb(230, 50, 15) : Color.WHITE);
         
         String sm = p.getSceneMode(); 
         if ("manual-exposure".equals(sm)) tvMode.setText("M"); 
@@ -718,7 +722,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         tvValIso.setText(pm.getISOSensitivity() == 0 ? "ISO AUTO" : "ISO " + pm.getISOSensitivity());
         tvValEv.setText(String.format("%+.1f", p.getExposureCompensation() * p.getExposureCompensationStep()));
         
+        // UI HIGHLIGHT FIX: Added visual color swapping to all on-screen menu items
+        tvTopStatus.setTextColor(mDialMode == DIAL_MODE_RTL ? Color.rgb(230, 50, 15) : Color.WHITE);
         tvReview.setBackgroundColor(mDialMode == DIAL_MODE_REVIEW ? Color.rgb(230, 50, 15) : Color.argb(140, 40, 40, 40));
+        tvValShutter.setTextColor(mDialMode == DIAL_MODE_SHUTTER ? Color.rgb(230, 50, 15) : Color.WHITE);
+        tvValAperture.setTextColor(mDialMode == DIAL_MODE_APERTURE ? Color.rgb(230, 50, 15) : Color.WHITE);
+        tvValIso.setTextColor(mDialMode == DIAL_MODE_ISO ? Color.rgb(230, 50, 15) : Color.WHITE);
+        tvValEv.setTextColor(mDialMode == DIAL_MODE_EXPOSURE ? Color.rgb(230, 50, 15) : Color.WHITE);
+        tvMode.setTextColor(mDialMode == DIAL_MODE_PASM ? Color.rgb(230, 50, 15) : Color.WHITE);
+        tvFocusMode.setTextColor(mDialMode == DIAL_MODE_FOCUS ? Color.rgb(230, 50, 15) : Color.WHITE);
+        
         gridLines.setVisibility(prefShowGridLines ? View.VISIBLE : View.GONE); 
         cinemaMattes.setVisibility(prefShowCinemaMattes ? View.VISIBLE : View.GONE);
     }
