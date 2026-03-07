@@ -89,6 +89,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private boolean prefShowCinemaMattes = false;
     private boolean prefShowGridLines = false;
     
+    // CACHE FIX: Prevent massive IPC lag during Focus Ring turning
+    private boolean cachedIsManualFocus = false;
+    private float cachedAperture = 2.8f;
+    
     private GridLinesView gridLines;
     private CinemaMatteView cinemaMattes;
     private AdvancedFocusMeterView focusMeter;
@@ -186,7 +190,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     } 
                 }); 
             }
-
+            
             @Override 
             public void onPreloadFinished(boolean success) { 
                 isReady = true; 
@@ -196,7 +200,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     } 
                 }); 
             }
-
+            
             @Override 
             public void onProcessStarted() { 
                 runOnUiThread(new Runnable() { 
@@ -206,7 +210,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     } 
                 }); 
             }
-
+            
             @Override 
             public void onProcessFinished(String res) { 
                 isProcessing = false; 
@@ -225,7 +229,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             public boolean isReadyToProcess() { 
                 return isReady && !isProcessing && recipeManager.getCurrentProfile().lutIndex != 0; 
             }
-
+            
             @Override 
             public void onNewPhotoDetected(final String path) { 
                 processWhenFileReady(path);
@@ -299,9 +303,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 if (!"manual".equals(c.getParameters().getFocusMode())) {
                     afOverlay.startFocus(c); 
                 }
-            } catch (Exception e) {
-                // Ignore focus start errors
-            }
+            } catch (Exception e) {}
         }
     }
 
@@ -471,18 +473,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 int idx = isos.indexOf(pm.getISOSensitivity());
                 if (idx != -1) { 
                     pm.setISOSensitivity(isos.get(Math.max(0, Math.min(isos.size()-1, idx + d)))); 
-                    c.setParameters(p); 
+                    try { c.setParameters(p); } catch (Exception e) {}
                 }
             }
         }
         else if (mDialMode == DIAL_MODE_EXPOSURE) {
             int ev = p.getExposureCompensation();
             p.setExposureCompensation(Math.max(p.getMinExposureCompensation(), Math.min(p.getMaxExposureCompensation(), ev + d)));
-            c.setParameters(p);
+            try { c.setParameters(p); } catch (Exception e) {}
         }
         else if (mDialMode == DIAL_MODE_PASM) {
             List<String> valid = new ArrayList<String>(); 
-            String[] desired = {"program-auto", "aperture-priority", "shutter-priority", "manual-exposure"};
+            // PASM STRING FIX: Included both shutter strings Sony uses
+            String[] desired = {"program-auto", "aperture-priority", "shutter-priority", "shutter-speed-priority", "manual-exposure"};
             List<String> supported = p.getSupportedSceneModes();
             if (supported != null) {
                 for (String s : desired) { 
@@ -496,7 +499,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                         idx = 0; 
                     }
                     p.setSceneMode(valid.get((idx + d + valid.size()) % valid.size())); 
-                    c.setParameters(p);
+                    try { c.setParameters(p); } catch (Exception e) {}
                 }
             }
         }
@@ -505,7 +508,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             if (focusModes != null && !focusModes.isEmpty()) {
                 int idx = focusModes.indexOf(p.getFocusMode());
                 p.setFocusMode(focusModes.get((idx + d + focusModes.size()) % focusModes.size()));
-                c.setParameters(p);
+                try { c.setParameters(p); } catch (Exception e) {}
             }
         }
         
@@ -555,7 +558,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         p.set("white-balance-shift-lb", String.valueOf(prof.wbShift)); 
         p.set("white-balance-shift-cc", String.valueOf(prof.wbShiftGM));
         
-        c.setParameters(p);
+        // CAMERA DAEMON CRASH FIX: Try/Catch prevents bootloop if hardware rejects param combo
+        try {
+            c.setParameters(p);
+        } catch (Exception e) {
+            // Parameter combination rejected by current Scene Mode, gracefully ignore.
+        }
     }
 
     @Override 
@@ -593,14 +601,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     
     @Override 
     public void onFocusPositionChanged(final float ratio) {
-        runOnUiThread(new Runnable() { 
-            public void run() {
-                if (focusMeter != null && "manual".equals(cameraManager.getCamera().getParameters().getFocusMode())) { 
-                    float ap = cameraManager.getCameraEx().createParametersModifier(cameraManager.getCamera().getParameters()).getAperture() / 100.0f; 
-                    focusMeter.update(ratio, ap, true); 
+        // FOCUS IPC LAG FIX: Read variables from local cache instead of requesting from hardware API
+        if (focusMeter != null && cachedIsManualFocus) { 
+            runOnUiThread(new Runnable() { 
+                public void run() {
+                    focusMeter.update(ratio, cachedAperture, true); 
                 }
-            }
-        });
+            });
+        }
     }
 
     @Override 
@@ -615,8 +623,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         if (c == null) return;
         
         String fMode = c.getParameters().getFocusMode();
+        cachedIsManualFocus = "manual".equals(fMode);
+        
         if (focusMeter != null) {
-            focusMeter.setVisibility("manual".equals(fMode) ? View.VISIBLE : View.GONE);
+            focusMeter.setVisibility(cachedIsManualFocus ? View.VISIBLE : View.GONE);
         }
     }
 
@@ -728,6 +738,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         int sel = menuManager.getSelection(); 
         int pg = menuManager.getCurrentPage();
         
+        // MENU LAG FIX: Removed the applyHardwareRecipe call here so UI doesn't stutter on clicks.
         if (pg == 1) {
             switch(sel) {
                 case 0: 
@@ -792,7 +803,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                             int idx = supported.indexOf(params.getSceneMode());
                             if (idx == -1) idx = 0;
                             params.setSceneMode(supported.get((idx + dir + supported.size()) % supported.size()));
-                            c.setParameters(params);
+                            try { c.setParameters(params); } catch (Exception e) {}
                         }
                     }
                     break; 
@@ -809,9 +820,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         }
         
         renderMenu(); 
-        recipeManager.savePreferences(); 
-        uiHandler.removeCallbacks(applySettingsRunnable); 
-        uiHandler.postDelayed(applySettingsRunnable, 400);
     }
 
     private void handleConnectionAction() {
@@ -863,13 +871,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     @Override 
     protected void onPause() { 
         super.onPause(); 
+        // WAKELOCK FIX: Instantly kill all UI threads and pending delays to allow OS power off
+        uiHandler.removeCallbacksAndMessages(null); 
         cameraManager.close(); 
         connectivityManager.stopNetworking(); 
         recipeManager.savePreferences(); 
         try { 
             unregisterReceiver(batteryReceiver); 
         } catch(Exception e) {} 
-        uiHandler.removeCallbacks(liveUpdater); 
     }
 
     private void setHUDVisibility(int v) { 
@@ -882,8 +891,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         tvReview.setVisibility(v); 
         
         if (focusMeter != null) {
-            String fm = cameraManager.getCamera().getParameters().getFocusMode();
-            focusMeter.setVisibility(v == View.VISIBLE && "manual".equals(fm) ? View.VISIBLE : View.GONE);
+            focusMeter.setVisibility(v == View.VISIBLE && cachedIsManualFocus ? View.VISIBLE : View.GONE);
         }
     }
 
@@ -910,17 +918,21 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             tvMode.setText("M"); 
         } else if ("aperture-priority".equals(sm)) {
             tvMode.setText("A"); 
-        } else if ("shutter-priority".equals(sm)) {
+        } else if ("shutter-priority".equals(sm) || "shutter-speed-priority".equals(sm)) {
             tvMode.setText("S"); 
         } else if ("program-auto".equals(sm)) {
             tvMode.setText("P");
         } else {
-            tvMode.setText("SCN");
+            // Will now safely print out whatever custom scene mode is active
+            tvMode.setText(sm != null ? sm.toUpperCase() : "SCN");
         }
+        
+        // CACHE FIX: Update variables so Focus Ring UI never has to query hardware directly
+        cachedAperture = pm.getAperture() / 100.0f;
         
         Pair<Integer, Integer> ss = pm.getShutterSpeed(); 
         tvValShutter.setText(ss.first == 1 && ss.second != 1 ? ss.first + "/" + ss.second : ss.first + "\"");
-        tvValAperture.setText(String.format("f%.1f", pm.getAperture() / 100.0f)); 
+        tvValAperture.setText(String.format("f%.1f", cachedAperture)); 
         tvValIso.setText(pm.getISOSensitivity() == 0 ? "ISO AUTO" : "ISO " + pm.getISOSensitivity());
         tvValEv.setText(String.format("%+.1f", p.getExposureCompensation() * p.getExposureCompensationStep()));
         
@@ -932,20 +944,23 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         tvMode.setTextColor(mDialMode == DIAL_MODE_PASM ? Color.rgb(230, 50, 15) : Color.WHITE);
         
         String fm = p.getFocusMode();
+        cachedIsManualFocus = "manual".equals(fm);
+        
         if ("auto".equals(fm)) {
             tvFocusMode.setText("AF-S"); 
-        } else if ("manual".equals(fm)) {
+        } else if (cachedIsManualFocus) {
             tvFocusMode.setText("MF"); 
-        } else if ("continuous-video".equals(fm)) {
+        } else if ("continuous-video".equals(fm) || "continuous-picture".equals(fm)) {
             tvFocusMode.setText("AF-C"); 
         } else {
-            tvFocusMode.setText("AF");
+            // STRING REVEAL: Will print exactly what proprietary name the Sony OS uses for DMF
+            tvFocusMode.setText(fm != null ? fm.toUpperCase() : "AF");
         }
         
         tvFocusMode.setTextColor(mDialMode == DIAL_MODE_FOCUS ? Color.rgb(230, 50, 15) : Color.WHITE);
         
         if (focusMeter != null) {
-            focusMeter.setVisibility("manual".equals(fm) ? View.VISIBLE : View.GONE);
+            focusMeter.setVisibility(cachedIsManualFocus ? View.VISIBLE : View.GONE);
         }
         
         gridLines.setVisibility(prefShowGridLines ? View.VISIBLE : View.GONE); 
