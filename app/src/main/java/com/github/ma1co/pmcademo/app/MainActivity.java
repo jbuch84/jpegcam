@@ -9,7 +9,6 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Matrix;
-import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.hardware.Camera;
 import android.media.ExifInterface;
@@ -168,7 +167,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         FrameLayout rootLayout = new FrameLayout(this);
         mSurfaceView = new SurfaceView(this);
         mSurfaceView.getHolder().addCallback(this);
-        // CRITICAL FIX: The missing Android 2.3.7 legacy hardware flag for liveview
         mSurfaceView.getHolder().setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
         rootLayout.addView(mSurfaceView, new FrameLayout.LayoutParams(-1, -1));
         
@@ -182,16 +180,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             @Override 
             public void onPreloadStarted() { 
                 isReady = false; 
-                runOnUiThread(new Runnable() { 
-                    public void run() { updateMainHUD(); } 
-                }); 
+                runOnUiThread(new Runnable() { public void run() { updateMainHUD(); } }); 
             }
             @Override 
             public void onPreloadFinished(boolean success) { 
                 isReady = true; 
-                runOnUiThread(new Runnable() { 
-                    public void run() { updateMainHUD(); } 
-                }); 
+                runOnUiThread(new Runnable() { public void run() { updateMainHUD(); } }); 
             }
             @Override 
             public void onProcessStarted() { 
@@ -242,10 +236,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override 
     public void onShutterHalfPressed() {
+        // PLAYBACK FIX: Let half-press safely escape playback
+        if (isPlaybackMode) { 
+            exitPlayback(); 
+            return; 
+        }
+        
         mDialMode = DIAL_MODE_RTL;
-        if (displayState == 0 && !isMenuOpen && !isPlaybackMode) {
+        if (displayState == 0 && !isMenuOpen) {
             setHUDVisibility(View.GONE);
         }
+        
         Camera c = cameraManager.getCamera();
         if (afOverlay != null && c != null) {
             try { 
@@ -273,24 +274,36 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override 
     public void onMenuPressed() {
+        // PLAYBACK FIX: Let menu button safely escape playback
+        if (isPlaybackMode) { 
+            exitPlayback(); 
+            return; 
+        }
+        
         isMenuOpen = !isMenuOpen;
         if (isMenuOpen) {
-            recipeManager.scanRecipes();
-            menuManager.setPage(1);
-            menuContainer.setVisibility(View.VISIBLE);
-            mainUIContainer.setVisibility(View.GONE);
+            recipeManager.scanRecipes(); 
+            menuManager.setPage(1); 
+            menuContainer.setVisibility(View.VISIBLE); 
+            mainUIContainer.setVisibility(View.GONE); 
             renderMenu();
         } else {
-            menuContainer.setVisibility(View.GONE);
-            mainUIContainer.setVisibility(displayState == 0 ? View.VISIBLE : View.GONE);
-            recipeManager.savePreferences();
-            triggerLutPreload();
+            menuContainer.setVisibility(View.GONE); 
+            mainUIContainer.setVisibility(displayState == 0 ? View.VISIBLE : View.GONE); 
+            recipeManager.savePreferences(); 
+            triggerLutPreload(); 
             updateMainHUD();
         }
     }
 
     @Override 
     public void onEnterPressed() {
+        // PLAYBACK FIX: Let Enter button safely escape playback
+        if (isPlaybackMode) { 
+            exitPlayback(); 
+            return; 
+        }
+        
         if (!isMenuOpen) {
             if (mDialMode == DIAL_MODE_REVIEW) {
                 enterPlayback();
@@ -317,7 +330,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     
     @Override 
     public void onLeftPressed() { 
-        if (isMenuOpen) {
+        if (isPlaybackMode) {
+            showPlaybackImage(playbackIndex - 1);
+        } else if (isMenuOpen) {
             handleMenuHorizontal(-1); 
         } else {
             cycleDialMode(-1); 
@@ -326,7 +341,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     
     @Override 
     public void onRightPressed() { 
-        if (isMenuOpen) {
+        if (isPlaybackMode) {
+            showPlaybackImage(playbackIndex + 1);
+        } else if (isMenuOpen) {
             handleMenuHorizontal(1); 
         } else {
             cycleDialMode(1); 
@@ -335,7 +352,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     
     @Override 
     public void onDialRotated(int direction) { 
-        if (isMenuOpen) {
+        if (isPlaybackMode) {
+            showPlaybackImage(playbackIndex + direction);
+        } else if (isMenuOpen) {
             handleMenuChange(direction); 
         } else {
             handleHardwareInput(direction); 
@@ -381,19 +400,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             }
         }
         else if (mDialMode == DIAL_MODE_PASM) {
-            List<String> valid = new ArrayList<String>();
+            List<String> valid = new ArrayList<String>(); 
             String[] desired = {"manual-exposure", "aperture-priority", "shutter-priority", "program-auto"};
-            for (String s : desired) {
+            for (String s : desired) { 
                 if (p.getSupportedSceneModes().contains(s)) {
-                    valid.add(s);
+                    valid.add(s); 
                 }
             }
-            int idx = valid.indexOf(p.getSceneMode());
-            p.setSceneMode(valid.get((idx + d + valid.size()) % valid.size()));
+            int idx = valid.indexOf(p.getSceneMode()); 
+            p.setSceneMode(valid.get((idx + d + valid.size()) % valid.size())); 
             c.setParameters(p);
         }
         
-        uiHandler.removeCallbacks(liveUpdater);
+        uiHandler.removeCallbacks(liveUpdater); 
         uiHandler.postDelayed(liveUpdater, 1000); 
         updateMainHUD();
     }
@@ -402,7 +421,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         Camera c = cameraManager.getCamera(); 
         if (c == null) return;
         
-        RTLProfile prof = recipeManager.getCurrentProfile();
+        RTLProfile prof = recipeManager.getCurrentProfile(); 
         Camera.Parameters p = c.getParameters();
         
         String wb = "auto";
@@ -413,6 +432,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         else if ("FLR".equals(prof.whiteBalance)) wb = "fluorescent";
         
         p.setWhiteBalance(wb);
+        
         if (p.get("dro-mode") != null) {
             if ("OFF".equals(prof.dro)) {
                 p.set("dro-mode", "off"); 
@@ -441,35 +461,29 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     
     @Override 
     public void onShutterSpeedChanged() { 
-        runOnUiThread(new Runnable() { 
-            public void run() { updateMainHUD(); } 
-        }); 
+        runOnUiThread(new Runnable() { public void run() { updateMainHUD(); } }); 
     }
     
     @Override 
     public void onApertureChanged() { 
-        runOnUiThread(new Runnable() { 
-            public void run() { updateMainHUD(); } 
-        }); 
+        runOnUiThread(new Runnable() { public void run() { updateMainHUD(); } }); 
     }
     
     @Override 
     public void onIsoChanged() { 
-        runOnUiThread(new Runnable() { 
-            public void run() { updateMainHUD(); } 
-        }); 
+        runOnUiThread(new Runnable() { public void run() { updateMainHUD(); } }); 
     }
     
     @Override 
     public void onFocusPositionChanged(final float ratio) {
         runOnUiThread(new Runnable() { 
             public void run() {
-                if (focusMeter != null && mDialMode == DIAL_MODE_FOCUS) {
-                    Camera c = cameraManager.getCamera();
+                if (focusMeter != null && mDialMode == DIAL_MODE_FOCUS) { 
+                    Camera c = cameraManager.getCamera(); 
                     if (c != null) { 
                         float ap = cameraManager.getCameraEx().createParametersModifier(c.getParameters()).getAperture() / 100.0f; 
                         focusMeter.update(ratio, ap, true); 
-                    }
+                    } 
                 }
             }
         });
@@ -492,26 +506,54 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 }
             }
         }
+        
         Collections.sort(playbackFiles, new Comparator<File>() { 
-            @Override 
-            public int compare(File f1, File f2) { 
+            @Override public int compare(File f1, File f2) { 
                 return Long.valueOf(f2.lastModified()).compareTo(f1.lastModified()); 
             } 
         });
         
         if (playbackFiles.isEmpty()) return;
+        
         isPlaybackMode = true; 
         mainUIContainer.setVisibility(View.GONE); 
         playbackContainer.setVisibility(View.VISIBLE); 
         showPlaybackImage(0);
     }
 
+    private void exitPlayback() {
+        isPlaybackMode = false;
+        playbackContainer.setVisibility(View.GONE);
+        mainUIContainer.setVisibility(displayState == 0 ? View.VISIBLE : View.GONE);
+        
+        if (currentPlaybackBitmap != null) { 
+            currentPlaybackBitmap.recycle(); 
+            currentPlaybackBitmap = null; 
+        }
+    }
+
     private void showPlaybackImage(int idx) {
-        if (idx < 0 || idx >= playbackFiles.size()) return;
+        if (playbackFiles.isEmpty()) return;
+        
+        // Wrap around logic for endless scrolling
+        if (idx < 0) {
+            idx = playbackFiles.size() - 1; 
+        }
+        if (idx >= playbackFiles.size()) {
+            idx = 0; 
+        }
+        
         playbackIndex = idx; 
         File file = playbackFiles.get(idx);
         
         try {
+            // CORRUPT FILE FIX: Display safe error instead of crashing
+            if (file.length() == 0) {
+                tvPlaybackInfo.setText((idx + 1) + "/" + playbackFiles.size() + "\n[ERROR: 0-BYTE FILE]");
+                playbackImageView.setImageBitmap(null);
+                return;
+            }
+            
             ExifInterface exif = new ExifInterface(file.getAbsolutePath());
             tvPlaybackInfo.setText((idx + 1) + "/" + playbackFiles.size() + "\n" + file.getName());
             
@@ -527,7 +569,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             
             Matrix m = new Matrix(); 
             if (rot != 0) m.postRotate(rot); 
-            m.postScale(0.8888f, 1.0f); // Restores your critical Sony LCD pixel distortion fix
+            m.postScale(0.8888f, 1.0f); // Fix for physical screen pixel ratio
             
             Bitmap bmp = Bitmap.createBitmap(raw, 0, 0, raw.getWidth(), raw.getHeight(), m, true);
             playbackImageView.setImageBitmap(bmp);
@@ -536,12 +578,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 currentPlaybackBitmap.recycle();
             }
             currentPlaybackBitmap = bmp;
+            
         } catch (Exception e) {}
     }
 
     private void handleMenuChange(int dir) {
-        RTLProfile p = recipeManager.getCurrentProfile();
-        int sel = menuManager.getSelection();
+        RTLProfile p = recipeManager.getCurrentProfile(); 
+        int sel = menuManager.getSelection(); 
         int pg = menuManager.getCurrentPage();
         
         if (pg == 1) {
@@ -582,13 +625,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         
         renderMenu(); 
         recipeManager.savePreferences(); 
-        
         uiHandler.removeCallbacks(applySettingsRunnable); 
         uiHandler.postDelayed(applySettingsRunnable, 400);
     }
 
     private void handleConnectionAction() {
-        int sel = menuManager.getSelection();
+        int sel = menuManager.getSelection(); 
         if (sel == 0) {
             connectivityManager.startHotspot(); 
         } else if (sel == 1) {
@@ -604,8 +646,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             scn = cameraManager.getCamera().getParameters().getSceneMode().toUpperCase(); 
         } catch(Exception e) {}
         
-        menuManager.render(tvMenuTitle, tvPageNumbers, menuRows, menuLabels, menuValues, 
-            recipeManager, connectivityManager, prefShowFocusMeter, prefShowCinemaMattes, prefShowGridLines, scn);
+        menuManager.render(tvMenuTitle, tvPageNumbers, menuRows, menuLabels, menuValues, recipeManager, connectivityManager, prefShowFocusMeter, prefShowCinemaMattes, prefShowGridLines, scn);
     }
 
     @Override 
@@ -625,7 +666,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             cameraManager.open(mSurfaceView.getHolder()); 
         }
         registerReceiver(batteryReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED)); 
-        uiHandler.post(liveUpdater);
+        uiHandler.post(liveUpdater); 
     }
     
     @Override 
@@ -634,22 +675,20 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         cameraManager.close(); 
         connectivityManager.stopNetworking(); 
         recipeManager.savePreferences(); 
-        try { 
-            unregisterReceiver(batteryReceiver); 
-        } catch(Exception e) {} 
-        uiHandler.removeCallbacks(liveUpdater);
+        try { unregisterReceiver(batteryReceiver); } catch(Exception e) {} 
+        uiHandler.removeCallbacks(liveUpdater); 
     }
 
-    private void setHUDVisibility(int v) {
+    private void setHUDVisibility(int v) { 
         tvTopStatus.setVisibility(v); 
         llBottomBar.setVisibility(v); 
         tvBattery.setVisibility(v); 
-        batteryIcon.setVisibility(v);
+        batteryIcon.setVisibility(v); 
         tvMode.setVisibility(v); 
         tvFocusMode.setVisibility(v); 
-        tvReview.setVisibility(v);
+        tvReview.setVisibility(v); 
         if (focusMeter != null && prefShowFocusMeter) {
-            focusMeter.setVisibility(v);
+            focusMeter.setVisibility(v); 
         }
     }
 
@@ -667,192 +706,188 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         tvTopStatus.setText("RTL " + (recipeManager.getCurrentSlot() + 1) + " [" + displayName + "]\n" + (isReady ? "READY" : "LOADING.."));
         tvTopStatus.setTextColor(mDialMode == DIAL_MODE_RTL ? Color.rgb(230, 50, 15) : Color.WHITE);
         
-        String sm = p.getSceneMode();
+        String sm = p.getSceneMode(); 
         if ("manual-exposure".equals(sm)) tvMode.setText("M"); 
         else if ("aperture-priority".equals(sm)) tvMode.setText("A"); 
         else if ("shutter-priority".equals(sm)) tvMode.setText("S"); 
         else tvMode.setText("P");
         
-        Pair<Integer, Integer> ss = pm.getShutterSpeed();
+        Pair<Integer, Integer> ss = pm.getShutterSpeed(); 
         tvValShutter.setText(ss.first == 1 && ss.second != 1 ? ss.first + "/" + ss.second : ss.first + "\"");
-        tvValAperture.setText(String.format("f%.1f", pm.getAperture() / 100.0f));
+        tvValAperture.setText(String.format("f%.1f", pm.getAperture() / 100.0f)); 
         tvValIso.setText(pm.getISOSensitivity() == 0 ? "ISO AUTO" : "ISO " + pm.getISOSensitivity());
         tvValEv.setText(String.format("%+.1f", p.getExposureCompensation() * p.getExposureCompensationStep()));
         
         tvReview.setBackgroundColor(mDialMode == DIAL_MODE_REVIEW ? Color.rgb(230, 50, 15) : Color.argb(140, 40, 40, 40));
-        
         gridLines.setVisibility(prefShowGridLines ? View.VISIBLE : View.GONE); 
         cinemaMattes.setVisibility(prefShowCinemaMattes ? View.VISIBLE : View.GONE);
     }
 
-    // This is identically restored from your uploaded file to fix the UI sizing and overlap
     private void buildUI(FrameLayout rootLayout) {
-        mainUIContainer = new FrameLayout(this);
+        mainUIContainer = new FrameLayout(this); 
         rootLayout.addView(mainUIContainer, new FrameLayout.LayoutParams(-1, -1));
-
-        gridLines = new GridLinesView(this);
+        
+        gridLines = new GridLinesView(this); 
         mainUIContainer.addView(gridLines, new FrameLayout.LayoutParams(-1, -1));
-
-        cinemaMattes = new CinemaMatteView(this);
+        
+        cinemaMattes = new CinemaMatteView(this); 
         mainUIContainer.addView(cinemaMattes, new FrameLayout.LayoutParams(-1, -1));
-
-        tvTopStatus = new TextView(this);
-        tvTopStatus.setTextColor(Color.WHITE);
-        tvTopStatus.setTextSize(20);
-        tvTopStatus.setTypeface(Typeface.DEFAULT_BOLD);
-        tvTopStatus.setGravity(Gravity.CENTER);
+        
+        tvTopStatus = new TextView(this); 
+        tvTopStatus.setTextColor(Color.WHITE); 
+        tvTopStatus.setTextSize(20); 
+        tvTopStatus.setTypeface(Typeface.DEFAULT_BOLD); 
+        tvTopStatus.setGravity(Gravity.CENTER); 
         tvTopStatus.setShadowLayer(4, 0, 0, Color.BLACK);
-        FrameLayout.LayoutParams topParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        topParams.setMargins(0, 15, 0, 0);
+        FrameLayout.LayoutParams topParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL); 
+        topParams.setMargins(0, 15, 0, 0); 
         mainUIContainer.addView(tvTopStatus, topParams);
-
-        LinearLayout rightBar = new LinearLayout(this);
-        rightBar.setOrientation(LinearLayout.VERTICAL);
+        
+        LinearLayout rightBar = new LinearLayout(this); 
+        rightBar.setOrientation(LinearLayout.VERTICAL); 
         rightBar.setGravity(Gravity.RIGHT);
         
-        LinearLayout batteryArea = new LinearLayout(this);
-        batteryArea.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout batteryArea = new LinearLayout(this); 
+        batteryArea.setOrientation(LinearLayout.HORIZONTAL); 
         batteryArea.setGravity(Gravity.CENTER_VERTICAL);
         
-        tvBattery = new TextView(this);
-        tvBattery.setTextColor(Color.WHITE);
-        tvBattery.setTextSize(18);
-        tvBattery.setTypeface(Typeface.DEFAULT_BOLD);
-        tvBattery.setPadding(0, 0, 10, 0);
+        tvBattery = new TextView(this); 
+        tvBattery.setTextColor(Color.WHITE); 
+        tvBattery.setTextSize(18); 
+        tvBattery.setTypeface(Typeface.DEFAULT_BOLD); 
+        tvBattery.setPadding(0, 0, 10, 0); 
         batteryArea.addView(tvBattery);
-
-        batteryIcon = new BatteryView(this);
-        batteryArea.addView(batteryIcon, new LinearLayout.LayoutParams(45, 22));
+        
+        batteryIcon = new BatteryView(this); 
+        batteryArea.addView(batteryIcon, new LinearLayout.LayoutParams(45, 22)); 
         rightBar.addView(batteryArea);
-
-        tvReview = createSideTextIcon("▶");
-        LinearLayout.LayoutParams rvParams = new LinearLayout.LayoutParams(-2, -2);
-        rvParams.setMargins(0, 20, 0, 0);
-        tvReview.setLayoutParams(rvParams);
+        
+        tvReview = createSideTextIcon("▶"); 
+        LinearLayout.LayoutParams rvParams = new LinearLayout.LayoutParams(-2, -2); 
+        rvParams.setMargins(0, 20, 0, 0); 
+        tvReview.setLayoutParams(rvParams); 
         rightBar.addView(tvReview);
-
-        FrameLayout.LayoutParams rightParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.RIGHT);
+        
+        FrameLayout.LayoutParams rightParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.RIGHT); 
         rightParams.setMargins(0, 20, 30, 0); 
         mainUIContainer.addView(rightBar, rightParams);
-
-        LinearLayout leftBar = new LinearLayout(this);
-        leftBar.setOrientation(LinearLayout.VERTICAL);
         
-        tvMode = createSideTextIcon("M");
-        leftBar.addView(tvMode);
-
-        tvFocusMode = createSideTextIcon("AF-S");
+        LinearLayout leftBar = new LinearLayout(this); 
+        leftBar.setOrientation(LinearLayout.VERTICAL); 
+        tvMode = createSideTextIcon("M"); 
+        leftBar.addView(tvMode); 
+        tvFocusMode = createSideTextIcon("AF-S"); 
         leftBar.addView(tvFocusMode);
         
-        FrameLayout.LayoutParams leftParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.LEFT);
-        leftParams.setMargins(20, 20, 0, 0);
+        FrameLayout.LayoutParams leftParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.LEFT); 
+        leftParams.setMargins(20, 20, 0, 0); 
         mainUIContainer.addView(leftBar, leftParams);
-
-        focusMeter = new AdvancedFocusMeterView(this);
-        FrameLayout.LayoutParams fmParams = new FrameLayout.LayoutParams(-1, 80, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        
+        focusMeter = new AdvancedFocusMeterView(this); 
+        FrameLayout.LayoutParams fmParams = new FrameLayout.LayoutParams(-1, 80, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL); 
         fmParams.setMargins(0, 0, 0, 100); 
         mainUIContainer.addView(focusMeter, fmParams);
-
-        llBottomBar = new LinearLayout(this);
-        llBottomBar.setOrientation(LinearLayout.HORIZONTAL);
-        llBottomBar.setGravity(Gravity.CENTER);
         
-        tvValShutter = createBottomText();
-        tvValAperture = createBottomText();
-        tvValIso = createBottomText();
+        llBottomBar = new LinearLayout(this); 
+        llBottomBar.setOrientation(LinearLayout.HORIZONTAL); 
+        llBottomBar.setGravity(Gravity.CENTER); 
+        tvValShutter = createBottomText(); 
+        tvValAperture = createBottomText(); 
+        tvValIso = createBottomText(); 
         tvValEv = createBottomText();
-
-        llBottomBar.addView(tvValShutter);
-        llBottomBar.addView(tvValAperture);
-        llBottomBar.addView(tvValIso);
+        
+        llBottomBar.addView(tvValShutter); 
+        llBottomBar.addView(tvValAperture); 
+        llBottomBar.addView(tvValIso); 
         llBottomBar.addView(tvValEv);
-
-        FrameLayout.LayoutParams botParams = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-        botParams.setMargins(0, 0, 0, 25);
+        
+        FrameLayout.LayoutParams botParams = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM); 
+        botParams.setMargins(0, 0, 0, 25); 
         mainUIContainer.addView(llBottomBar, botParams);
-
-        afOverlay = new ProReticleView(this);
+        
+        afOverlay = new ProReticleView(this); 
         mainUIContainer.addView(afOverlay, new FrameLayout.LayoutParams(-1, -1));
-
-        menuContainer = new LinearLayout(this);
-        menuContainer.setOrientation(LinearLayout.VERTICAL);
+        
+        menuContainer = new LinearLayout(this); 
+        menuContainer.setOrientation(LinearLayout.VERTICAL); 
         menuContainer.setBackgroundColor(Color.argb(250, 15, 15, 15)); 
         menuContainer.setPadding(20, 20, 20, 20); 
         
-        LinearLayout menuHeaderLayout = new LinearLayout(this);
-        menuHeaderLayout.setOrientation(LinearLayout.HORIZONTAL);
-        menuHeaderLayout.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout menuHeaderLayout = new LinearLayout(this); 
+        menuHeaderLayout.setOrientation(LinearLayout.HORIZONTAL); 
+        menuHeaderLayout.setGravity(Gravity.CENTER_VERTICAL); 
         menuHeaderLayout.setPadding(10, 0, 10, 15);
-
-        tvMenuTitle = new TextView(this);
+        
+        tvMenuTitle = new TextView(this); 
         tvMenuTitle.setTextSize(22); 
-        tvMenuTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        tvMenuTitle.setTextColor(Color.WHITE);
+        tvMenuTitle.setTypeface(Typeface.DEFAULT_BOLD); 
+        tvMenuTitle.setTextColor(Color.WHITE); 
         menuHeaderLayout.addView(tvMenuTitle, new LinearLayout.LayoutParams(0, -2, 1.0f));
-
-        LinearLayout pagesLayout = new LinearLayout(this);
-        pagesLayout.setOrientation(LinearLayout.HORIZONTAL);
+        
+        LinearLayout pagesLayout = new LinearLayout(this); 
+        pagesLayout.setOrientation(LinearLayout.HORIZONTAL); 
         pagesLayout.setGravity(Gravity.RIGHT);
-        for(int i=0; i<4; i++) {
-            tvPageNumbers[i] = new TextView(this);
-            tvPageNumbers[i].setText(String.valueOf(i+1));
+        
+        for(int i=0; i<4; i++) { 
+            tvPageNumbers[i] = new TextView(this); 
+            tvPageNumbers[i].setText(String.valueOf(i+1)); 
             tvPageNumbers[i].setTextSize(20); 
-            tvPageNumbers[i].setTypeface(Typeface.DEFAULT_BOLD);
-            tvPageNumbers[i].setPadding(15, 0, 15, 0);
-            pagesLayout.addView(tvPageNumbers[i]);
+            tvPageNumbers[i].setTypeface(Typeface.DEFAULT_BOLD); 
+            tvPageNumbers[i].setPadding(15, 0, 15, 0); 
+            pagesLayout.addView(tvPageNumbers[i]); 
         }
-        menuHeaderLayout.addView(pagesLayout, new LinearLayout.LayoutParams(-2, -2));
+        
+        menuHeaderLayout.addView(pagesLayout, new LinearLayout.LayoutParams(-2, -2)); 
         menuContainer.addView(menuHeaderLayout);
-
-        View headerDivider = new View(this);
-        headerDivider.setBackgroundColor(Color.GRAY);
-        LinearLayout.LayoutParams divParams = new LinearLayout.LayoutParams(-1, 2);
-        divParams.setMargins(0, 0, 0, 15);
+        
+        View headerDivider = new View(this); 
+        headerDivider.setBackgroundColor(Color.GRAY); 
+        LinearLayout.LayoutParams divParams = new LinearLayout.LayoutParams(-1, 2); 
+        divParams.setMargins(0, 0, 0, 15); 
         menuContainer.addView(headerDivider, divParams);
-
+        
         for (int i = 0; i < 7; i++) { 
-            menuRows[i] = new LinearLayout(this);
-            menuRows[i].setOrientation(LinearLayout.HORIZONTAL);
-            menuRows[i].setGravity(Gravity.CENTER_VERTICAL);
-            menuRows[i].setPadding(10, 0, 10, 0);
-            
+            menuRows[i] = new LinearLayout(this); 
+            menuRows[i].setOrientation(LinearLayout.HORIZONTAL); 
+            menuRows[i].setGravity(Gravity.CENTER_VERTICAL); 
+            menuRows[i].setPadding(10, 0, 10, 0); 
             menuContainer.addView(menuRows[i], new LinearLayout.LayoutParams(-1, 0, 1.0f));
             
             menuLabels[i] = new TextView(this); 
             menuLabels[i].setTextSize(18); 
-            menuLabels[i].setTypeface(Typeface.DEFAULT_BOLD);
+            menuLabels[i].setTypeface(Typeface.DEFAULT_BOLD); 
             
             menuValues[i] = new TextView(this); 
             menuValues[i].setTextSize(18); 
             menuValues[i].setGravity(Gravity.RIGHT);
             
-            menuRows[i].addView(menuLabels[i], new LinearLayout.LayoutParams(0, -2, 1.0f));
+            menuRows[i].addView(menuLabels[i], new LinearLayout.LayoutParams(0, -2, 1.0f)); 
             menuRows[i].addView(menuValues[i], new LinearLayout.LayoutParams(-2, -2));
-
-            if (i < 6) {
+            
+            if (i < 6) { 
                 View divider = new View(this); 
-                divider.setBackgroundColor(Color.DKGRAY);
-                menuContainer.addView(divider, new LinearLayout.LayoutParams(-1, 1));
+                divider.setBackgroundColor(Color.DKGRAY); 
+                menuContainer.addView(divider, new LinearLayout.LayoutParams(-1, 1)); 
             }
         }
         
-        menuContainer.setVisibility(View.GONE);
+        menuContainer.setVisibility(View.GONE); 
         rootLayout.addView(menuContainer, new FrameLayout.LayoutParams(-1, -1));
-
-        playbackContainer = new FrameLayout(this);
-        playbackContainer.setBackgroundColor(Color.BLACK);
+        
+        playbackContainer = new FrameLayout(this); 
+        playbackContainer.setBackgroundColor(Color.BLACK); 
         playbackContainer.setVisibility(View.GONE);
         
-        playbackImageView = new ImageView(this);
-        playbackImageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        playbackImageView = new ImageView(this); 
+        playbackImageView.setScaleType(ImageView.ScaleType.FIT_CENTER); 
         playbackContainer.addView(playbackImageView, new FrameLayout.LayoutParams(-1, -1));
         
-        tvPlaybackInfo = new TextView(this);
-        tvPlaybackInfo.setTextColor(Color.WHITE);
-        tvPlaybackInfo.setTextSize(18);
-        tvPlaybackInfo.setShadowLayer(3, 0, 0, Color.BLACK);
-        FrameLayout.LayoutParams pbInfoParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.RIGHT);
-        pbInfoParams.setMargins(0, 30, 30, 0);
+        tvPlaybackInfo = new TextView(this); 
+        tvPlaybackInfo.setTextColor(Color.WHITE); 
+        tvPlaybackInfo.setTextSize(18); 
+        tvPlaybackInfo.setShadowLayer(3, 0, 0, Color.BLACK); 
+        FrameLayout.LayoutParams pbInfoParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.RIGHT); 
+        pbInfoParams.setMargins(0, 30, 30, 0); 
         playbackContainer.addView(tvPlaybackInfo, pbInfoParams);
         
         rootLayout.addView(playbackContainer, new FrameLayout.LayoutParams(-1, -1));
@@ -863,28 +898,28 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         updateMainHUD(); 
     }
     
-    private TextView createBottomText() {
-        TextView tv = new TextView(this);
-        tv.setTextSize(26);
-        tv.setTypeface(Typeface.DEFAULT_BOLD);
-        tv.setShadowLayer(4, 0, 0, Color.BLACK);
+    private TextView createBottomText() { 
+        TextView tv = new TextView(this); 
+        tv.setTextSize(26); 
+        tv.setTypeface(Typeface.DEFAULT_BOLD); 
+        tv.setShadowLayer(4, 0, 0, Color.BLACK); 
         tv.setPadding(20, 0, 20, 0); 
-        return tv;
+        return tv; 
     }
-
-    private TextView createSideTextIcon(String text) {
-        TextView tv = new TextView(this);
+    
+    private TextView createSideTextIcon(String text) { 
+        TextView tv = new TextView(this); 
         tv.setText(text); 
         tv.setTextColor(Color.WHITE); 
         tv.setTextSize(22); 
         tv.setTypeface(Typeface.MONOSPACE, Typeface.BOLD); 
         tv.setPadding(25, 15, 25, 15); 
-        tv.setBackgroundColor(Color.argb(140, 40, 40, 40));
-        tv.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
-        lp.setMargins(0, 0, 0, 15);
-        tv.setLayoutParams(lp);
-        return tv;
+        tv.setBackgroundColor(Color.argb(140, 40, 40, 40)); 
+        tv.setGravity(Gravity.CENTER); 
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2); 
+        lp.setMargins(0, 0, 0, 15); 
+        tv.setLayoutParams(lp); 
+        return tv; 
     }
     
     @Override 

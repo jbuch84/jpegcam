@@ -25,7 +25,6 @@ METHODDEF(void) my_error_exit (j_common_ptr cinfo) {
     longjmp(myerr->setjmp_buffer, 1);
 }
 
-// Fast random number generator for film grain 
 inline uint32_t fast_rand(uint32_t* state) {
     uint32_t x = *state;
     x ^= x << 13; 
@@ -35,10 +34,11 @@ inline uint32_t fast_rand(uint32_t* state) {
     return x;
 }
 
-// Data structure to pass variables into our parallel threads
+// Structure to pass variables into our parallel threads, handling absolute Y coordinates for chunking
 struct ThreadData {
     int start_y;
     int end_y;
+    int absolute_y_offset;
     unsigned char* img_buffer;
     int row_stride;
     long long cx;
@@ -56,16 +56,16 @@ struct ThreadData {
     int* rollMap;
 };
 
-// The worker function that each CPU core will run simultaneously
 void* process_rows(void* arg) {
     ThreadData* td = (ThreadData*)arg;
     uint32_t master_seed = 98765;
 
-    for (int cy = td->start_y; cy < td->end_y; cy++) {
-        unsigned char* row = &td->img_buffer[cy * td->row_stride];
-        long long dy_sq = (cy - td->cy_center) * (cy - td->cy_center);
+    for (int local_y = td->start_y; local_y < td->end_y; local_y++) {
+        int absolute_y = td->absolute_y_offset + local_y;
+        unsigned char* row = &td->img_buffer[local_y * td->row_stride];
+        long long dy_sq = (absolute_y - td->cy_center) * (absolute_y - td->cy_center);
         int prev_noise = 0; 
-        uint32_t seed = master_seed + (cy * 1337); 
+        uint32_t seed = master_seed + (absolute_y * 1337); 
 
         for (int x = 0; x < td->row_stride; x += 3) {
             int origR = row[x];
@@ -73,7 +73,6 @@ void* process_rows(void* arg) {
             int origB = row[x+2];
             int outR = origR, outG = origG, outB = origB;
 
-            // Tetrahedral interpolation calculations
             int fX = td->map[origR], fY = td->map[origG], fZ = td->map[origB];
             int x0 = fX >> 7, y0 = fY >> 7, z0 = fZ >> 7;
             int x1 = (x0 < td->lutMax) ? x0 + 1 : td->lutMax;
@@ -151,11 +150,9 @@ void* process_rows(void* arg) {
                 int raw_noise = (fast_rand(&seed) & 0xFF) - 128; 
                 int noise = (td->grainSize == 0) ? raw_noise : (td->grainSize == 1) ? (raw_noise + prev_noise) >> 1 : (raw_noise + prev_noise * 2) / 3;
                 prev_noise = raw_noise;
-                
                 int lum = (outR*77 + outG*150 + outB*29) >> 8; 
                 int mask = (lum < 128) ? lum : 255 - lum; 
                 int grain_val = (noise * mask * td->grain) >> 15; 
-                
                 outR += grain_val; 
                 outG += grain_val; 
                 outB += grain_val;
@@ -169,7 +166,6 @@ void* process_rows(void* arg) {
     return NULL;
 }
 
-// Corrected JNI Signature: LutEngine instead of ImageProcessor
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_github_ma1co_pmcademo_app_LutEngine_loadLutNative(JNIEnv* env, jobject /* this */, jstring path) {
     const char *file_path = env->GetStringUTFChars(path, NULL);
@@ -178,7 +174,7 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_loadLutNative(JNIEnv* env, jobject 
     
     if (!file) return JNI_FALSE;
 
-    nativeLut.clear();
+    nativeLut.clear(); 
     char line[256];
     
     while(fgets(line, sizeof(line), file)) {
@@ -186,20 +182,18 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_loadLutNative(JNIEnv* env, jobject 
             sscanf(line, "LUT_3D_SIZE %d", &nativeLutSize);
             nativeLut.reserve(nativeLutSize * nativeLutSize * nativeLutSize * 3);
         }
-        
         float r, g, b;
         if (sscanf(line, "%f %f %f", &r, &g, &b) == 3) {
-            nativeLut.push_back((uint8_t)(r * 255.0f));
-            nativeLut.push_back((uint8_t)(g * 255.0f));
+            nativeLut.push_back((uint8_t)(r * 255.0f)); 
+            nativeLut.push_back((uint8_t)(g * 255.0f)); 
             nativeLut.push_back((uint8_t)(b * 255.0f));
         }
     }
     
-    fclose(file);
+    fclose(file); 
     return nativeLutSize > 0 ? JNI_TRUE : JNI_FALSE;
 }
 
-// Corrected JNI Signature: LutEngine instead of ImageProcessor
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
     JNIEnv* env, jobject /* this */, 
@@ -208,67 +202,65 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
     jint grain, jint grainSize, 
     jint vignette, jint rolloff) {
     
-    const char *in_file = env->GetStringUTFChars(inPath, NULL);
+    const char *in_file = env->GetStringUTFChars(inPath, NULL); 
     const char *out_file = env->GetStringUTFChars(outPath, NULL);
     
-    FILE *infile = fopen(in_file, "rb");
+    FILE *infile = fopen(in_file, "rb"); 
     FILE *outfile = fopen(out_file, "wb");
-
+    
     if (!infile || !outfile) {
         if (infile) fclose(infile); 
         if (outfile) fclose(outfile);
         env->ReleaseStringUTFChars(inPath, in_file); 
-        env->ReleaseStringUTFChars(outPath, out_file);
+        env->ReleaseStringUTFChars(outPath, out_file); 
         return JNI_FALSE;
     }
 
-    struct jpeg_decompress_struct cinfo_d;
-    struct jpeg_compress_struct cinfo_c;
+    struct jpeg_decompress_struct cinfo_d; 
+    struct jpeg_compress_struct cinfo_c; 
     struct my_error_mgr jerr_d, jerr_c;
     
-    int map[256];
+    int map[256]; 
     int rollMap[256];
 
-    // Initialize Decompressor
-    cinfo_d.err = jpeg_std_error(&jerr_d.pub);
+    cinfo_d.err = jpeg_std_error(&jerr_d.pub); 
     jerr_d.pub.error_exit = my_error_exit;
-    if (setjmp(jerr_d.setjmp_buffer)) {
+    if (setjmp(jerr_d.setjmp_buffer)) { 
         jpeg_destroy_decompress(&cinfo_d); 
         fclose(infile); 
         fclose(outfile); 
-        return JNI_FALSE;
+        return JNI_FALSE; 
     }
     
-    jpeg_create_decompress(&cinfo_d);
+    jpeg_create_decompress(&cinfo_d); 
     jpeg_stdio_src(&cinfo_d, infile);
-
+    
     for (int m = 0; m < 16; m++) {
         jpeg_save_markers(&cinfo_d, JPEG_APP0 + m, 0xFFFF);
     }
     jpeg_save_markers(&cinfo_d, JPEG_COM, 0xFFFF);
     
-    jpeg_read_header(&cinfo_d, TRUE);
+    jpeg_read_header(&cinfo_d, TRUE); 
     cinfo_d.scale_num = 1; 
     cinfo_d.scale_denom = scaleDenom; 
     cinfo_d.out_color_space = JCS_RGB; 
     jpeg_start_decompress(&cinfo_d);
 
-    // Initialize Compressor
-    cinfo_c.err = jpeg_std_error(&jerr_c.pub);
+    cinfo_c.err = jpeg_std_error(&jerr_c.pub); 
     jerr_c.pub.error_exit = my_error_exit;
-    if (setjmp(jerr_c.setjmp_buffer)) {
+    if (setjmp(jerr_c.setjmp_buffer)) { 
         jpeg_destroy_compress(&cinfo_c); 
         jpeg_destroy_decompress(&cinfo_d); 
         fclose(infile); 
         fclose(outfile); 
-        return JNI_FALSE;
+        return JNI_FALSE; 
     }
     
-    jpeg_create_compress(&cinfo_c);
+    jpeg_create_compress(&cinfo_c); 
     jpeg_stdio_dest(&cinfo_c, outfile);
     
     cinfo_c.image_width = cinfo_d.output_width; 
-    cinfo_c.image_height = cinfo_d.output_height;
+    cinfo_c.image_height = cinfo_d.output_height; 
     cinfo_c.input_components = 3; 
     cinfo_c.in_color_space = JCS_RGB;
     
@@ -277,91 +269,96 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
     jpeg_start_compress(&cinfo_c, TRUE);
 
     jpeg_saved_marker_ptr marker = cinfo_d.marker_list;
-    while (marker) {
-        jpeg_write_marker(&cinfo_c, marker->marker, marker->data, marker->data_length);
-        marker = marker->next;
+    while (marker) { 
+        jpeg_write_marker(&cinfo_c, marker->marker, marker->data, marker->data_length); 
+        marker = marker->next; 
     }
 
-    int lutMax = nativeLutSize - 1;
+    int lutMax = nativeLutSize - 1; 
     int lutSize2 = nativeLutSize * nativeLutSize;
     for (int i = 0; i < 256; i++) { 
         map[i] = (i * lutMax * 128) / 255; 
         if (i > 200 && rolloff > 0) {
-            rollMap[i] = i - ((i - 200) * (i - 200) * rolloff) / 11000;
+            rollMap[i] = i - ((i - 200) * (i - 200) * rolloff) / 11000; 
         } else {
             rollMap[i] = i;
         }
     }
     
     int row_stride = cinfo_d.output_width * 3;
-    
-    // Allocate a memory block for the entire uncompressed JPEG
-    unsigned char* img_buffer = (unsigned char*)malloc(row_stride * cinfo_d.output_height);
-    if (!img_buffer) {
-        jpeg_destroy_compress(&cinfo_c); 
-        jpeg_destroy_decompress(&cinfo_d);
-        fclose(infile); 
-        fclose(outfile); 
-        return JNI_FALSE;
-    }
-
-    // 1. SEQUENTIAL READ
-    JSAMPROW row_pointer[1];
-    while (cinfo_d.output_scanline < cinfo_d.output_height) {
-        row_pointer[0] = &img_buffer[cinfo_d.output_scanline * row_stride];
-        jpeg_read_scanlines(&cinfo_d, row_pointer, 1);
-    }
-
-    long long cx = cinfo_d.output_width / 2;
+    long long cx = cinfo_d.output_width / 2; 
     long long cy_center = cinfo_d.output_height / 2;
     long long max_dist_sq = cx*cx + cy_center*cy_center;
     long long vig_coef = ((long long)((vignette * 256) / 100) << 24) / (max_dist_sq > 0 ? max_dist_sq : 1); 
     int opac_mapped = (opacity * 256) / 100;
+    
+    // SAFE MEMORY ALLOCATION: Max 128 rows at a time
+    int chunk_size = 128;
+    unsigned char* img_buffer = (unsigned char*)malloc(row_stride * chunk_size);
+    if (!img_buffer) { 
+        jpeg_destroy_compress(&cinfo_c); 
+        jpeg_destroy_decompress(&cinfo_d); 
+        fclose(infile); 
+        fclose(outfile); 
+        return JNI_FALSE; 
+    }
 
-    // 2. PARALLEL PROCESS (Multi-core execution using POSIX threads)
-    int num_threads = 4; 
-    pthread_t threads[4];
-    ThreadData thread_data[4];
+    JSAMPROW row_pointer[1];
 
-    int rows_per_thread = cinfo_d.output_height / num_threads;
+    // Stream through the image in chunks
+    while (cinfo_d.output_scanline < cinfo_d.output_height) {
+        int lines_read = 0;
+        int start_scanline = cinfo_d.output_scanline;
 
-    for (int i = 0; i < num_threads; i++) {
-        thread_data[i].start_y = i * rows_per_thread;
-        // Ensure the last thread goes all the way to the end to catch remaining rows
-        thread_data[i].end_y = (i == num_threads - 1) ? cinfo_d.output_height : (i + 1) * rows_per_thread;
+        // 1. Read a chunk of rows
+        while (lines_read < chunk_size && cinfo_d.output_scanline < cinfo_d.output_height) {
+            row_pointer[0] = &img_buffer[lines_read * row_stride];
+            jpeg_read_scanlines(&cinfo_d, row_pointer, 1);
+            lines_read++;
+        }
+
+        // 2. Process the chunk using multiple CPU Cores
+        int num_threads = 4; 
+        pthread_t threads[4];
+        ThreadData thread_data[4];
+        int rows_per_thread = lines_read / num_threads;
+
+        for (int i = 0; i < num_threads; i++) {
+            thread_data[i].start_y = i * rows_per_thread;
+            thread_data[i].end_y = (i == num_threads - 1) ? lines_read : (i + 1) * rows_per_thread;
+            thread_data[i].absolute_y_offset = start_scanline; 
+            thread_data[i].img_buffer = img_buffer; 
+            thread_data[i].row_stride = row_stride;
+            thread_data[i].cx = cx; 
+            thread_data[i].cy_center = cy_center; 
+            thread_data[i].vignette = vignette; 
+            thread_data[i].vig_coef = vig_coef;
+            thread_data[i].opacity = opacity; 
+            thread_data[i].opac_mapped = opac_mapped;
+            thread_data[i].grain = grain; 
+            thread_data[i].grainSize = grainSize; 
+            thread_data[i].rolloff = rolloff;
+            thread_data[i].lutMax = lutMax; 
+            thread_data[i].lutSize2 = lutSize2; 
+            thread_data[i].map = map; 
+            thread_data[i].rollMap = rollMap;
+
+            pthread_create(&threads[i], NULL, process_rows, &thread_data[i]);
+        }
         
-        thread_data[i].img_buffer = img_buffer;
-        thread_data[i].row_stride = row_stride;
-        thread_data[i].cx = cx;
-        thread_data[i].cy_center = cy_center;
-        thread_data[i].vignette = vignette;
-        thread_data[i].vig_coef = vig_coef;
-        thread_data[i].opacity = opacity;
-        thread_data[i].opac_mapped = opac_mapped;
-        thread_data[i].grain = grain;
-        thread_data[i].grainSize = grainSize;
-        thread_data[i].rolloff = rolloff;
-        thread_data[i].lutMax = lutMax;
-        thread_data[i].lutSize2 = lutSize2;
-        thread_data[i].map = map;
-        thread_data[i].rollMap = rollMap;
+        // Wait for all threads to finish this chunk
+        for (int i = 0; i < num_threads; i++) { 
+            pthread_join(threads[i], NULL); 
+        }
 
-        // Spin up the thread
-        pthread_create(&threads[i], NULL, process_rows, &thread_data[i]);
+        // 3. Write the processed chunk back to the compressor
+        for (int i = 0; i < lines_read; i++) {
+            row_pointer[0] = &img_buffer[i * row_stride];
+            jpeg_write_scanlines(&cinfo_c, row_pointer, 1);
+        }
     }
 
-    // Wait for all 4 threads to finish processing their chunk
-    for (int i = 0; i < num_threads; i++) {
-        pthread_join(threads[i], NULL);
-    }
-
-    // 3. SEQUENTIAL WRITE
-    while (cinfo_c.next_scanline < cinfo_c.image_height) {
-        row_pointer[0] = &img_buffer[cinfo_c.next_scanline * row_stride];
-        jpeg_write_scanlines(&cinfo_c, row_pointer, 1);
-    }
-
-    // Cleanup
+    // Clean up memory safely
     free(img_buffer);
     jpeg_finish_compress(&cinfo_c); 
     jpeg_destroy_compress(&cinfo_c);
