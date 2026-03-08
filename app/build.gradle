@@ -32,22 +32,26 @@ jobs:
         echo "sdk.dir=$HOME/clean-sdk" > local.properties
         echo "ndk.dir=$HOME/clean-sdk/ndk/16.1.4479499" >> local.properties
 
-    - name: Build OpenMemories Stubs Locally (JitPack & Mirror Bypass)
+    - name: Build OpenMemories Stubs Locally (Bulletproof Bypass)
       run: |
         git clone https://github.com/ma1co/OpenMemories-Framework.git
         cd OpenMemories-Framework
         git checkout f8df3504d8
         cd stubs
         
-        # DEAD MIRROR FIX: Replace the dead 2017 SourceForge server with the global one
-        sed -i 's/http:\/\/jaist.dl.sourceforge.net/https:\/\/downloads.sourceforge.net/g' build.gradle
+        # Download the missing 2017 dependency directly and build a fake local server
+        mkdir -p fake-repo/jasmin/jasmin/2.4
+        curl -L -s -o fake-repo/jasmin/jasmin/2.4/jasmin-2.4.zip https://downloads.sourceforge.net/project/jasmin/jasmin/jasmin-2.4/jasmin-2.4.zip
+        
+        # Trick the legacy compiler into looking at our fake local folder instead of the dead internet mirror
+        sed -i "s|http://jaist.dl.sourceforge.net/project/|file://$PWD/fake-repo/|g" build.gradle
         
         export JAVA_HOME=$JAVA_HOME_8_X64
         wget -q https://services.gradle.org/distributions/gradle-4.10.3-bin.zip
         unzip -q gradle-4.10.3-bin.zip
         ./gradle-4.10.3/bin/gradle assemble
         
-        # Create the libs folder in our main app and copy the newly built jar into it
+        # Slide the compiled jar into our app
         mkdir -p ../../app/libs
         cp build/libs/*.jar ../../app/libs/openmemories-stubs.jar
 
