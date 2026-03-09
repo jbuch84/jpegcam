@@ -25,7 +25,7 @@ inline uint32_t fast_rand(uint32_t* state) {
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_github_ma1co_pmcademo_app_LutEngine_loadLutNative(JNIEnv* env, jobject obj, jstring path) {
+Java_com_github_ma1co_pmcademo_app_LutEngine_loadLutNative(JNIEnv* env, jobject, jstring path) {
     const char *file_path = env->GetStringUTFChars(path, NULL);
     FILE *file = fopen(file_path, "r");
     if (!file) { env->ReleaseStringUTFChars(path, file_path); return JNI_FALSE; }
@@ -49,8 +49,8 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_loadLutNative(JNIEnv* env, jobject 
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
-    JNIEnv* env, jobject obj, jstring inPath, jstring outPath, 
-    jint qualityIdx, jint opacity, jint grain, jint grainSize, 
+    JNIEnv* env, jobject, jstring inPath, jstring outPath, 
+    jint scaleDenom, jint opacity, jint grain, jint grainSize, 
     jint vignette, jint rollOff) {
     
     const char *in_file = env->GetStringUTFChars(inPath, NULL); 
@@ -70,39 +70,41 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
     
     cinfo_d.err = jpeg_std_error(&jerr_d.pub); 
     jerr_d.pub.error_exit = my_error_exit;
-    
     if (setjmp(jerr_d.setjmp_buffer)) { 
         jpeg_destroy_decompress(&cinfo_d); fclose(infile); fclose(outfile); return JNI_FALSE; 
     }
     
-    jpeg_create_decompress(&cinfo_d);
+    jpeg_create_decompress(&cinfo_d); 
     
-    // --- EXIF FIX: Read header markers from the start of the 24MB file BEFORE ripping pixels ---
+    // EXIF PRESERVATION: Save markers from the main header first
     jpeg_save_markers(&cinfo_d, JPEG_APP0 + 1, 0xFFFF);
     jpeg_stdio_src(&cinfo_d, infile);
     jpeg_read_header(&cinfo_d, TRUE); 
 
-    // --- PROXY SPEED HACK: Jump to thumbnail AFTER reading markers from main header ---
-    if (qualityIdx == 0) {
-        fseek(infile, 0, SEEK_SET); // Reset to scan for thumbnail
-        unsigned char header[131072];
-        fread(header, 1, 131072, infile);
+    int finalScale = scaleDenom;
+
+    // --- GHOST RIP SPEED HACK ---
+    if (scaleDenom == 4) {
+        fseek(infile, 0, SEEK_SET);
+        unsigned char buf[131072];
+        fread(buf, 1, 131072, infile);
         int soiCount = 0;
-        for (int i = 0; i < 65535; i++) {
-            if (header[i] == 0xFF && header[i+1] == 0xD8) {
+        for (int i = 0; i < 131071; i++) {
+            if (buf[i] == 0xFF && buf[i+1] == 0xD8) {
                 soiCount++;
-                if (soiCount == 2) { fseek(infile, i, SEEK_SET); break; }
+                if (soiCount == 2) { 
+                    fseek(infile, i, SEEK_SET); 
+                    jpeg_stdio_src(&cinfo_d, infile);
+                    jpeg_read_header(&cinfo_d, TRUE); 
+                    finalScale = 1; // Thumb is already 1.6MP
+                    break; 
+                }
             }
         }
-        // Tell decompressor to restart with the thumbnail stream
-        jpeg_stdio_src(&cinfo_d, infile);
-        jpeg_read_header(&cinfo_d, TRUE);
-        cinfo_d.scale_denom = 1; // 1:1 scaling for Proxy (it's already 1.6MP)
-    } else {
-        cinfo_d.scale_denom = (qualityIdx == 1) ? 2 : 1; // High=2, Ultra=1
     }
 
     cinfo_d.scale_num = 1;
+    cinfo_d.scale_denom = finalScale;
     cinfo_d.out_color_space = JCS_RGB; 
     jpeg_start_decompress(&cinfo_d);
 
@@ -124,7 +126,7 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
     
     jpeg_start_compress(&cinfo_c, TRUE);
 
-    // --- RE-INJECT STORED EXIF ---
+    // RE-INJECT EXIF
     jpeg_saved_marker_ptr marker = cinfo_d.marker_list;
     while (marker != NULL) {
         if (marker->marker == (JPEG_APP0 + 1)) { 
@@ -154,7 +156,7 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
         row_pointer[0] = row_buf;
         jpeg_read_scanlines(&cinfo_d, row_pointer, 1);
         uint32_t seed = master_seed + (abs_y * 1337); 
-        int prev_noise = 0; 
+        int prev_noise = 0; // FIXED SCOPE
 
         for (int x = 0; x < row_stride; x += 3) {
             int r = row_buf[x], g = row_buf[x+1], b = row_buf[x+2];

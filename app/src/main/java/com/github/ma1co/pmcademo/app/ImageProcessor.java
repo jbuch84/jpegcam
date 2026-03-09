@@ -37,17 +37,19 @@ public class ImageProcessor {
     private class PreloadLutTask extends AsyncTask<String, Void, Boolean> {
         @Override protected void onPreExecute() { mCallback.onPreloadStarted(); }
         @Override protected Boolean doInBackground(String... params) {
-            return mEngine.loadLut(params[0], params[1]);
+            return mEngine.loadLut(new File(params[0]), params[1]);
         }
         @Override protected void onPostExecute(Boolean success) { mCallback.onPreloadFinished(success); }
     }
 
     private class ProcessTask extends AsyncTask<String, Void, String> {
-        private int qualityIndex;
+        private int qualityIdx;
         private RTLProfile p;
-        private String outDirPath;
+        private String outDir;
 
-        public ProcessTask(int q, RTLProfile p, String out) { this.qualityIndex = q; this.p = p; this.outDirPath = out; }
+        public ProcessTask(int q, RTLProfile p, String out) { 
+            this.qualityIdx = q; this.p = p; this.outDir = out; 
+        }
 
         @Override protected void onPreExecute() { mCallback.onProcessStarted(); }
 
@@ -56,32 +58,29 @@ public class ImageProcessor {
                 File original = new File(params[0]);
                 if (!original.exists()) return "ERR";
 
-                // --- YOUR STABILIZATION LOOP ---
-                long lastSize = -1; 
-                int timeout = 0;
+                // --- STABILIZATION LOOP ---
+                long lastSize = -1; int timeout = 0;
                 while (timeout < 50) {
                     long currentSize = original.length();
                     if (currentSize > 0 && currentSize == lastSize) break;
                     lastSize = currentSize; 
-                    Thread.sleep(100); 
-                    timeout++;
+                    Thread.sleep(100); timeout++;
                 }
 
-                File outDir = new File(outDirPath);
-                if (!outDir.exists()) outDir.mkdirs();
+                File dir = new File(outDir);
+                if (!dir.exists()) dir.mkdirs();
                 
-                // USE ORIGINAL NAME (It's already 8.3)
-                File outFile = new File(outDir, original.getName());
+                // RESTORED: Use original filename
+                File outFile = new File(dir, original.getName());
 
-                // --- CRITICAL FIX: CLOSE THE STREAM TO UNLOCK FOR C++ ---
+                // --- FIX: CLOSE THE STREAM TO UNLOCK FOR C++ ---
                 FileOutputStream fos = new FileOutputStream(outFile);
                 fos.write(1);
                 fos.close();
 
-                // 0=Proxy(scale 4), 1=High(scale 2), 2=Ultra(scale 1)
-                int scale = (qualityIndex == 0) ? 4 : (qualityIndex == 1 ? 2 : 1);
+                // 0=Proxy (4), 1=High (2), 2=Ultra (1)
+                int scale = (qualityIdx == 0) ? 4 : (qualityIdx == 2 ? 1 : 2);
 
-                // --- YOUR EXACT MULTIPLIERS PRESERVED ---
                 if (mEngine.applyLutToJpeg(original.getAbsolutePath(), outFile.getAbsolutePath(), scale, p.opacity, p.grain * 20, p.grainSize, p.vignette * 20, p.rollOff * 20)) {
                     mContext.sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(outFile)));
                     return "SAVED";
