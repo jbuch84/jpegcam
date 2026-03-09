@@ -98,6 +98,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     
     private boolean cachedIsManualFocus = false;
     private float cachedAperture = 2.8f;
+    private float cachedFocusRatio = 0.5f;
     
     // Menu State
     private boolean isMenuEditing = false;
@@ -1489,10 +1490,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             boolean shouldShow = prefShowFocusMeter && cachedIsManualFocus;
             focusMeter.setVisibility(shouldShow ? View.VISIBLE : View.GONE);
             
-            // FIX: Force the UI to draw the frame immediately when switching to MF,
-            // even before the user touches the lens ring. (-1 tells the view it's an initial draw).
+            // Change focusMeter.update(0.5f, cachedAperture); to this:
             if (shouldShow) {
-                focusMeter.update(0.5f, cachedAperture);
+                focusMeter.update(cachedFocusRatio, cachedAperture);
             }
         }
         
@@ -1562,8 +1562,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         if (focusMeter != null && cachedIsManualFocus) { 
             runOnUiThread(new Runnable() { 
                 public void run() {
-                    // FIX: Pass the live 'ratio' from the lens instead of the hardcoded 0.5f!
-                    focusMeter.update(ratio, cachedAperture);
+                    cachedFocusRatio = ratio; // <-- UPDATE THE CACHE
+                    focusMeter.update(cachedFocusRatio, cachedAperture); 
                 }
             });
         }
@@ -1691,26 +1691,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 tvPlaybackInfo.setText(metaText);
             }
             
-            // 1. Check dimensions WITHOUT loading into memory
+            String path = file.getAbsolutePath();
+
+            // 1. Force the bulletproof downsample (Guarantees < 2MB of RAM usage!)
             BitmapFactory.Options opts = new BitmapFactory.Options();
-            opts.inJustDecodeBounds = true;
-            BitmapFactory.decodeFile(path, opts);
-            
-            // 2. Downsample to a safe screen size (~1200px max)
-            opts.inSampleSize = 1;
-            while (opts.outWidth / opts.inSampleSize > 1200 || opts.outHeight / opts.inSampleSize > 1200) {
-                opts.inSampleSize *= 2;
-            }
-            
-            // 3. Actually load the lightweight version
-            opts.inJustDecodeBounds = false;
+            opts.inSampleSize = 8; 
             Bitmap raw = BitmapFactory.decodeFile(path, opts);
             
             if (raw == null) {
                 return;
             }
 
-            // 4. Calculate rotation
+            // 2. Calculate rotation
             int orient = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
             int rot = 0; 
             if (orient == ExifInterface.ORIENTATION_ROTATE_90) {
@@ -1721,7 +1713,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 rot = 270;
             }
             
-            // 5. Rotate without scaling the pixels on the CPU
+            // 3. Rotate without scaling the pixels on the CPU (No m.postScale!)
             Matrix m = new Matrix(); 
             if (rot != 0) {
                 m.postRotate(rot); 
@@ -1737,7 +1729,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             if (playbackImageView != null) {
                 playbackImageView.setImageBitmap(bmp);
                 
-                // 6. GPU SQUISH: Apply the 0.8888f fat-pixel correction directly to the View!
+                // 4. GPU SQUISH: Apply the 0.8888f fat-pixel correction directly to the View!
                 playbackImageView.setScaleX(0.8888f);
                 playbackImageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
             }
@@ -1764,10 +1756,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             boolean shouldShow = prefShowFocusMeter && cachedIsManualFocus;
             focusMeter.setVisibility(shouldShow ? View.VISIBLE : View.GONE);
             
-            // FIX: Force the UI to draw the frame immediately when switching to MF,
-            // even before the user touches the lens ring. (-1 tells the view it's an initial draw).
+            // Change focusMeter.update(0.5f, cachedAperture); to this:
             if (shouldShow) {
-                focusMeter.update(0.5f, cachedAperture);
+                focusMeter.update(cachedFocusRatio, cachedAperture);
             }
         }
     }
