@@ -338,11 +338,26 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         if (isCalibrating && calibStep == 0) {
             try {
                 ExifInterface exif = new ExifInterface(path);
-                String model = exif.getAttribute("Model");
-                if (model != null) detectedLensName = model;
-                calibStep = 1; // Move to Min Distance Input
+                String fl = exif.getAttribute(ExifInterface.TAG_FOCAL_LENGTH);
+                String fnum = exif.getAttribute("FNumber");
+                
+                if (fl != null && fnum != null) {
+                    try {
+                        String[] flParts = fl.split("/");
+                        int focal = Integer.parseInt(flParts[0]) / Integer.parseInt(flParts[1]);
+                        detectedLensName = focal + "mm f/" + fnum;
+                    } catch (Exception e) {
+                        detectedLensName = "Lens " + currentLensSlot;
+                    }
+                } else {
+                    detectedLensName = "Manual Lens " + currentLensSlot;
+                }
+                
+                new File(path).delete(); // Throw the calibration photo away!
+                
+                calibStep = 1; 
                 runOnUiThread(new Runnable() { public void run() { updateCalibrationUI(); } });
-                return; // Block processing of the throwaway shot
+                return; 
             } catch (Exception e) {}
         }
 
@@ -542,17 +557,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         if (isPlaybackMode) { exitPlayback(); return; }
         if (isProcessing) return;
         
-        // --- WIZARD PROGRESSION ---
+        // --- LINEAR WIZARD PROGRESSION ---
         if (isCalibrating) {
             switch(calibStep) {
-                case 1: // Set Min Focus (Physical Stop at 0%)
+                case 1: // Pin Min Focus (Physical Stop at 0% ring ratio)
                     tempCalPoints.add(new LensProfileManager.CalPoint(0.0f, minDistanceInput));
+                    minDistanceInput = 1.0f; // Reset dial to 1m for convenience 
                     calibStep = 2; break;
-                case 2: // Mark 1.0m
-                    tempCalPoints.add(new LensProfileManager.CalPoint(cachedFocusRatio, 1.0f));
+                case 2: // Pin Mid Focus (Current ring position)
+                    tempCalPoints.add(new LensProfileManager.CalPoint(cachedFocusRatio, minDistanceInput));
+                    minDistanceInput = 3.0f; // Reset dial to 3m for convenience
                     calibStep = 3; break;
-                case 3: // Mark 3.0m + Auto Infinity
-                    tempCalPoints.add(new LensProfileManager.CalPoint(cachedFocusRatio, 3.0f));
+                case 3: // Pin Far Focus (Current ring position) + Auto Infinity at 100%
+                    tempCalPoints.add(new LensProfileManager.CalPoint(cachedFocusRatio, minDistanceInput));
                     tempCalPoints.add(new LensProfileManager.CalPoint(1.0f, 999.0f));
                     lensManager.saveProfile(detectedLensName, tempCalPoints);
                     isCalibrating = false;
@@ -870,9 +887,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         Camera.Parameters p = c.getParameters(); 
         CameraEx.ParametersModifier pm = cx.createParametersModifier(p);
 
-        // --- DIAL TRAP FOR CALIBRATION VALUE ---
-        if (isCalibrating && calibStep == 1) {
-            minDistanceInput = Math.max(0.1f, minDistanceInput + (d * 0.05f));
+        // --- DIAL TRAP FOR CALIBRATION VALUES ---
+        if (isCalibrating && calibStep >= 1) {
+            // Allows user to dial the distance for Steps 1, 2, and 3
+            minDistanceInput = Math.max(0.1f, minDistanceInput + (d * 0.1f));
             updateCalibrationUI();
             return;
         }
@@ -1521,9 +1539,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         String text = "LENS MAP: " + detectedLensName + "\n\n";
         switch(calibStep) {
             case 0: text += "STEP 1: IDENTIFY\nTake a photo to\nread Lens ID."; break;
-            case 1: text += "STEP 2: MIN FOCUS\nSet ring to stop.\nDial min distance:\n< " + String.format("%.2fm", minDistanceInput) + " >\n[ENTER] to set."; break;
-            case 2: text += "STEP 3: MARK 1m\nFocus on object\nexactly 1m away.\n[ENTER] to mark."; break;
-            case 3: text += "STEP 4: MARK 3m\nFocus on object\nexactly 3m away.\n[ENTER] to mark."; break;
+            case 1: text += "STEP 2: MIN FOCUS\nTurn ring to close stop.\nDial measured dist:\n< " + String.format("%.2fm", minDistanceInput) + " >\n[ENTER] to mark."; break;
+            case 2: text += "STEP 3: MID FOCUS\nFocus on ANY object.\nDial measured dist:\n< " + String.format("%.2fm", minDistanceInput) + " >\n[ENTER] to mark."; break;
+            case 3: text += "STEP 4: FAR FOCUS\nFocus on a far object.\nDial measured dist:\n< " + String.format("%.2fm", minDistanceInput) + " >\n[ENTER] to save."; break;
         }
         tvCalibrationPrompt.setText(text);
     }
