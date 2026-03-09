@@ -50,13 +50,13 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_loadLutNative(JNIEnv* env, jobject 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
     JNIEnv* env, jobject obj, jstring inPath, jstring outPath, 
-    jint scaleDenom, jint opacity, jint grain, jint grainSize, 
+    jint qualityIdx, jint opacity, jint grain, jint grainSize, 
     jint vignette, jint rollOff) {
     
     const char *in_file = env->GetStringUTFChars(inPath, NULL); 
     const char *out_file = env->GetStringUTFChars(outPath, NULL);
     FILE *infile = fopen(in_file, "rb"); 
-    FILE *outfile = fopen(out_file, "wb"); // WB to overwrite the 1kb file
+    FILE *outfile = fopen(out_file, "wb"); 
     
     if (!infile || !outfile) {
         if (infile) fclose(infile); if (outfile) fclose(outfile);
@@ -64,7 +64,8 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
         return JNI_FALSE;
     }
 
-    if (scaleDenom == 4) {
+    // --- GHOST RIP FOR PROXY (MODE 0) ---
+    if (qualityIdx == 0) {
         unsigned char header[65536];
         fread(header, 1, 65536, infile);
         int soiCount = 0;
@@ -89,8 +90,17 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
     jpeg_create_decompress(&cinfo_d); 
     jpeg_stdio_src(&cinfo_d, infile);
     jpeg_read_header(&cinfo_d, TRUE); 
+
+    // --- SMART SCALING FIX ---
     cinfo_d.scale_num = 1;
-    cinfo_d.scale_denom = (scaleDenom == 4) ? 1 : scaleDenom;
+    if (qualityIdx == 0) {
+        cinfo_d.scale_denom = 1; // Proxy uses thumb 1:1 (already small)
+    } else if (qualityIdx == 1) {
+        cinfo_d.scale_denom = 2; // High uses 24MP scaled to 6MP
+    } else {
+        cinfo_d.scale_denom = 1; // Ultra uses 24MP 1:1
+    }
+
     cinfo_d.out_color_space = JCS_RGB; 
     jpeg_start_decompress(&cinfo_d);
 
@@ -123,8 +133,8 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
     long long vig_coef = ((long long)((vignette * 256) / 100) << 24) / (max_dist_sq > 0 ? max_dist_sq : 1); 
     int opac_mapped = (opacity * 256) / 100;
     
-    JSAMPROW row_pointer[1];
     unsigned char* row_buf = (unsigned char*)malloc(row_stride);
+    JSAMPROW row_pointer[1];
     uint32_t master_seed = 98765;
 
     while (cinfo_d.output_scanline < cinfo_d.output_height) {
@@ -132,7 +142,7 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
         row_pointer[0] = row_buf;
         jpeg_read_scanlines(&cinfo_d, row_pointer, 1);
         uint32_t seed = master_seed + (abs_y * 1337); 
-        int prev_noise = 0; // DECLARE HERE FOR PERSISTENCE PER ROW
+        int prev_noise = 0; 
 
         for (int x = 0; x < row_stride; x += 3) {
             int r = row_buf[x], g = row_buf[x+1], b = row_buf[x+2];

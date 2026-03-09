@@ -5,7 +5,7 @@ public class LutEngine {
     private String currentLutName = "";
     
     private native boolean loadLutNative(String filePath);
-    private native boolean processImageNative(String inPath, String outPath, int scaleDenom, int opacity, int grain, int grainSize, int vignette, int rollOff);
+    private native boolean processImageNative(String inPath, String outPath, int qualityIdx, int opacity, int grain, int grainSize, int vignette, int rollOff);
 
     public boolean loadLut(String path, String name) {
         if (name.equals(currentLutName)) return true;
@@ -16,7 +16,7 @@ public class LutEngine {
         return false;
     }
 
-    public boolean applyLutToJpeg(String inPath, String outPath, int scaleDenom, int opacity, int grain, int grainSize, int vignette, int rollOff) {
-        return processImageNative(inPath, outPath, scaleDenom, opacity, grain, grainSize, vignette, rollOff);
+    public boolean applyLutToJpeg(String inPath, String outPath, int qualityIdx, int opacity, int grain, int grainSize, int vignette, int rollOff) {
+        return processImageNative(inPath, outPath, qualityIdx, opacity, grain, grainSize, vignette, rollOff);
     }
 }
