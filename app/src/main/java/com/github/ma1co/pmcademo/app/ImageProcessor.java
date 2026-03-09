@@ -23,11 +23,11 @@ public class ImageProcessor {
     public ImageProcessor(Context context, ProcessorCallback callback) {
         this.mContext = context;
         this.mCallback = callback;
-        mEngine = new LutEngine();
+        this.mEngine = new LutEngine();
     }
 
     public void triggerLutPreload(String lutPath, String lutName) {
-        new PreloadLutTask().execute(lutPath, lutName);
+        new PreloadLutTask().execute(lutPath);
     }
 
     public void processJpeg(String originalPath, String outDirPath, int qualityIndex, RTLProfile p) {
@@ -37,7 +37,7 @@ public class ImageProcessor {
     private class PreloadLutTask extends AsyncTask<String, Void, Boolean> {
         @Override protected void onPreExecute() { mCallback.onPreloadStarted(); }
         @Override protected Boolean doInBackground(String... params) {
-            return mEngine.loadLut(new File(params[0]), params[1]);
+            return mEngine.loadLut(params[0]);
         }
         @Override protected void onPostExecute(Boolean success) { mCallback.onPreloadFinished(success); }
     }
@@ -47,7 +47,11 @@ public class ImageProcessor {
         private RTLProfile p;
         private String outDirPath;
 
-        public ProcessTask(int q, RTLProfile p, String out) { this.qualityIndex = q; this.p = p; this.outDirPath = out; }
+        public ProcessTask(int q, RTLProfile p, String out) { 
+            this.qualityIndex = q; 
+            this.p = p; 
+            this.outDirPath = out; 
+        }
 
         @Override protected void onPreExecute() { mCallback.onProcessStarted(); }
 
@@ -56,36 +60,47 @@ public class ImageProcessor {
                 File original = new File(params[0]);
                 if (!original.exists()) return "ERR";
 
-                // --- RESTORED STABILIZATION LOOP (The "Ah-hah" fix) ---
+                // --- THE AH-HAH FIX: STABILIZATION LOOP ---
                 long lastSize = -1; 
                 int timeout = 0;
-                while (timeout < 100) {
+                while (timeout < 60) { // Max 6 seconds
                     long currentSize = original.length();
                     if (currentSize > 0 && currentSize == lastSize) break;
                     lastSize = currentSize; 
-                    Thread.sleep(100); // 100ms wait between checks
+                    Thread.sleep(100); 
                     timeout++;
                 }
 
-                // Create unique output name
                 File outDir = new File(outDirPath);
                 if (!outDir.exists()) outDir.mkdirs();
-                String outName = "FLM_" + (System.currentTimeMillis() / 1000 % 10000) + ".JPG";
-                File outFile = new File(outDir, outName);
+                
+                // 8.3 naming for Sony FUSE stability
+                String timeTag = Long.toHexString(System.currentTimeMillis() / 1000).toUpperCase();
+                File outFile = new File(outDir, "F" + timeTag.substring(timeTag.length()-7) + ".JPG");
 
                 // Sony FUSE Pre-create Workaround
                 new FileOutputStream(outFile).write(1);
 
-                // 0=Proxy(Thumb), 1=High(6MP), 2=Ultra(24MP)
-                // We send qualityIndex to C++ as scaleDenom
-                int scale = (qualityIndex == 0) ? 4 : (qualityIndex == 1 ? 2 : 1);
+                // Pass qualityIndex (0=Proxy, 1=High, 2=Ultra)
+                // We multiply grain/vig/roll by 20 to match your early logic
+                boolean success = mEngine.applyLutToJpeg(
+                    original.getAbsolutePath(), 
+                    outFile.getAbsolutePath(), 
+                    qualityIndex, 
+                    p.opacity, 
+                    p.grain * 20, 
+                    p.grainSize, 
+                    p.vignette * 20, 
+                    p.rollOff * 20
+                );
 
-                Log.d("COOKBOOK", "Handoff to Native: " + original.getName());
-                if (mEngine.applyLutToJpeg(original.getAbsolutePath(), outFile.getAbsolutePath(), scale, p.opacity, p.grain * 20, p.grainSize, p.vignette * 20, p.rollOff * 20)) {
+                if (success) {
                     mContext.sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(outFile)));
                     return "SAVED";
                 }
-            } catch (Exception e) { Log.e("COOKBOOK", "Java side error: " + e.getMessage()); }
+            } catch (Exception e) { 
+                Log.e("COOKBOOK", "Java error: " + e.getMessage()); 
+            }
             return "FAILED";
         }
 

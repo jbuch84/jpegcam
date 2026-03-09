@@ -3,33 +3,24 @@ package com.github.ma1co.pmcademo.app;
 import java.io.File;
 
 public class LutEngine {
-    static {
-        System.loadLibrary("native-lib");
+    static { System.loadLibrary("native-lib"); }
+    private String currentLutName = "";
+    
+    private native boolean loadLutNative(String filePath);
+    // Verified: 8 parameters to match the native-lib.cpp
+    private native boolean processImageNative(String inPath, String outPath, int scaleDenom, int opacity, int grain, int grainSize, int vignette, int rollOff);
+
+    public String getCurrentLutName() { return currentLutName; }
+
+    public boolean loadLut(File cubeFile, String lutName) {
+        if (lutName.equals(currentLutName)) return true;
+        if (loadLutNative(cubeFile.getAbsolutePath())) {
+            currentLutName = lutName; return true;
+        }
+        return false;
     }
 
-    public static native boolean loadLutNative(String lutPath);
-    
-    // FIX: Changed from private to public so ImageProcessor can call it
-    public static native boolean processImageNative(
-        String inPath, 
-        String outPath, 
-        int scaleDenom, 
-        int opacity, 
-        int grain, 
-        int grainSize, 
-        int vignette, 
-        int rolloff
-    );
-
-    // FIX: Changed parameter from File to String to match ImageProcessor
-    public static boolean loadLut(String lutPath) {
-        if (lutPath == null || lutPath.isEmpty() || lutPath.equals("NONE")) {
-            return false;
-        }
-        File lutFile = new File(lutPath);
-        if (!lutFile.exists()) {
-            return false;
-        }
-        return loadLutNative(lutFile.getAbsolutePath());
+    public boolean applyLutToJpeg(String inPath, String outPath, int scaleDenom, int opacity, int grain, int grainSize, int vignette, int rollOff) {
+        return processImageNative(inPath, outPath, scaleDenom, opacity, grain, grainSize, vignette, rollOff);
     }
 }
