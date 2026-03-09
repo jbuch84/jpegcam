@@ -27,7 +27,7 @@ public class ImageProcessor {
     }
 
     public void triggerLutPreload(String lutPath, String lutName) {
-        new PreloadLutTask().execute(lutPath);
+        new PreloadLutTask().execute(lutPath, lutName);
     }
 
     public void processJpeg(String originalPath, String outDirPath, int qualityIndex, RTLProfile p) {
@@ -37,7 +37,8 @@ public class ImageProcessor {
     private class PreloadLutTask extends AsyncTask<String, Void, Boolean> {
         @Override protected void onPreExecute() { mCallback.onPreloadStarted(); }
         @Override protected Boolean doInBackground(String... params) {
-            return mEngine.loadLut(params[0]);
+            // FIX: Pass both the File and the Name to match LutEngine.java
+            return mEngine.loadLut(new File(params[0]), params[1]);
         }
         @Override protected void onPostExecute(Boolean success) { mCallback.onPreloadFinished(success); }
     }
@@ -60,10 +61,10 @@ public class ImageProcessor {
                 File original = new File(params[0]);
                 if (!original.exists()) return "ERR";
 
-                // --- THE AH-HAH FIX: STABILIZATION LOOP ---
+                // --- STABILIZATION LOOP (Ah-hah moment) ---
                 long lastSize = -1; 
                 int timeout = 0;
-                while (timeout < 60) { // Max 6 seconds
+                while (timeout < 60) {
                     long currentSize = original.length();
                     if (currentSize > 0 && currentSize == lastSize) break;
                     lastSize = currentSize; 
@@ -81,20 +82,10 @@ public class ImageProcessor {
                 // Sony FUSE Pre-create Workaround
                 new FileOutputStream(outFile).write(1);
 
-                // Pass qualityIndex (0=Proxy, 1=High, 2=Ultra)
-                // We multiply grain/vig/roll by 20 to match your early logic
-                boolean success = mEngine.applyLutToJpeg(
-                    original.getAbsolutePath(), 
-                    outFile.getAbsolutePath(), 
-                    qualityIndex, 
-                    p.opacity, 
-                    p.grain * 20, 
-                    p.grainSize, 
-                    p.vignette * 20, 
-                    p.rollOff * 20
-                );
+                // Correct scaling logic: 0=Proxy(4x down), 1=High(2x), 2=Ultra(1x)
+                int scale = (qualityIndex == 0) ? 4 : (qualityIndex == 1 ? 2 : 1);
 
-                if (success) {
+                if (mEngine.applyLutToJpeg(original.getAbsolutePath(), outFile.getAbsolutePath(), scale, p.opacity, p.grain * 20, p.grainSize, p.vignette * 20, p.rollOff * 20)) {
                     mContext.sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(outFile)));
                     return "SAVED";
                 }

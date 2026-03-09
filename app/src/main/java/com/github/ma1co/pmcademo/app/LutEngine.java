@@ -7,7 +7,6 @@ public class LutEngine {
     private String currentLutName = "";
     
     private native boolean loadLutNative(String filePath);
-    // Verified: 8 parameters to match the native-lib.cpp
     private native boolean processImageNative(String inPath, String outPath, int scaleDenom, int opacity, int grain, int grainSize, int vignette, int rollOff);
 
     public String getCurrentLutName() { return currentLutName; }
@@ -15,7 +14,8 @@ public class LutEngine {
     public boolean loadLut(File cubeFile, String lutName) {
         if (lutName.equals(currentLutName)) return true;
         if (loadLutNative(cubeFile.getAbsolutePath())) {
-            currentLutName = lutName; return true;
+            currentLutName = lutName; 
+            return true;
         }
         return false;
     }
