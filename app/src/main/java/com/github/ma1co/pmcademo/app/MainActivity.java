@@ -1562,8 +1562,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         if (focusMeter != null && cachedIsManualFocus) { 
             runOnUiThread(new Runnable() { 
                 public void run() {
-                    // Reverted to true so it actually draws!
-                    focusMeter.update(0.5f, cachedAperture);
+                    // FIX: Pass the live 'ratio' from the lens instead of the hardcoded 0.5f!
+                    focusMeter.update(ratio, cachedAperture);
                 }
             });
         }
