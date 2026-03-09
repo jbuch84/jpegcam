@@ -1384,7 +1384,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         if (tvReview != null) tvReview.setVisibility(v); 
         
         if (focusMeter != null) {
-            focusMeter.setVisibility(v == View.VISIBLE && cachedIsManualFocus ? View.VISIBLE : View.GONE);
+            // FIX: Now requires BOTH Manual Focus to be active AND the Menu Setting to be ON
+            focusMeter.setVisibility((prefShowFocusMeter && cachedIsManualFocus) ? View.VISIBLE : View.GONE);
         }
     }
 
