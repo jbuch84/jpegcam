@@ -1690,32 +1690,33 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 tvPlaybackInfo.setText(metaText);
             }
             
-            BitmapFactory.Options opts = new BitmapFactory.Options(); 
-            opts.inSampleSize = 8; 
-            Bitmap raw = BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
-            if (raw == null) {
-                return;
-            }
-
-            int orient = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
-            int rot = 0; 
-            if (orient == ExifInterface.ORIENTATION_ROTATE_90) {
-                rot = 90; 
-            } else if (orient == ExifInterface.ORIENTATION_ROTATE_180) {
-                rot = 180; 
-            } else if (orient == ExifInterface.ORIENTATION_ROTATE_270) {
-                rot = 270;
+            // 1. Check dimensions WITHOUT loading into memory
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inJustDecodeBounds = true;
+            BitmapFactory.decodeFile(path, opts);
+            
+            // 2. Downsample to a safe screen size (~1200px max)
+            opts.inSampleSize = 1;
+            while (opts.outWidth / opts.inSampleSize > 1200 || opts.outHeight / opts.inSampleSize > 1200) {
+                opts.inSampleSize *= 2;
             }
             
+            // 3. Actually load the lightweight version
+            opts.inJustDecodeBounds = false;
+            Bitmap raw = BitmapFactory.decodeFile(path, opts);
+            
+            // 4. Rotate and apply HD GPU Squish!
             Matrix m = new Matrix(); 
             if (rot != 0) {
                 m.postRotate(rot); 
             }
-            m.postScale(0.8888f, 1.0f);
-            
             Bitmap bmp = Bitmap.createBitmap(raw, 0, 0, raw.getWidth(), raw.getHeight(), m, true);
+            
             if (playbackImageView != null) {
                 playbackImageView.setImageBitmap(bmp);
+                // GPU SQUISH: Apply the 0.8888f correction directly to the View!
+                playbackImageView.setScaleX(0.8888f);
+                playbackImageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
             }
             currentPlaybackBitmap = bmp;
         } catch (Exception e) {
