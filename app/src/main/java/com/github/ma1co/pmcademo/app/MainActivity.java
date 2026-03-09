@@ -1711,12 +1711,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 rot = 270;
             }
             
-            // 3. Rotate without scaling the pixels on the CPU (No m.postScale!)
+            // 3. CPU Squish & Rotate (Safe now because we smoothly downsampled first!)
             Matrix m = new Matrix(); 
             if (rot != 0) {
                 m.postRotate(rot); 
             }
+            // Put the fat-pixel fix back here!
+            m.postScale(0.8888f, 1.0f); 
             
+            // The 'true' at the end enables hardware bilinear filtering to keep it crisp
             Bitmap bmp = Bitmap.createBitmap(raw, 0, 0, raw.getWidth(), raw.getHeight(), m, true);
             
             // --- CRITICAL MEMORY LEAK FIX ---
@@ -1727,8 +1730,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             if (playbackImageView != null) {
                 playbackImageView.setImageBitmap(bmp);
                 
-                // 4. GPU SQUISH: Apply the 0.8888f fat-pixel correction directly to the View!
-                playbackImageView.setScaleX(0.8888f);
+                // REMOVED the setScaleX() command that was crashing the Gingerbread OS!
                 playbackImageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
             }
             currentPlaybackBitmap = bmp;
