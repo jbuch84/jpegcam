@@ -1748,6 +1748,25 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         if (c == null) {
             return;
         }
+
+        // --- PHASE 1: LENS DISCOVERY DUMP ---
+        // This writes all hardware parameters to a text file on your SD card so we can find the Lens ID
+        try {
+            File dumpFile = new File(Environment.getExternalStorageDirectory(), "GRADED/dump.txt");
+            if (!dumpFile.exists()) {
+                java.io.FileWriter fw = new java.io.FileWriter(dumpFile);
+                String flatParams = c.getParameters().flatten();
+                String[] paramsArray = flatParams.split(";");
+                for (String p : paramsArray) {
+                    fw.write(p + "\n");
+                }
+                fw.close();
+                Log.d("filmOS", "Dumped parameters to SD card!");
+            }
+        } catch (Exception e) {
+            Log.e("filmOS", "Failed to dump params: " + e.getMessage());
+        }
+        // ------------------------------------
         
         String fMode = c.getParameters().getFocusMode();
         cachedIsManualFocus = "manual".equals(fMode);
