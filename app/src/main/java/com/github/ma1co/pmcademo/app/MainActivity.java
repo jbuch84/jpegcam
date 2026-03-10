@@ -595,12 +595,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         
         if (isCalibrating) {
             if (calibStep == 1) {
-                tempCalPoints.add(new LensProfileManager.CalPoint(0.0f, minDistanceInput));
+                // FIX: Grab the actual physical motor ratio instead of guessing 0.0
+                tempCalPoints.add(new LensProfileManager.CalPoint(cachedFocusRatio, minDistanceInput));
                 calibStep = 2; 
                 updateCalibrationUI();
             } else if (calibStep == 2) {
+                // Log the mid/infinity points
                 tempCalPoints.add(new LensProfileManager.CalPoint(cachedFocusRatio, minDistanceInput));
-                updateCalibrationUI(); 
+                updateCalibrationUI(); // Redraws to update the Points Logged counter!
             }
             return;
         }
@@ -610,7 +612,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 enterPlayback();
             } else if (mDialMode == DIAL_MODE_FOCUS && cachedIsManualFocus) {
                 waitingForProfileChoice = true;
-                detectedLensName = "Manual Lens " + currentLensSlot; // Reset to default
+                detectedLensName = "Manual Lens " + currentLensSlot;
                 
                 setHUDVisibility(View.GONE); 
                 if (focusMeter != null) focusMeter.setVisibility(View.VISIBLE); 
@@ -1659,27 +1661,37 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         int in = (int) (totalInches % 12);
         String distStr = String.format("%.2fm / %d'%d\"", minDistanceInput, ft, in);
         
-        // 1. The Header
-        String header = "<font color='#FFFFFF'><b>[ MAPPING: " + detectedLensName + " (SLOT " + currentLensSlot + ") ]</b></font><br><br>";
+        // 1. The Header (Now includes a live point counter!)
+        String header = "<font color='#FFFFFF'><b>[ MAPPING: " + detectedLensName + " | POINTS LOGGED: " + tempCalPoints.size() + " ]</b></font><br>";
         
-        // 2. The "Interactive Slider" UI Element (Orange, Bold, Double-Large, with Arrows)
-        String sliderHtml = "<br><br><font color='#E6320F'><big><big><b>◄ &nbsp;&nbsp;" + distStr + "&nbsp;&nbsp; ►</b></big></big></font><br><br>";
+        // 2. The Slider (Shrunk the line breaks so it takes up less space)
+        String sliderHtml = "<br><font color='#E6320F'><big><b>◄ &nbsp;&nbsp;" + distStr + "&nbsp;&nbsp; ►</b></big></font><br>";
         
         String instructions = "";
         
         // 3. The Prompts
         if (calibStep == 1) {
-            instructions = "<font color='#FFFFFF'>STEP 1: Turn ring to hard stop (MIN FOCUS)<br>Use rear scroll wheel to dial distance:</font>";
+            instructions = "<font color='#FFFFFF'>STEP 1: Turn ring to hard stop (MIN FOCUS)<br>Dial distance:</font>";
             instructions += sliderHtml;
-            instructions += "<font color='#FFFFFF'>Press <b>[ENTER]</b> to lock min.</font>";
+            instructions += "<font color='#FFFFFF'>Press <b>[ENTER]</b> to lock point.</font>";
         } else if (calibStep == 2) {
-            instructions = "<font color='#FFFFFF'>STEP 2: Focus on ANY object.<br>Use rear scroll wheel to dial distance:</font>";
+            instructions = "<font color='#FFFFFF'>STEP 2: Focus on next object.<br>Dial distance:</font>";
             instructions += sliderHtml;
             instructions += "<font color='#FFFFFF'>Press <b>[ENTER]</b> to log point.<br>Press <b>[UP]</b> to Save & Finish.</font>";
         }
         
         if (tvCalibrationPrompt != null) {
-            // Render the HTML string into visual styling
+            // Push the UI to the Top of the screen so it stops blocking your subject
+            try {
+                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) tvCalibrationPrompt.getLayoutParams();
+                lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+                lp.topMargin = 20; 
+                tvCalibrationPrompt.setLayoutParams(lp);
+            } catch (Exception e) { }
+            
+            // Give it a cinematic dark background so it's readable over any scene
+            tvCalibrationPrompt.setBackgroundColor(Color.argb(200, 20, 20, 20)); 
+            tvCalibrationPrompt.setPadding(30, 20, 30, 20); 
             tvCalibrationPrompt.setText(android.text.Html.fromHtml(header + instructions));
         }
     }
