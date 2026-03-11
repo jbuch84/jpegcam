@@ -167,6 +167,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private Runnable liveUpdater = new Runnable() {
         @Override
         public void run() {
+            // --- TEMPORARY LOGCAT LENS PROBE ---
+            if (cameraManager != null) {
+                cameraManager.logLensLive();
+            }
+            // -----------------------------------
             if (displayState == 0 && !isMenuOpen && !isPlaybackMode && !isProcessing && hasSurface) {
                 if (cameraManager != null && cameraManager.getCamera() != null) {
                     boolean s1_1_free = ScalarInput.getKeyStatus(ScalarInput.ISV_KEY_S1_1).status == 0;

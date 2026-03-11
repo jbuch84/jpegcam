@@ -132,6 +132,40 @@ public class SonyCameraManager {
         }
     }
 
+    // --- NEW METHOD FOR LOGCAT RECONNAISSANCE ---
+    public void logLensLive() {
+        if (cameraEx == null || camera == null) return;
+        try {
+            Camera.Parameters p = camera.getParameters();
+            CameraEx.ParametersModifier pm = cameraEx.createParametersModifier(p);
+            
+            // First, ask the hardware if it even supports LensInfo right now
+            Boolean supported = (Boolean) pm.getClass().getMethod("isSupportedLensInfo").invoke(pm);
+            if (supported != null && supported) {
+                Object lensInfo = pm.getClass().getMethod("getLensInfo").invoke(pm);
+                if (lensInfo != null) {
+                    String name = (String) lensInfo.getClass().getField("LensName").get(lensInfo);
+                    String type = (String) lensInfo.getClass().getField("LensType").get(lensInfo);
+                    String phase = (String) lensInfo.getClass().getField("PhaseShiftSensor").get(lensInfo);
+                    
+                    Object focalObj = lensInfo.getClass().getField("FocalLength").get(lensInfo);
+                    int currentFocal = 0;
+                    if (focalObj != null) {
+                        currentFocal = focalObj.getClass().getField("current").getInt(focalObj);
+                    }
+                    
+                    Log.d("filmOS_Lens", "LENS DATA -> Name: [" + name + "] Type: [" + type + "] Sensor: [" + phase + "] Focal: [" + currentFocal + "mm]");
+                } else {
+                    Log.d("filmOS_Lens", "LENS DATA -> getLensInfo() returned null (Lens Detached?)");
+                }
+            } else {
+                Log.d("filmOS_Lens", "LENS DATA -> LensInfo NOT supported currently (No contacts?)");
+            }
+        } catch (Exception e) {
+            Log.e("filmOS_Lens", "LENS DATA ERROR: " + e.getMessage());
+        }
+    }
+
     private void setupNativeListeners() {
         cameraEx.setShutterSpeedChangeListener(new CameraEx.ShutterSpeedChangeListener() {
             @Override 
@@ -206,5 +240,27 @@ public class SonyCameraManager {
         } catch (Exception e) {
             Log.e("filmOS", "Failed to set Focus proxy: " + e.getMessage());
         }
+
+        // --- ADD TO THE END OF setupNativeListeners() ---
+        try {
+            Class<?> lClass = Class.forName("com.sony.scalar.hardware.CameraEx$FocalLengthChangeListener");
+            Object proxy = java.lang.reflect.Proxy.newProxyInstance(
+                getClass().getClassLoader(), 
+                new Class[]{lClass},
+                new java.lang.reflect.InvocationHandler() {
+                    @Override 
+                    public Object invoke(Object p, java.lang.reflect.Method m, Object[] a) {
+                        if (m.getName().equals("onFocalLengthChanged")) {
+                            Log.d("filmOS_Lens", "HARDWARE EVENT: Focal Length Zoomed/Changed to " + a[0] + "mm");
+                        }
+                        return null;
+                    }
+                }
+            );
+            cameraEx.getClass().getMethod("setFocalLengthChangeListener", lClass).invoke(cameraEx, proxy);
+        } catch (Exception e) {
+            Log.e("filmOS", "Failed to set FocalLength proxy: " + e.getMessage());
+        }
     }
+    
 }
