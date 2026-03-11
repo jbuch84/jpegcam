@@ -107,6 +107,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private float minDistanceInput = 0.3f;
     private String detectedLensName = "Manual Lens";
     private float detectedFocalLength = 50.0f;
+    private long lastExifGrabTime = 0;
     private TextView tvCalibrationPrompt;
     
     private boolean cachedIsManualFocus = false;
