@@ -1,124 +1,177 @@
 package com.github.ma1co.pmcademo.app;
 
 import android.content.Context;
-import android.content.SharedPreferences;
+import android.os.Environment;
+import android.util.Log;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 
-/**
- * filmOS UI: Lens Profile Manager
- * Handles piecewise linear interpolation for cinema focus mapping.
- */
 public class LensProfileManager {
-    private static final String PREF_NAME = "filmOS_LensProfiles";
-    private SharedPreferences prefs;
-    public float currentFocalLength = 50.0f;
-    public float getCurrentFocalLength() { return currentFocalLength; }
-    
-    // A simple data class to hold our mapped points
+
     public static class CalPoint {
-        public float ratio;
-        public float distance;
-        public CalPoint(float r, float d) {
-            this.ratio = r;
-            this.distance = d;
+        public final float ratio;     // Motor position (0.0 to 1.0)
+        public final float distance;  // Physical distance in meters
+
+        public CalPoint(float ratio, float distance) {
+            this.ratio = ratio;
+            this.distance = distance;
         }
     }
 
-    private String currentLensName = "Unknown Lens";
-    private List<CalPoint> currentPoints = new ArrayList<CalPoint>();
+    private File lensesDir;
+    
+    // Active State
+    public float currentFocalLength = 50.0f;
+    public float currentMaxAperture = 2.8f;
+    public String currentLensName = "Unmapped Lens";
+    private List<CalPoint> activePoints = new ArrayList<CalPoint>();
+    private boolean hasActiveProfile = false;
 
     public LensProfileManager(Context context) {
-        prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
-    }
-
-    public List<String> getSavedLensNames() {
-        List<String> names = new ArrayList<String>();
-        Map<String, ?> allEntries = prefs.getAll();
-        for (Map.Entry<String, ?> entry : allEntries.entrySet()) {
-            names.add(entry.getKey());
+        lensesDir = new File(Environment.getExternalStorageDirectory(), "LENSES");
+        if (!lensesDir.exists()) {
+            lensesDir.mkdirs();
         }
-        return names;
     }
 
-    public boolean loadProfile(String lensName) {
-        currentPoints.clear();
-        currentLensName = lensName;
-        
-        String data = prefs.getString(lensName, null);
-        if (data == null) return false;
-        
-        // Read the focal length back into memory
-        currentFocalLength = prefs.getFloat(lensName + "_focal", 50.0f);
-
-        String[] points = data.split(";");
-        for (String p : points) {
-            String[] parts = p.split(",");
-            if (parts.length == 2) {
-                try {
-                    currentPoints.add(new CalPoint(Float.parseFloat(parts[0]), Float.parseFloat(parts[1])));
-                } catch (Exception e) {}
+    /**
+     * Scans the /sdcard/LENSES/ folder and returns a list of all .lens files
+     */
+    public List<String> getAvailableLenses() {
+        List<String> lenses = new ArrayList<String>();
+        if (lensesDir.exists() && lensesDir.listFiles() != null) {
+            for (File f : lensesDir.listFiles()) {
+                if (f.getName().toLowerCase().endsWith(".lens")) {
+                    lenses.add(f.getName());
+                }
             }
         }
-        sortPoints();
-        return !currentPoints.isEmpty();
+        Collections.sort(lenses); // Keep them alphabetical
+        return lenses;
     }
 
-    public void saveProfile(String lensName, float focalLength, List<CalPoint> points) {
-        currentFocalLength = focalLength;
-        StringBuilder sb = new StringBuilder();
-        for (CalPoint p : points) {
-            sb.append(p.ratio).append(",").append(p.distance).append(";");
-        }
-        prefs.edit().putString(lensName, sb.toString()).apply();
-        // Save the focal length right next to the array data!
-        prefs.edit().putFloat(lensName + "_focal", focalLength).apply();
-    }
+    /**
+     * Saves a mapped lens profile directly to the SD card.
+     * Auto-generates the filename: e.g. 25mm, f/1.8 -> "25mm18.lens"
+     */
+    public void saveProfileToFile(float focalLength, float maxAperture, List<CalPoint> points) {
+        if (!lensesDir.exists()) lensesDir.mkdirs();
 
-    private void sortPoints() {
-        Collections.sort(currentPoints, new Comparator<CalPoint>() {
-            @Override
-            public int compare(CalPoint p1, CalPoint p2) {
-                return Float.compare(p1.ratio, p2.ratio);
+        int focalInt = (int) focalLength;
+        int apInt = (int) (maxAperture * 10); // 1.8 -> 18
+        String filename = focalInt + "mm" + apInt + ".lens";
+        
+        File outFile = new File(lensesDir, filename);
+
+        try {
+            FileWriter writer = new FileWriter(outFile);
+            writer.write("FOCAL:" + focalLength + "\n");
+            writer.write("APERTURE:" + maxAperture + "\n");
+            
+            StringBuilder ptsBuilder = new StringBuilder();
+            for (int i = 0; i < points.size(); i++) {
+                ptsBuilder.append(points.get(i).ratio).append(",").append(points.get(i).distance);
+                if (i < points.size() - 1) ptsBuilder.append(";");
             }
-        });
+            writer.write("POINTS:" + ptsBuilder.toString() + "\n");
+            
+            writer.flush();
+            writer.close();
+            Log.d("filmOS_Lens", "Saved lens profile to SD Card: " + filename);
+        } catch (Exception e) {
+            Log.e("filmOS_Lens", "Failed to save lens file: " + e.getMessage());
+        }
     }
 
+    /**
+     * Loads a specific .lens file from the SD card into active memory.
+     */
+    public void loadProfileFromFile(String filename) {
+        File inFile = new File(lensesDir, filename);
+        if (!inFile.exists()) {
+            clearCurrentProfile();
+            return;
+        }
+
+        try {
+            BufferedReader reader = new BufferedReader(new FileReader(inFile));
+            String line;
+            
+            float loadedFocal = 50.0f;
+            float loadedAperture = 2.8f;
+            List<CalPoint> loadedPoints = new ArrayList<CalPoint>();
+
+            while ((line = reader.readLine()) != null) {
+                if (line.startsWith("FOCAL:")) {
+                    loadedFocal = Float.parseFloat(line.split(":")[1]);
+                } else if (line.startsWith("APERTURE:")) {
+                    loadedAperture = Float.parseFloat(line.split(":")[1]);
+                } else if (line.startsWith("POINTS:")) {
+                    String[] pairs = line.split(":")[1].split(";");
+                    for (String pair : pairs) {
+                        String[] parts = pair.split(",");
+                        if (parts.length == 2) {
+                            loadedPoints.add(new CalPoint(Float.parseFloat(parts[0]), Float.parseFloat(parts[1])));
+                        }
+                    }
+                }
+            }
+            reader.close();
+
+            this.currentFocalLength = loadedFocal;
+            this.currentMaxAperture = loadedAperture;
+            this.currentLensName = filename.replace(".lens", "");
+            this.activePoints = loadedPoints;
+            this.hasActiveProfile = true;
+            
+            Log.d("filmOS_Lens", "Loaded profile from SD: " + filename);
+
+        } catch (Exception e) {
+            Log.e("filmOS_Lens", "Failed to load lens file: " + e.getMessage());
+            clearCurrentProfile();
+        }
+    }
+
+    public void clearCurrentProfile() {
+        this.currentLensName = "Unmapped Lens";
+        this.activePoints.clear();
+        this.hasActiveProfile = false;
+    }
+
+    public boolean hasActiveProfile() {
+        return hasActiveProfile && activePoints.size() >= 2;
+    }
+
+    public List<CalPoint> getCurrentPoints() {
+        return activePoints;
+    }
+
+    public float getCurrentFocalLength() {
+        return currentFocalLength;
+    }
+    
     public String getCurrentLensName() {
         return currentLensName;
     }
 
-    public List<CalPoint> getCurrentPoints() {
-        return currentPoints;
-    }
-
-    public boolean hasActiveProfile() {
-        return !currentPoints.isEmpty();
-    }
-
-    /**
-     * The Magic Math: Piecewise Linear Interpolation.
-     * Takes the physical lens ring ratio (0.0 to 1.0) and calculates the exact distance.
-     */
-    public float getDistanceForRatio(float ratio) {
-        if (currentPoints.isEmpty()) return -1f; // No profile loaded
-        if (currentPoints.size() == 1) return currentPoints.get(0).distance;
+    // Direct interpolation to get distance at a specific ratio during Append
+    public float getDistanceForRatio(float targetRatio) {
+        if (activePoints.size() < 2) return -1f;
         
-        // Clamp to min/max if we exceed the calibrated bounds
-        if (ratio <= currentPoints.get(0).ratio) return currentPoints.get(0).distance;
-        if (ratio >= currentPoints.get(currentPoints.size() - 1).ratio) return currentPoints.get(currentPoints.size() - 1).distance;
-
-        // Find which two points we are currently between
-        for (int i = 0; i < currentPoints.size() - 1; i++) {
-            CalPoint p1 = currentPoints.get(i);
-            CalPoint p2 = currentPoints.get(i + 1);
-
-            if (ratio >= p1.ratio && ratio <= p2.ratio) {
-                float percentageBetween = (ratio - p1.ratio) / (p2.ratio - p1.ratio);
-                return p1.distance + (percentageBetween * (p2.distance - p1.distance));
+        for (int i = 0; i < activePoints.size() - 1; i++) {
+            CalPoint p1 = activePoints.get(i);
+            CalPoint p2 = activePoints.get(i + 1);
+            
+            if (targetRatio >= p1.ratio && targetRatio <= p2.ratio) {
+                float range = p2.ratio - p1.ratio;
+                float pct = (targetRatio - p1.ratio) / range;
+                return p1.distance + (pct * (p2.distance - p1.distance));
             }
         }
         return -1f;
