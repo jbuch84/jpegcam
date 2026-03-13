@@ -617,7 +617,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             return;
         }
 
-        // --- APPEND TO EXISTING PROFILE ---
+        // --- APPEND TO EXISTING PROFILE (ELECTRONIC ONLY) ---
         if (waitingForProfileChoice) {
             if (isNativeLensAttached) {
                 waitingForProfileChoice = false;
@@ -647,7 +647,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 }
                 updateCalibrationUI();
             }
-            return; // Consume the keypress!
+            return; // Consume the keypress
         }
 
         if (isPlaybackMode) { showPlaybackImage(playbackIndex - 1); } 
@@ -1354,7 +1354,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         
         if (calibStep == 0) {
             String mmSlider = "<font color='#E6320F'><big><b>◄ " + (int)detectedFocalLength + "mm ►</b></big></font>";
-            instructions = "<font color='#FFFFFF'><small>STEP 0A: Manual Lens Detected.</small><br>";
+            instructions = "<font color='#FFFFFF'><small>STEP 0A: Lens Detected.</small><br>";
             instructions += "<small>Use " + wheelText + " or D-Pad to set Focal Length: </small> " + mmSlider + "<br>";
             instructions += "<small>Press " + enterBtn + " to confirm.</small></font>";
         } else if (calibStep == 10) {
@@ -1483,6 +1483,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     lensManager.currentFocalLength = initFocal;
                 }
                 Log.d("filmOS_Lens", "Boot: Native Lens Detected: " + initFocal + "mm");
+                
+                // Force AF-S for electronic lenses
+                if (cameraManager.getCamera() != null) {
+                    try {
+                        Camera c = cameraManager.getCamera();
+                        Camera.Parameters p = c.getParameters();
+                        p.setFocusMode("auto"); 
+                        c.setParameters(p);
+                        cachedIsManualFocus = false;
+                    } catch (Exception e) {}
+                }
             } else {
                 isNativeLensAttached = false;
                 Log.d("filmOS_Lens", "Boot: Manual Lens Detected");
@@ -1520,11 +1531,23 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         runOnUiThread(new Runnable() {
             public void run() {
                 if (focalLengthMm > 0.0f) {
+                    boolean wasManual = !isNativeLensAttached;
                     isNativeLensAttached = true; 
                     if (lensManager != null) {
                         lensManager.currentFocalLength = focalLengthMm;
                     }
                     Log.d("filmOS_Lens", "Native Lens Zoomed: " + focalLengthMm + "mm");
+                    
+                    // If swapped from manual, auto-switch to AF-S
+                    if (wasManual && cameraManager != null && cameraManager.getCamera() != null) {
+                        try {
+                            Camera c = cameraManager.getCamera();
+                            Camera.Parameters p = c.getParameters();
+                            p.setFocusMode("auto");
+                            c.setParameters(p);
+                            cachedIsManualFocus = false;
+                        } catch (Exception e) {}
+                    }
                 } else {
                     isNativeLensAttached = false; 
                     Log.d("filmOS_Lens", "Manual Lens Detected.");

@@ -46,8 +46,8 @@ public class LensProfileManager {
 
     public static String generateFilename(float focalLength, float maxAperture) {
         int focalInt = (int) focalLength;
-        int apInt = Math.round(maxAperture * 10.0f); // Math.round prevents 1.8 from truncating to 17
-        return focalInt + "mm" + apInt + ".lens";
+        int apInt = Math.round(maxAperture * 10.0f); 
+        return focalInt + "mm" + apInt + ".txt"; // Using .txt to bypass Sony OS restrictions
     }
 
     public List<CalPoint> generateManualDummyProfile() {
@@ -63,7 +63,8 @@ public class LensProfileManager {
         File dir = getLensesDir();
         if (dir.exists() && dir.listFiles() != null) {
             for (File f : dir.listFiles()) {
-                if (f.getName().toLowerCase().endsWith(".lens")) {
+                String name = f.getName().toLowerCase();
+                if (name.endsWith(".txt") && name.contains("mm")) {
                     lenses.add(f.getName());
                 }
             }
@@ -74,11 +75,16 @@ public class LensProfileManager {
 
     public void saveProfileToFile(float focalLength, float maxAperture, List<CalPoint> points) {
         File dir = getLensesDir();
+        if (!dir.exists() && !dir.mkdirs()) {
+            Log.e("filmOS_Lens", "CRITICAL: Could not create LENSES directory.");
+            return;
+        }
+
         String filename = generateFilename(focalLength, maxAperture);
         File outFile = new File(dir, filename);
 
         try {
-            // Using FileOutputStream mirroring native byte writing (much safer on Sony OS)
+            // Using FileOutputStream mirroring native byte writing for safety
             FileOutputStream fos = new FileOutputStream(outFile);
             
             fos.write(("FOCAL:" + focalLength + "\n").getBytes());
@@ -134,7 +140,7 @@ public class LensProfileManager {
 
             this.currentFocalLength = loadedFocal;
             this.currentMaxAperture = loadedAperture;
-            this.currentLensName = filename.replace(".lens", "");
+            this.currentLensName = filename.replace(".txt", "");
             this.activePoints = loadedPoints;
             this.hasActiveProfile = true;
             
