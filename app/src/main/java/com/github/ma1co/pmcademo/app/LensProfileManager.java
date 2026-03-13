@@ -31,11 +31,8 @@ public class LensProfileManager {
     private List<CalPoint> activePoints = new ArrayList<CalPoint>();
     private boolean hasActiveProfile = false;
 
-    public LensProfileManager(Context context) {
-        // Constructor left intentionally blank to avoid stale SD card references on boot.
-    }
+    public LensProfileManager(Context context) {}
     
-    // Dynamically fetches the root exactly like GRADED does
     private File getLensesDir() {
         File dir = new File(Environment.getExternalStorageDirectory(), "LENSES");
         if (!dir.exists()) {
@@ -44,7 +41,6 @@ public class LensProfileManager {
         return dir;
     }
 
-    // --- NEW: Prefix generator (M for Manual, E for Electronic) ---
     public static String generateFilename(float focalLength, float maxAperture, boolean isManual) {
         int focalInt = (int) focalLength;
         int apInt = Math.round(maxAperture * 10.0f); 
@@ -52,34 +48,54 @@ public class LensProfileManager {
         return prefix + focalInt + "mm" + apInt + ".txt"; 
     }
 
-    // --- NEW: Formats M50mm18.txt into "50mm f/1.8" for the HUD ---
     public static String formatDisplayName(String filename) {
         try {
             if (filename == null || filename.equals("Unmapped Lens")) return "UNMAPPED";
             String name = filename.toLowerCase().replace(".txt", "");
             
-            // Strip the M or E prefix
             if (name.startsWith("m") || name.startsWith("e")) {
                 name = name.substring(1);
             }
             
             int mmIndex = name.indexOf("mm");
             if (mmIndex != -1) {
-                String focal = name.substring(0, mmIndex + 2); // e.g. "50mm"
-                String apStr = name.substring(mmIndex + 2);    // e.g. "18"
-                float ap = Float.parseFloat(apStr) / 10.0f;    // e.g. 1.8
-                return focal + " f/" + ap;                     // "50mm f/1.8"
+                String focal = name.substring(0, mmIndex + 2); 
+                String apStr = name.substring(mmIndex + 2);    
+                float ap = Float.parseFloat(apStr) / 10.0f;    
+                return focal + " f/" + ap;                     
             }
         } catch (Exception e) {}
         
         return filename.replace(".txt", "").toUpperCase();
     }
 
-    public List<CalPoint> generateManualDummyProfile() {
+    // --- UPGRADED: Physics-Based Cinematic Focus Curve ---
+    public List<CalPoint> generateManualDummyProfile(float focalLength) {
         List<CalPoint> ghostPoints = new ArrayList<CalPoint>();
-        ghostPoints.add(new CalPoint(0.0f, 0.3f)); // Virtual Near
-        ghostPoints.add(new CalPoint(0.5f, 2.0f)); // Virtual Mid
-        ghostPoints.add(new CalPoint(1.0f, 999.0f)); // Virtual Infinity
+        
+        // 1. Calculate realistic Minimum Focus Distance (~focalLength / 100)
+        float minDist = Math.max(0.1f, focalLength / 100.0f);
+        
+        // 2. Calculate realistic Infinity Hard-Stop (Hyperfocal at f/2.8 with CoC 0.03mm)
+        // H = (f^2) / (N * CoC) mm -> convert to meters
+        float maxDist = (focalLength * focalLength) / (2.8f * 0.03f * 1000.0f);
+        
+        // 3. Generate 10 exponential points to simulate a physical lens barrel
+        for (int i = 0; i < 10; i++) {
+            float ratio = i / 10.0f; // 0.0 to 0.9
+            
+            // Map the 0.0-0.9 range to an exponential distance curve (Cubic)
+            // This forces fine micro-adjustments up close, and rapid jumps far away
+            float normalizedProgress = i / 9.0f; 
+            float curve = normalizedProgress * normalizedProgress * normalizedProgress;
+            
+            float dist = minDist + (maxDist - minDist) * curve;
+            ghostPoints.add(new CalPoint(ratio, dist));
+        }
+        
+        // 4. Cap it off with true Infinity at ratio 1.0
+        ghostPoints.add(new CalPoint(1.0f, 999.0f));
+        
         return ghostPoints;
     }
     
@@ -164,7 +180,7 @@ public class LensProfileManager {
 
             this.currentFocalLength = loadedFocal;
             this.currentMaxAperture = loadedAperture;
-            this.currentLensName = filename; // We keep the raw M/E filename so we can check it later
+            this.currentLensName = filename; 
             this.activePoints = loadedPoints;
             this.hasActiveProfile = true;
             
@@ -186,7 +202,6 @@ public class LensProfileManager {
         return hasActiveProfile && activePoints.size() >= 2;
     }
     
-    // --- NEW: Checks if the currently loaded profile is a Manual "M" profile ---
     public boolean isCurrentProfileManual() {
         return currentLensName != null && currentLensName.toUpperCase().startsWith("M");
     }

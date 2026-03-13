@@ -460,7 +460,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         if (isCalibrating && calibStep == 10) {
             if (!isNativeLensAttached) {
                 // MANUAL LENS: Auto-save ghost profile and equip!
-                tempCalPoints = lensManager.generateManualDummyProfile();
+                tempCalPoints = lensManager.generateManualDummyProfile(detectedFocalLength);
                 lensManager.saveProfileToFile(detectedFocalLength, detectedMaxAperture, tempCalPoints, true); 
                 
                 availableLenses = lensManager.getAvailableLenses();
