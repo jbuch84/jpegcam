@@ -138,6 +138,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private ProReticleView afOverlay;
     
     private Handler uiHandler = new Handler();
+    
+    // --- NEW: UI DEBOUNCER VARIABLES ---
+    private boolean isHudUpdatePending = false;
 
     public static final int DIAL_MODE_SHUTTER = 0;
     public static final int DIAL_MODE_APERTURE = 1;
@@ -164,6 +167,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         @Override 
         public void run() { applyHardwareRecipe(); }
     };
+    
+    // --- NEW: DEBOUNCED HUD RUNNABLE ---
+    private Runnable hudUpdateRunnable = new Runnable() {
+        @Override
+        public void run() {
+            isHudUpdatePending = false;
+            updateMainHUD();
+        }
+    };
 
     private Runnable liveUpdater = new Runnable() {
         @Override
@@ -176,7 +188,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     if (s1_1_free && s1_2_free) {
                         if (afOverlay != null && afOverlay.isPolling()) {
                             afOverlay.stopFocus(cameraManager.getCamera());
-                            updateMainHUD(); 
+                            requestHudUpdate(); 
                         }
                         if (tvTopStatus != null && tvTopStatus.getVisibility() != View.VISIBLE) {
                             if (!isCalibrating && !waitingForProfileChoice) {
@@ -243,10 +255,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     private void setupEngines() {
         mProcessor = new ImageProcessor(this, new ImageProcessor.ProcessorCallback() {
-            @Override public void onPreloadStarted() { isReady = false; runOnUiThread(new Runnable() { public void run() { updateMainHUD(); } }); }
-            @Override public void onPreloadFinished(boolean success) { isReady = true; runOnUiThread(new Runnable() { public void run() { updateMainHUD(); } }); }
+            @Override public void onPreloadStarted() { isReady = false; runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
+            @Override public void onPreloadFinished(boolean success) { isReady = true; runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
             @Override public void onProcessStarted() { runOnUiThread(new Runnable() { public void run() { if (tvTopStatus != null) { tvTopStatus.setText("PROCESSING..."); tvTopStatus.setTextColor(Color.YELLOW); } } }); }
-            @Override public void onProcessFinished(String res) { isProcessing = false; runOnUiThread(new Runnable() { public void run() { if (tvTopStatus != null) { tvTopStatus.setTextColor(Color.WHITE); } updateMainHUD(); } }); }
+            @Override public void onProcessFinished(String res) { isProcessing = false; runOnUiThread(new Runnable() { public void run() { if (tvTopStatus != null) { tvTopStatus.setTextColor(Color.WHITE); } requestHudUpdate(); } }); }
         });
         
         String baseDcim = Environment.getExternalStorageDirectory().getAbsolutePath() + "/DCIM";
@@ -299,7 +311,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     tvTopStatus.setText("SAVING TO SD..."); 
                     tvTopStatus.setTextColor(Color.YELLOW); 
                 }
-                updateMainHUD(); 
+                requestHudUpdate(); 
             } 
         });
         
@@ -311,7 +323,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             public void run() {
                 if (!f.exists()) {
                     isProcessing = false;
-                    updateMainHUD();
+                    requestHudUpdate();
                     return;
                 }
                 
@@ -325,7 +337,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     uiHandler.postDelayed(this, 300);
                 } else {
                     isProcessing = false;
-                    updateMainHUD();
+                    requestHudUpdate();
                 }
             }
         };
@@ -381,40 +393,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override 
     public void onDeletePressed() { 
-        // --- TEMPORARY POC: RACK FOCUS STRESS TEST ---
-        if (cameraManager != null && cameraManager.getCamera() != null && isNativeLensAttached) {
-            if (tvTopStatus != null) {
-                tvTopStatus.setText("POC: RACKING FOCUS...");
-                tvTopStatus.setTextColor(Color.CYAN);
-                tvTopStatus.setVisibility(View.VISIBLE);
-            }
-            
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    Camera c = cameraManager.getCamera();
-                    // Fire 50 micro-steps to the focus motor (approx 2.5 seconds)
-                    for (int i = 0; i < 50; i++) {
-                        try {
-                            Camera.Parameters p = c.getParameters();
-                            // Sony's hidden API keys for manual focus drive
-                            // Trying both common variants to ensure the motor catches it
-                            p.set("focus-drive", "FarStep"); 
-                            c.setParameters(p);
-                            Thread.sleep(50); // Send command every 50ms (20fps)
-                        } catch (Exception e) {}
-                    }
-                    
-                    runOnUiThread(new Runnable() {
-                        public void run() {
-                            updateMainHUD();
-                        }
-                    });
-                }
-            }).start();
-            return;
-        }
-        
+        // Completely removed PoC, back to normal exit functionality.
         finish(); 
     }
 
@@ -479,18 +458,24 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         }
         
         syncHardwareState();
-        updateMainHUD();
+        requestHudUpdate();
     }
 
-    // --- NEW: Dynamically detects Circle of Confusion from physical hardware model ---
     private float getCircleOfConfusion() {
         String model = android.os.Build.MODEL.toUpperCase();
-        // Known Full Frame camera strings (A7, A9, A1, RX1, A99II, etc.)
         if (model.contains("ILCE-7") || model.contains("ILCE-9") || model.contains("ILCE-1") || model.contains("DSC-RX1") || model.contains("ILCA-99")) {
-            return 0.030f; // Full Frame Sensor CoC
+            return 0.030f; 
         }
-        // Default to standard APS-C (A6000 series, NEX, A5000, etc.)
         return 0.020f; 
+    }
+    
+    // --- NEW: UI REQUEST THROTTLER ---
+    // Groups rapid-fire parameter updates so we don't choke the CPU
+    private void requestHudUpdate() {
+        if (!isHudUpdatePending) {
+            isHudUpdatePending = true;
+            uiHandler.postDelayed(hudUpdateRunnable, 100); // Max 10 updates per second
+        }
     }
 
     @Override 
@@ -498,17 +483,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         if (isPlaybackMode) { exitPlayback(); return; }
         if (isProcessing) return;
         
-        // Step 0A (Focal Length) -> go to Step 0B (Aperture)
         if (isCalibrating && calibStep == 0) {
             calibStep = 10; 
             updateCalibrationUI();
             return;
         }
 
-        // Step 0B (Aperture) -> Split based on lens type!
         if (isCalibrating && calibStep == 10) {
             if (!isNativeLensAttached) {
-                // MANUAL LENS: Generate perfect curve based on actual hardware sensor!
                 tempCalPoints = lensManager.generateManualDummyProfile(detectedFocalLength, detectedMaxAperture, getCircleOfConfusion());
                 lensManager.saveProfileToFile(detectedFocalLength, detectedMaxAperture, tempCalPoints, true); 
                 
@@ -519,16 +501,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 
                 lensManager.loadProfileFromFile(newFilename);
                 
-                // Initialize virtual math vars for the new manual lens
                 virtualAperture = lensManager.currentMaxAperture;
                 virtualFocusRatio = 0.5f; 
                 
                 isCalibrating = false;
                 if (tvCalibrationPrompt != null) tvCalibrationPrompt.setVisibility(View.GONE);
                 setHUDVisibility(View.VISIBLE);
-                updateMainHUD();
+                requestHudUpdate();
             } else {
-                // ELECTRONIC LENS: Proceed to Distance Mapping (Step 1)
                 calibStep = 1; 
                 minDistanceInput = 0.3f;
                 updateCalibrationUI();
@@ -536,7 +516,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             return;
         }
         
-        // Step 1 -> Step 2 (Electronic Only)
         if (isCalibrating && isNativeLensAttached) {
             if (calibStep == 1) {
                 tempCalPoints.add(new LensProfileManager.CalPoint(cachedFocusRatio, minDistanceInput));
@@ -596,7 +575,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 isCalibrating = false;
                 if (tvCalibrationPrompt != null) tvCalibrationPrompt.setVisibility(View.GONE);
                 setHUDVisibility(View.VISIBLE);
-                updateMainHUD();
+                requestHudUpdate();
             }
             return; 
         }
@@ -697,7 +676,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         
         if (!isMenuOpen && !isPlaybackMode && mDialMode == DIAL_MODE_FOCUS && lensManager != null && lensManager.isCurrentProfileManual()) {
             virtualFocusRatio = Math.max(0.0f, virtualFocusRatio - 0.02f);
-            updateMainHUD();
+            // Specifically bypass full HUD fetch for manual slider performance
+            if (focusMeter != null) {
+                float focalToUse = lensManager.getCurrentFocalLength();
+                focusMeter.update(virtualFocusRatio, virtualAperture, focalToUse, false, lensManager.getCurrentPoints());
+            }
             return; 
         }
 
@@ -737,13 +720,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             isCalibrating = false;
             if (tvCalibrationPrompt != null) tvCalibrationPrompt.setVisibility(View.GONE);
             setHUDVisibility(View.VISIBLE);
-            updateMainHUD(); 
+            requestHudUpdate(); 
             return;
         }
         
         if (!isMenuOpen && !isPlaybackMode && mDialMode == DIAL_MODE_FOCUS && lensManager != null && lensManager.isCurrentProfileManual()) {
             virtualFocusRatio = Math.min(1.0f, virtualFocusRatio + 0.02f);
-            updateMainHUD();
+            // Specifically bypass full HUD fetch for manual slider performance
+            if (focusMeter != null) {
+                float focalToUse = lensManager.getCurrentFocalLength();
+                focusMeter.update(virtualFocusRatio, virtualAperture, focalToUse, false, lensManager.getCurrentPoints());
+            }
             return; 
         }
 
@@ -820,7 +807,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 else if (keyCode == ScalarInput.ISV_KEY_LEFT) mDialMode = DIAL_MODE_SHUTTER; 
                 break;
         }
-        updateMainHUD();
+        requestHudUpdate();
     }
 
     private void handleMenuChange(int dir) {
@@ -1038,7 +1025,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             }
             try { c.setParameters(p); } catch (Exception e) {}
         }
-        updateMainHUD();
+        requestHudUpdate(); // Debounced update instead of direct
     }
     
     private void applyHardwareRecipe() {
@@ -1616,17 +1603,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             }
         }
         
-        updateMainHUD(); 
+        requestHudUpdate(); 
     }
     
     @Override 
-    public void onShutterSpeedChanged() { runOnUiThread(new Runnable() { public void run() { updateMainHUD(); } }); }
+    public void onShutterSpeedChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
     
     @Override 
-    public void onApertureChanged() { runOnUiThread(new Runnable() { public void run() { updateMainHUD(); } }); }
+    public void onApertureChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
     
     @Override 
-    public void onIsoChanged() { runOnUiThread(new Runnable() { public void run() { updateMainHUD(); } }); }
+    public void onIsoChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
     
     @Override 
     public void onFocusPositionChanged(final float ratio) {
@@ -1634,7 +1621,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             runOnUiThread(new Runnable() { 
                 public void run() {
                     cachedFocusRatio = ratio; 
-                    updateMainHUD();
+                    // --- LIGHTWEIGHT FOCUS UPDATE: NO HARDWARE POLLS ---
+                    float focalToUse = isCalibrating ? detectedFocalLength : (lensManager != null ? lensManager.getCurrentFocalLength() : 50.0f);
+                    List<LensProfileManager.CalPoint> ptsToUse = isCalibrating ? tempCalPoints : (lensManager != null ? lensManager.getCurrentPoints() : null);
+                    float ratioToFeed = (lensManager != null && lensManager.isCurrentProfileManual() && !isCalibrating) ? virtualFocusRatio : cachedFocusRatio;
+                    float apToFeed = (lensManager != null && lensManager.isCurrentProfileManual() && !isCalibrating) ? virtualAperture : cachedAperture;
+                    focusMeter.update(ratioToFeed, apToFeed, focalToUse, isCalibrating, ptsToUse);
                 }
             });
         }
@@ -1665,7 +1657,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     isNativeLensAttached = false; 
                     Log.d("filmOS_Lens", "Manual Lens Detected.");
                 }
-                updateMainHUD();
+                requestHudUpdate();
             }
         });
     }
@@ -1707,7 +1699,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         mainUIContainer.setVisibility(displayState == 0 ? View.VISIBLE : View.GONE);
         if (playbackImageView != null) playbackImageView.setImageBitmap(null);
         if (currentPlaybackBitmap != null) { currentPlaybackBitmap.recycle(); currentPlaybackBitmap = null; }
-        System.gc();
     }
 
     private void showPlaybackImage(int idx) {
@@ -1721,7 +1712,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         try {
             if (playbackImageView != null) playbackImageView.setImageBitmap(null);
             if (currentPlaybackBitmap != null) { currentPlaybackBitmap.recycle(); currentPlaybackBitmap = null; }
-            System.gc();
 
             if (file.length() == 0) {
                 if (tvPlaybackInfo != null) tvPlaybackInfo.setText((idx + 1) + "/" + playbackFiles.size() + "\n[ERROR: 0-BYTE FILE]");
