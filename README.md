@@ -1,6 +1,8 @@
 # filmOS - In-Camera LUT Support (BETA)
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/jbuchanan)
 
+**💾 DOWNLOAD LINK:** Download the latest release from https://www.jpgcookbook.com/filmos
+
 **⚠️ BETA STATUS:** This project is currently in early beta. While it is stable and produces high-quality results, it is a "proof of concept" running on 2014-era hardware.
 
 Sony JPG Cookbook (filmOS) turns your older Sony Alpha camera into a modern film-simulation powerhouse. This app brings professional color grading directly to your camera hardware, allowing you to apply custom 3D LUTs (`.cube` and `.cub` files) to your photos the moment you press the shutter.
@@ -44,5 +46,5 @@ Compatible with PMCA cameras (Android 2.3.7 / API 10) including: **a5100, a6000,
 
 ## 🚀 Installation
 1. Download the [pmca-gui installer](https://github.com/ma1co/Sony-PMCA-RE/releases).
-2. Download the latest `filmOS-v3.0.apk` from our Releases page.
+2. Download the latest release from https://www.jpgcookbook.com/filmos
 3. Connect camera via USB (MTP or Mass Storage mode) and use **pmca-gui** to install.
