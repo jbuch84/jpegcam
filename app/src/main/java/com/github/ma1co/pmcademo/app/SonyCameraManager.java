@@ -119,8 +119,13 @@ public class SonyCameraManager {
         if (camera != null) {
             try {
                 camera.cancelAutoFocus();
+                
+                // FIX: We MUST stop the live video stream before modifying final 
+                // parameters or releasing the camera. Leaving the DMA pipeline open 
+                // when releasing the camera causes a guaranteed kernel panic on BIONZ!
+                camera.stopPreview(); 
             } catch (Exception e) {
-                Log.e("filmOS", "Failed to cancel autofocus on close.");
+                Log.e("filmOS", "Failed to cancel AF or stop preview on close.");
             }
         }
 
@@ -144,13 +149,24 @@ public class SonyCameraManager {
                 camera.setParameters(p);
                 Log.d("filmOS", "Successfully restored standard Sony parameters.");
                 
-                // FIX: This is the final IPC payload. We MUST give the BIONZ daemon
-                // time to digest these standard settings before calling release().
+                // Give the BIONZ daemon time to digest these standard settings before calling release().
                 Thread.sleep(300);
             } catch (Exception e) {
                 Log.e("filmOS", "Failed to restore parameters: " + e.getMessage());
             }
         }
+        
+        // 3. Safely release the hardware
+        if (cameraEx != null) {
+            try {
+                cameraEx.release();
+            } catch (Exception e) {
+                Log.e("filmOS", "Error releasing CameraEx: " + e.getMessage());
+            }
+            cameraEx = null;
+            camera = null;
+        }
+    }
         
         // 3. Safely release the hardware
         if (cameraEx != null) {
