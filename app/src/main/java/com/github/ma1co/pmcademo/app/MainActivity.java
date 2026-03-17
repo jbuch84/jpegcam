@@ -1685,6 +1685,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     protected void onPause() { 
         super.onPause(); 
         uiHandler.removeCallbacksAndMessages(null); 
+        
+        // --- RESTORE THE PRISTINE SONY STATE BEFORE EXITING ---
+        if (cameraManager != null && cameraManager.getCamera() != null && originalCameraParamsString != null) {
+            try {
+                Camera.Parameters p = cameraManager.getCamera().getParameters();
+                p.unflatten(originalCameraParamsString);
+                cameraManager.getCamera().setParameters(p);
+                Log.d("filmOS", "Successfully restored native Sony camera parameters.");
+            } catch (Exception e) {
+                Log.e("filmOS", "Failed to restore original parameters: " + e.getMessage());
+            }
+        }
+        
         if (cameraManager != null) cameraManager.close(); 
         try { unregisterReceiver(sonyCameraReceiver); unregisterReceiver(batteryReceiver); } catch (Exception e) {}
         if (connectivityManager != null) connectivityManager.stopNetworking(); 
