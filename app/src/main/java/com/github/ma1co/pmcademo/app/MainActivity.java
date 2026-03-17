@@ -773,7 +773,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             } else if (isMenuEditing) { 
                 handleMenuChange(1); 
             } else {
-                currentMainTab = Math.min(2, currentMainTab + 1);
+                currentMainTab = Math.min(3, currentMainTab + 1);
                 if (currentMainTab == 0) currentPage = 1;
                 if (currentMainTab == 1) currentPage = 3;
                 if (currentMainTab == 2) currentPage = 4;

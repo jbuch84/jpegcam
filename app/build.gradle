@@ -12,7 +12,7 @@ android {
         
         // Bumped versioning for the filmOS era
         versionCode 2
-        versionName "3.0"
+        versionName "1.1"
         
         externalNativeBuild {
             cmake {
@@ -52,7 +52,7 @@ android {
     // Renamed the final output file
     applicationVariants.all { variant ->
         variant.outputs.all {
-            outputFileName = "filmOS-v3.0.apk"
+            outputFileName = "filmOS-v1.1.apk"
         }
     }
 }
