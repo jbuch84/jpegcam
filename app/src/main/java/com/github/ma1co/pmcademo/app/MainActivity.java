@@ -1128,15 +1128,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         updateMainHUD(); 
     }
     
-    private void safeSetParam(Camera.Parameters p, String key, String value) {
-        if (p.get(key) != null) {
-            if (!originalParams.containsKey(key)) {
-                originalParams.put(key, p.get(key));
-            }
-            p.set(key, value);
-        }
-    }
-    
     private void applyHardwareRecipe() {
         if (cameraManager == null || cameraManager.getCamera() == null) return;
         Camera c = cameraManager.getCamera(); 
