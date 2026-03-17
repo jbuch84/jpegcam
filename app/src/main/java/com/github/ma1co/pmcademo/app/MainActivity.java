@@ -130,6 +130,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private int currentItemCount = 0;
     private String savedFocusMode = null;
 
+    private java.util.Map<String, String> originalParams = new java.util.HashMap<String, String>();
+
     private boolean isNamingMode = false;
     private int nameCursorPos = 0;
     private final String CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_";
@@ -1128,13 +1130,22 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         updateMainHUD(); 
     }
     
+    private void safeSetParam(Camera.Parameters p, String key, String value) {
+        if (p.get(key) != null) {
+            if (!originalParams.containsKey(key)) {
+                originalParams.put(key, p.get(key));
+            }
+            p.set(key, value);
+        }
+    }
+    
     private void applyHardwareRecipe() {
         if (cameraManager == null || cameraManager.getCamera() == null) return;
         Camera c = cameraManager.getCamera(); 
         RTLProfile prof = recipeManager.getCurrentProfile(); 
         Camera.Parameters p = c.getParameters();
         
-        if (p.get("color-mode") != null) p.set("color-mode", prof.colorMode != null ? prof.colorMode : "standard");
+        safeSetParam(p, "color-mode", prof.colorMode != null ? prof.colorMode : "standard");
         
         String wb = "auto";
         if ("DAY".equals(prof.whiteBalance)) wb = "daylight"; 
@@ -1143,64 +1154,60 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         else if ("INC".equals(prof.whiteBalance)) wb = "incandescent"; 
         else if ("FLR".equals(prof.whiteBalance)) wb = "fluorescent";
         
-        p.setWhiteBalance(wb);
+        p.setWhiteBalance(wb); // Standard Android API, no need to track
         
-        if (p.get("white-balance-shift-mode") != null) p.set("white-balance-shift-mode", (prof.wbShift != 0 || prof.wbShiftGM != 0) ? "true" : "false");
-        if (p.get("white-balance-shift-lb") != null) p.set("white-balance-shift-lb", String.valueOf(prof.wbShift)); 
-        if (p.get("white-balance-shift-cc") != null) p.set("white-balance-shift-cc", String.valueOf(prof.wbShiftGM));
+        safeSetParam(p, "white-balance-shift-mode", (prof.wbShift != 0 || prof.wbShiftGM != 0) ? "true" : "false");
+        safeSetParam(p, "white-balance-shift-lb", String.valueOf(prof.wbShift)); 
+        safeSetParam(p, "white-balance-shift-cc", String.valueOf(prof.wbShiftGM));
 
         if (p.get("dro-mode") != null) {
-            if ("OFF".equals(prof.dro)) p.set("dro-mode", "off"); 
-            else if ("AUTO".equals(prof.dro)) p.set("dro-mode", "auto"); 
+            if ("OFF".equals(prof.dro)) safeSetParam(p, "dro-mode", "off"); 
+            else if ("AUTO".equals(prof.dro)) safeSetParam(p, "dro-mode", "auto"); 
             else if (prof.dro != null && prof.dro.startsWith("LV")) { 
-                p.set("dro-mode", "on"); 
-                try { p.set("dro-level", Integer.parseInt(prof.dro.replace("LV", ""))); } catch(Exception e) {}
+                safeSetParam(p, "dro-mode", "on"); 
+                safeSetParam(p, "dro-level", prof.dro.replace("LV", ""));
             }
         } else if (p.get("sony-dro") != null) {
-            p.set("sony-dro", prof.dro != null ? prof.dro.toLowerCase() : "off");
+            safeSetParam(p, "sony-dro", prof.dro != null ? prof.dro.toLowerCase() : "off");
         }
         
-        if (p.get("contrast") != null) p.set("contrast", String.valueOf(prof.contrast)); 
-        if (p.get("saturation") != null) p.set("saturation", String.valueOf(prof.saturation)); 
-        if (p.get("sharpness") != null) p.set("sharpness", String.valueOf(prof.sharpness));
+        safeSetParam(p, "contrast", String.valueOf(prof.contrast)); 
+        safeSetParam(p, "saturation", String.valueOf(prof.saturation)); 
+        safeSetParam(p, "sharpness", String.valueOf(prof.sharpness));
 
-        if (p.get("color-depth-red") != null) p.set("color-depth-red", String.valueOf(prof.colorDepthRed));
-        if (p.get("color-depth-green") != null) p.set("color-depth-green", String.valueOf(prof.colorDepthGreen));
-        if (p.get("color-depth-blue") != null) p.set("color-depth-blue", String.valueOf(prof.colorDepthBlue));
-        if (p.get("color-depth-cyan") != null) p.set("color-depth-cyan", String.valueOf(prof.colorDepthCyan));
-        if (p.get("color-depth-magenta") != null) p.set("color-depth-magenta", String.valueOf(prof.colorDepthMagenta));
-        if (p.get("color-depth-yellow") != null) p.set("color-depth-yellow", String.valueOf(prof.colorDepthYellow));
+        safeSetParam(p, "color-depth-red", String.valueOf(prof.colorDepthRed));
+        safeSetParam(p, "color-depth-green", String.valueOf(prof.colorDepthGreen));
+        safeSetParam(p, "color-depth-blue", String.valueOf(prof.colorDepthBlue));
+        safeSetParam(p, "color-depth-cyan", String.valueOf(prof.colorDepthCyan));
+        safeSetParam(p, "color-depth-magenta", String.valueOf(prof.colorDepthMagenta));
+        safeSetParam(p, "color-depth-yellow", String.valueOf(prof.colorDepthYellow));
 
-        if (p.get("pro-color-mode") != null && prof.proColorMode != null && !"off".equals(prof.proColorMode)) {
-            p.set("pro-color-mode", prof.proColorMode);
+        if (prof.proColorMode != null && !"off".equals(prof.proColorMode.toLowerCase())) {
+            safeSetParam(p, "pro-color-mode", prof.proColorMode);
         }
 
-        if (p.get("picture-effect") != null) {
-            p.set("picture-effect", prof.pictureEffect != null ? prof.pictureEffect : "off");
-            if ("toy-camera".equals(prof.pictureEffect)) {
-                p.set("pe-toy-camera-effect", prof.peToyCameraTone != null ? prof.peToyCameraTone : "normal");
-                p.set("pe-toy-camera-tuning", String.valueOf(prof.vignetteHardware)); 
-            }
+        safeSetParam(p, "picture-effect", prof.pictureEffect != null ? prof.pictureEffect : "off");
+        if ("toy-camera".equals(prof.pictureEffect)) {
+            safeSetParam(p, "pe-toy-camera-effect", prof.peToyCameraTone != null ? prof.peToyCameraTone : "normal");
+            safeSetParam(p, "pe-toy-camera-tuning", String.valueOf(prof.vignetteHardware)); 
         }
         
-        if (p.get("lens-correction") != null) p.set("lens-correction", "true");
-        if (p.get("lens-correction-shading-color-red") != null) p.set("lens-correction-shading-color-red", String.valueOf(prof.shadingRed));
-        if (p.get("lens-correction-shading-color-blue") != null) p.set("lens-correction-shading-color-blue", String.valueOf(prof.shadingBlue));
+        safeSetParam(p, "lens-correction", "true");
+        safeSetParam(p, "lens-correction-shading-color-red", String.valueOf(prof.shadingRed));
+        safeSetParam(p, "lens-correction-shading-color-blue", String.valueOf(prof.shadingBlue));
         
-        if (p.get("sharpness-gain") != null) p.set("sharpness-gain", String.valueOf(prof.sharpnessGain));
-        if (p.get("sharpness-gain-mode") != null) p.set("sharpness-gain-mode", "true");
+        safeSetParam(p, "sharpness-gain", String.valueOf(prof.sharpnessGain));
+        safeSetParam(p, "sharpness-gain-mode", "true");
         
-        if (p.get("pe-soft-focus-effect-level") != null) p.set("pe-soft-focus-effect-level", String.valueOf(prof.softFocusLevel));
+        safeSetParam(p, "pe-soft-focus-effect-level", String.valueOf(prof.softFocusLevel));
         
-        if (p.get("rgb-matrix-mode") != null) {
-            if ("OFF".equals(prof.rgbMatrixPreset)) {
-                p.set("rgb-matrix-mode", "false");
-            } else {
-                p.set("rgb-matrix-mode", "true");
-                if ("TEST 1".equals(prof.rgbMatrixPreset)) p.set("rgb-matrix", "256,0,0,0,256,0,0,0,256");
-                else if ("TEST 2".equals(prof.rgbMatrixPreset)) p.set("rgb-matrix", "0,0,0,0,256,0,0,0,256");
-                else if ("TEST 3".equals(prof.rgbMatrixPreset)) p.set("rgb-matrix", "0,256,0,256,0,0,0,0,256");
-            }
+        if ("OFF".equals(prof.rgbMatrixPreset)) {
+            safeSetParam(p, "rgb-matrix-mode", "false");
+        } else {
+            safeSetParam(p, "rgb-matrix-mode", "true");
+            if ("TEST 1".equals(prof.rgbMatrixPreset)) safeSetParam(p, "rgb-matrix", "256,0,0,0,256,0,0,0,256");
+            else if ("TEST 2".equals(prof.rgbMatrixPreset)) safeSetParam(p, "rgb-matrix", "0,0,0,0,256,0,0,0,256");
+            else if ("TEST 3".equals(prof.rgbMatrixPreset)) safeSetParam(p, "rgb-matrix", "0,256,0,256,0,0,0,0,256");
         }
         
         try { c.setParameters(p); } catch (Exception e) {}
@@ -1675,15 +1682,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         super.onPause(); 
         uiHandler.removeCallbacksAndMessages(null); 
         
-        // --- SAFE EXIT CLEANUP (CRASH FIX) ---
-        if (cameraManager != null && cameraManager.getCamera() != null) {
+        // --- SMART DYNAMIC RESTORE (CRASH FIX) ---
+        if (cameraManager != null && cameraManager.getCamera() != null && !originalParams.isEmpty()) {
             try {
                 Camera.Parameters p = cameraManager.getCamera().getParameters();
-                if (p.get("rgb-matrix-mode") != null) p.set("rgb-matrix-mode", "false");
-                if (p.get("picture-effect") != null) p.set("picture-effect", "off");
-                if (p.get("lens-correction") != null) p.set("lens-correction", "false");
+                for (java.util.Map.Entry<String, String> entry : originalParams.entrySet()) {
+                    p.set(entry.getKey(), entry.getValue());
+                }
                 cameraManager.getCamera().setParameters(p);
-            } catch (Exception e) {}
+                Log.d("filmOS", "Successfully restored " + originalParams.size() + " native Sony parameters.");
+                originalParams.clear(); // Wipe the tracker clean for the next launch
+            } catch (Exception e) {
+                Log.e("filmOS", "Failed to restore original parameters: " + e.getMessage());
+            }
         }
         
         if (cameraManager != null) cameraManager.close(); 
