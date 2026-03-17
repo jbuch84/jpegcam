@@ -72,11 +72,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private TextView tvTabSettings;
     private TextView tvTabNetwork;
     private TextView tvMenuSubtitle;
-    // --- NEW SUPPORT TAB VARIABLES ---
+
     private TextView tvTabSupport;
     private LinearLayout supportTabContainer;
     
-    // Increased to 8 to accommodate Profile Name row
     private LinearLayout[] menuRows = new LinearLayout[8];
     private TextView[] menuLabels = new TextView[8];
     private TextView[] menuValues = new TextView[8];
@@ -98,7 +97,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private boolean prefShowGridLines = false;
     private int prefJpegQuality = 95;
 
-    // --- CINEMA LENS MAPPER (SD CARD ENGINE) ---
     private LensProfileManager lensManager;
     private List<String> availableLenses = new ArrayList<String>();
     private int currentLensIndex = 0;
@@ -116,7 +114,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private float hardwareFocalLength = 0.0f;
     private boolean isNativeLensAttached = false;
     
-    // --- PHASE 2 VIRTUAL VARS FOR MANUAL DOF ---
     private float virtualAperture = 2.8f;
     private float virtualFocusRatio = 0.5f;
     
@@ -132,9 +129,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private int menuSelection = 0;
     private int currentItemCount = 0;
     private String savedFocusMode = null;
-    private String originalCameraParamsString = null;
 
-    // --- ARCADE NAMING VARS ---
     private boolean isNamingMode = false;
     private int nameCursorPos = 0;
     private final String CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_";
@@ -149,7 +144,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     
     private Handler uiHandler = new Handler();
     
-    // --- UI DEBOUNCER VARIABLES ---
     private boolean isHudUpdatePending = false;
 
     public static final int DIAL_MODE_SHUTTER = 0;
@@ -178,7 +172,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         public void run() { applyHardwareRecipe(); }
     };
     
-    // --- DEBOUNCED HUD RUNNABLE (For background light meter updates only) ---
     private Runnable hudUpdateRunnable = new Runnable() {
         @Override
         public void run() {
@@ -480,7 +473,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         return 0.020f; 
     }
     
-    // Groups rapid-fire background light meter updates so we don't choke the CPU
     private void requestHudUpdate() {
         if (!isHudUpdatePending) {
             isHudUpdatePending = true;
@@ -563,7 +555,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         } else {
             if (currentPage == 7) handleConnectionAction(); 
             else if (currentMainTab == 0 && currentPage == 1 && menuSelection == 1) {
-                // ARCADE NAMING TOGGLE
                 isNamingMode = !isNamingMode;
                 if (isNamingMode) {
                     isMenuEditing = true;
@@ -616,7 +607,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                         if (currentPage == 1) menuSelection = 7;
                         else if (currentPage == 2) menuSelection = 6;
                         else if (currentPage == 3) menuSelection = 5;
-                        else if (currentPage == 4) menuSelection = 4; // Optics page has 5 items (0 to 4)
+                        else if (currentPage == 4) menuSelection = 4;
                     } else { 
                         menuSelection = currentItemCount - 1; 
                     }
@@ -661,7 +652,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             } else {
                 menuSelection++;
                 if (menuSelection >= currentItemCount) {
-                    if (currentMainTab == 0 && currentPage < 5) { // Updated to allow 5 pages in Recipes Tab
+                    if (currentMainTab == 0 && currentPage < 5) { 
                         currentPage++; 
                         menuSelection = 0; 
                     } else { 
@@ -863,19 +854,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         updateMainHUD(); 
     }
     
-    // --- ARCADE NAMING HANDLER ---
     private void handleNamingChange(int dir) {
         RTLProfile p = recipeManager.getCurrentProfile();
         String name = p.profileName;
         if (name == null) name = "";
         
-        // Pad out to exactly 8 chars to prevent bounds errors
         while(name.length() < 8) name += " ";
         if (name.length() > 8) name = name.substring(0, 8);
         
         char c = name.charAt(nameCursorPos);
         int idx = CHARSET.indexOf(c);
-        if (idx == -1) idx = 0; // Default to 'A' if unknown char
+        if (idx == -1) idx = 0; 
         
         idx += dir;
         if (idx < 0) idx = CHARSET.length() - 1;
@@ -895,7 +884,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             if (currentPage == 1) {
                 switch(sel) {
                     case 0: recipeManager.setCurrentSlot(recipeManager.getCurrentSlot() + dir); break;
-                    case 1: /* Handled by NamingMode intercept */ break;
+                    case 1: break;
                     case 2: p.lutIndex = (p.lutIndex + dir + recipeManager.getRecipePaths().size()) % recipeManager.getRecipePaths().size(); break;
                     case 3: p.opacity = Math.max(0, Math.min(100, p.opacity + (dir * 10))); break;
                     case 4: p.grain = Math.max(0, Math.min(5, p.grain + dir)); break;
@@ -949,8 +938,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 switch(sel) {
                     case 0: p.shadingRed = Math.max(-16, Math.min(16, p.shadingRed + dir)); break;
                     case 1: p.shadingBlue = Math.max(-16, Math.min(16, p.shadingBlue + dir)); break;
-                    case 2: p.sharpnessGain = Math.max(-7, Math.min(7, p.sharpnessGain + dir)); break;
-                    case 3: int mi = java.util.Arrays.asList(matrixLabels).indexOf(p.rgbMatrixPreset != null ? p.rgbMatrixPreset.toUpperCase() : "OFF"); if (mi == -1) mi = 0; p.rgbMatrixPreset = matrixLabels[(mi + dir + matrixLabels.length) % matrixLabels.length]; break;
+                    case 2: int mi = java.util.Arrays.asList(matrixLabels).indexOf(p.rgbMatrixPreset != null ? p.rgbMatrixPreset.toUpperCase() : "OFF"); if (mi == -1) mi = 0; p.rgbMatrixPreset = matrixLabels[(mi + dir + matrixLabels.length) % matrixLabels.length]; break;
                 }
             }
         } else if (currentPage == 6) {
@@ -1142,7 +1130,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         RTLProfile prof = recipeManager.getCurrentProfile(); 
         Camera.Parameters p = c.getParameters();
         
-        // 1. Color Mode & White Balance
         if (p.get("color-mode") != null) p.set("color-mode", prof.colorMode != null ? prof.colorMode : "standard");
         
         String wb = "auto";
@@ -1158,7 +1145,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         if (p.get("white-balance-shift-lb") != null) p.set("white-balance-shift-lb", String.valueOf(prof.wbShift)); 
         if (p.get("white-balance-shift-cc") != null) p.set("white-balance-shift-cc", String.valueOf(prof.wbShiftGM));
 
-        // 2. Dynamic Range & Base Tones
         if (p.get("dro-mode") != null) {
             if ("OFF".equals(prof.dro)) p.set("dro-mode", "off"); 
             else if ("AUTO".equals(prof.dro)) p.set("dro-mode", "auto"); 
@@ -1174,7 +1160,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         if (p.get("saturation") != null) p.set("saturation", String.valueOf(prof.saturation)); 
         if (p.get("sharpness") != null) p.set("sharpness", String.valueOf(prof.sharpness));
 
-        // 3. The 6-Axis Matrix
         if (p.get("color-depth-red") != null) p.set("color-depth-red", String.valueOf(prof.colorDepthRed));
         if (p.get("color-depth-green") != null) p.set("color-depth-green", String.valueOf(prof.colorDepthGreen));
         if (p.get("color-depth-blue") != null) p.set("color-depth-blue", String.valueOf(prof.colorDepthBlue));
@@ -1182,7 +1167,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         if (p.get("color-depth-magenta") != null) p.set("color-depth-magenta", String.valueOf(prof.colorDepthMagenta));
         if (p.get("color-depth-yellow") != null) p.set("color-depth-yellow", String.valueOf(prof.colorDepthYellow));
 
-        // 4. Experimental Optics (Effects & Vignette)
         if (p.get("picture-effect") != null) {
             p.set("picture-effect", prof.pictureEffect != null ? prof.pictureEffect : "off");
             if ("toy-camera".equals(prof.pictureEffect)) {
@@ -1191,13 +1175,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             }
         }
         
-        // 5. Deep Hardware Hacks (Edge Shading, Clarity Gain, Bloom, RGB Matrix)
-        if (p.get("lens-correction") != null) p.set("lens-correction", "true"); // Force mapping to activate
+        if (p.get("lens-correction") != null) p.set("lens-correction", "true");
         if (p.get("lens-correction-shading-color-red") != null) p.set("lens-correction-shading-color-red", String.valueOf(prof.shadingRed));
         if (p.get("lens-correction-shading-color-blue") != null) p.set("lens-correction-shading-color-blue", String.valueOf(prof.shadingBlue));
-        
-        if (p.get("sharpness-gain") != null) p.set("sharpness-gain", String.valueOf(prof.sharpnessGain));
-        if (p.get("sharpness-gain-mode") != null) p.set("sharpness-gain-mode", "true"); // Activate clarity mode
         
         if (p.get("pe-soft-focus-effect-level") != null) p.set("pe-soft-focus-effect-level", String.valueOf(prof.softFocusLevel));
         
@@ -1206,9 +1186,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 p.set("rgb-matrix-mode", "false");
             } else {
                 p.set("rgb-matrix-mode", "true");
-                if ("TEST 1".equals(prof.rgbMatrixPreset)) p.set("rgb-matrix", "10,0,0,0,10,0,0,0,10");
-                else if ("TEST 2".equals(prof.rgbMatrixPreset)) p.set("rgb-matrix", "-10,0,0,0,-10,0,0,0,-10");
-                else if ("TEST 3".equals(prof.rgbMatrixPreset)) p.set("rgb-matrix", "0,10,0,0,0,10,10,0,0");
+                if ("TEST 1".equals(prof.rgbMatrixPreset)) p.set("rgb-matrix", "256,0,0,0,256,0,0,0,256");
+                else if ("TEST 2".equals(prof.rgbMatrixPreset)) p.set("rgb-matrix", "0,0,0,0,256,0,0,0,256");
+                else if ("TEST 3".equals(prof.rgbMatrixPreset)) p.set("rgb-matrix", "0,256,0,256,0,0,0,0,256");
             }
         }
         
@@ -1258,11 +1238,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         else if (currentPage == 7) tvMenuSubtitle.setText("Web Dashboard Server");
         else if (currentPage == 8) tvMenuSubtitle.setText("Resources & Community");
 
-        // Hide all rows initially
         for (int i = 0; i < 8; i++) menuRows[i].setVisibility(View.GONE);
         if (supportTabContainer != null) supportTabContainer.setVisibility(View.GONE); 
 
-        // --- NEW SUPPORT TAB LOGIC ---
         if (currentPage == 8) {
             supportTabContainer.setVisibility(View.VISIBLE);
             currentItemCount = 0;
@@ -1347,11 +1325,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 String[] eValues = { colorModeStr, picEffStr, toneStr, String.format("%+d", p.vignetteHardware), String.valueOf(p.softFocusLevel) };
                 for (int i = 0; i < 5; i++) { menuLabels[i].setText(eLabels[i]); menuValues[i].setText(eValues[i]); menuRows[i].setVisibility(View.VISIBLE); }
             } else if (currentPage == 5) {
-                itemCount = 4;
-                String[] dLabels = {"Edge Shading (Red)", "Edge Shading (Blue)", "Micro-Contrast Gain", "RGB Matrix Exploit"};
+                itemCount = 3;
+                String[] dLabels = {"Edge Shading (Red)", "Edge Shading (Blue)", "RGB Matrix Exploit"};
                 String matrixStr = p.rgbMatrixPreset != null ? p.rgbMatrixPreset.toUpperCase() : "OFF";
-                String[] dValues = { String.format("%+d", p.shadingRed), String.format("%+d", p.shadingBlue), String.format("%+d", p.sharpnessGain), matrixStr };
-                for (int i = 0; i < 4; i++) { menuLabels[i].setText(dLabels[i]); menuValues[i].setText(dValues[i]); menuRows[i].setVisibility(View.VISIBLE); }
+                String[] dValues = { String.format("%+d", p.shadingRed), String.format("%+d", p.shadingBlue), matrixStr };
+                for (int i = 0; i < 3; i++) { menuLabels[i].setText(dLabels[i]); menuValues[i].setText(dValues[i]); menuRows[i].setVisibility(View.VISIBLE); }
             }
         } else if (currentPage == 6) {
             itemCount = 6;
@@ -1507,7 +1485,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         tabHeaderLayout.addView(tvTabSupport); 
         menuContainer.addView(tabHeaderLayout);
 
-        // --- BUILD THE SUPPORT QR SCREEN PROGRAMMATICALLY ---
         supportTabContainer = new LinearLayout(this);
         supportTabContainer.setOrientation(LinearLayout.VERTICAL);
         supportTabContainer.setGravity(Gravity.CENTER);
@@ -1686,18 +1663,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         super.onPause(); 
         uiHandler.removeCallbacksAndMessages(null); 
         
-        // --- RESTORE THE PRISTINE SONY STATE BEFORE EXITING ---
-        if (cameraManager != null && cameraManager.getCamera() != null && originalCameraParamsString != null) {
-            try {
-                Camera.Parameters p = cameraManager.getCamera().getParameters();
-                p.unflatten(originalCameraParamsString);
-                cameraManager.getCamera().setParameters(p);
-                Log.d("filmOS", "Successfully restored native Sony camera parameters.");
-            } catch (Exception e) {
-                Log.e("filmOS", "Failed to restore original parameters: " + e.getMessage());
-            }
-        }
-        
         if (cameraManager != null) cameraManager.close(); 
         try { unregisterReceiver(sonyCameraReceiver); unregisterReceiver(batteryReceiver); } catch (Exception e) {}
         if (connectivityManager != null) connectivityManager.stopNetworking(); 
@@ -1782,7 +1747,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         String name = recipeManager.getRecipeNames().get(prof.lutIndex);
         String displayName = name.length() > 15 ? name.substring(0, 12) + "..." : name;
         
-        // --- CUSTOM RECIPE NAME INJECTION ---
         String customName = prof.profileName != null ? prof.profileName.trim() : ("RECIPE " + (recipeManager.getCurrentSlot() + 1));
         if (customName.isEmpty()) customName = "RECIPE " + (recipeManager.getCurrentSlot() + 1);
         
@@ -1880,11 +1844,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         syncHardwareState();
         
         if (cameraManager != null) {
-            // --- CAPTURE THE PRISTINE SONY STATE ---
-            if (cameraManager.getCamera() != null) {
-                originalCameraParamsString = cameraManager.getCamera().getParameters().flatten();
-            }
-            
             hardwareFocalLength = cameraManager.getInitialFocalLength();
             if (hardwareFocalLength > 0.0f) {
                 isNativeLensAttached = true;
@@ -2013,14 +1972,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         File file = playbackFiles.get(idx);
         
         try {
-            // Aggressive cleanup of the previous image before we load the new one
             if (playbackImageView != null) playbackImageView.setImageBitmap(null);
             if (currentPlaybackBitmap != null && !currentPlaybackBitmap.isRecycled()) { 
                 currentPlaybackBitmap.recycle(); 
                 currentPlaybackBitmap = null; 
             }
             
-            // Suggest GC to the Sony OS since we are managing tight heap limits
             System.gc();
 
             if (file.length() == 0) {
@@ -2049,15 +2006,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             String metaText = (idx + 1) + " / " + playbackFiles.size() + "\n" + file.getName() + "\n" + apStr + " | " + speedStr + " | " + isoStr;
             if (tvPlaybackInfo != null) tvPlaybackInfo.setText(metaText);
 
-            // --- SMART MEMORY DECODING ---
             BitmapFactory.Options opts = new BitmapFactory.Options();
             
-            // Step 1: Read dimensions only (zero memory cost)
             opts.inJustDecodeBounds = true;
             BitmapFactory.decodeFile(path, opts);
             
-            // Step 2: Calculate dynamic sample size targeted to the Sony LCD screen
-            // The physical LCD is usually ~640x480 or 800x600. We target 1024 to ensure maximum sharpness.
             final int reqWidth = 1024;
             final int reqHeight = 768;
             int inSampleSize = 1;
@@ -2070,10 +2023,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 }
             }
 
-            // Step 3: Decode actual image into memory using high-efficiency settings
             opts.inJustDecodeBounds = false;
             opts.inSampleSize = inSampleSize;
-            // CRITICAL: Force 16-bit RGB. JPEGs don't have transparency, so this drops RAM usage by 50%!
             opts.inPreferredConfig = Bitmap.Config.RGB_565; 
             opts.inPurgeable = true;
             opts.inInputShareable = true;
@@ -2089,12 +2040,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             
             Matrix m = new Matrix(); 
             if (rot != 0) m.postRotate(rot); 
-            m.postScale(0.8888f, 1.0f); // Maintain your anamorphic scale math
+            m.postScale(0.8888f, 1.0f); 
             
-            // Create final rotated/scaled bitmap
             Bitmap bmp = Bitmap.createBitmap(raw, 0, 0, raw.getWidth(), raw.getHeight(), m, true);
             
-            // Free the un-rotated raw memory immediately to keep the heap clean
             if (raw != bmp) {
                 raw.recycle();
                 raw = null;
@@ -2107,14 +2056,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             currentPlaybackBitmap = bmp;
             
         } catch (OutOfMemoryError oom) {
-            // If the camera hits its RAM limit, catch it so the app doesn't crash!
             android.util.Log.e("filmOS", "OOM Memory limit hit during playback. Recovering...");
             if (tvPlaybackInfo != null) tvPlaybackInfo.setText((idx + 1) + " / " + playbackFiles.size() + "\n[MEMORY ERROR - SKIPPED]");
             if (currentPlaybackBitmap != null) { 
                 currentPlaybackBitmap.recycle(); 
                 currentPlaybackBitmap = null; 
             }
-            System.gc(); // Force OS garbage collection
+            System.gc(); 
         } catch (Exception e) {
             android.util.Log.e("filmOS", "Playback error: " + e.getMessage());
         }
