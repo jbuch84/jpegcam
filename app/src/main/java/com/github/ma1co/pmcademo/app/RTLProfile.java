@@ -29,13 +29,8 @@ public class RTLProfile {
     public int colorDepthMagenta = 0;
     public int colorDepthYellow = 0;
 
-    // PHASE 4: CHANNEL MIXER (-200 to +200)
-    public int mixRedBlue = 0;   // Cine Red
-    public int mixGreenRed = 0;  // Gold Green
-    public int mixBlueGreen = 0; // Deep Teal
 
     // -- ADVANCED MATRIX TOGGLE --
-    public boolean isMatrixAdvanced = false;
     public int[] advMatrix = {1024, 0, 0,  0, 1024, 0,  0, 0, 1024};
 
     // PHASE 5: EFFECTS & HACKS

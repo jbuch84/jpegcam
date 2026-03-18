@@ -512,19 +512,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         
         RTLProfile p = recipeManager.getCurrentProfile();
         
-        // LAUNCH MATRIX HUD
-        if (isMenuOpen && currentMainTab == 0 && currentPage == 3 && p.isMatrixAdvanced && menuSelection == 1) {
-            launchHudMode(0);
+        // LAUNCH 6-AXIS HUD (Page 3, Row 3)
+        if (isMenuOpen && currentMainTab == 0 && currentPage == 3 && menuSelection == 3) {
+            launchHudMode(1);
             return;
         }
         
-        // LAUNCH 6-AXIS HUD
-        // Note: Right now 6-Axis spans rows 1-6 on Page 4. If they hit enter on ANY of those rows, launch the HUD!
-        if (isMenuOpen && currentMainTab == 0 && currentPage == 4 && menuSelection >= 1 && menuSelection <= 6) {
-            launchHudMode(1);
-            // IMPROVEMENT: Auto-select the specific color the user was just looking at in the menu
-            hudSelection = menuSelection - 1; 
-            updateHudUI(); // Refresh the UI to highlight the correct color box
+        // LAUNCH MATRIX HUD (Page 3, Row 4)
+        if (isMenuOpen && currentMainTab == 0 && currentPage == 3 && menuSelection == 4) {
+            launchHudMode(0);
             return;
         }
         
@@ -596,7 +592,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 updateMainHUD(); 
             }
         } else {
-            if (currentPage == 7) handleConnectionAction(); 
+            if (currentPage == 6) handleConnectionAction(); 
             else if (currentMainTab == 0 && currentPage == 1 && menuSelection == 1) {
                 isNamingMode = !isNamingMode;
                 if (isNamingMode) {
@@ -737,13 +733,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             if (menuSelection == -2) { // TABS ARE HIGHLIGHTED
                 currentMainTab = (currentMainTab - 1 + 4) % 4;
                 if (currentMainTab == 0) currentPage = 1;
-                else if (currentMainTab == 1) currentPage = 6;
-                else if (currentMainTab == 2) currentPage = 7;
-                else if (currentMainTab == 3) currentPage = 8;
+                else if (currentMainTab == 1) currentPage = 5; // Was 6
+                else if (currentMainTab == 2) currentPage = 6; // Was 7
+                else if (currentMainTab == 3) currentPage = 7; // Was 8
                 renderMenu();
             } else if (menuSelection == -1) { // SUBTITLE IS HIGHLIGHTED
-                if (currentMainTab == 0) { // Only flip pages if in the multi-page Recipes tab
-                    currentPage = (currentPage - 2 + 5) % 5 + 1;
+                if (currentMainTab == 0) { // Now only 4 pages in Tab 0!
+                    currentPage = (currentPage - 2 + 4) % 4 + 1;
                     renderMenu();
                 }
             } else if (isNamingMode) {
@@ -792,13 +788,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             if (menuSelection == -2) { // TABS ARE HIGHLIGHTED
                 currentMainTab = (currentMainTab + 1) % 4;
                 if (currentMainTab == 0) currentPage = 1;
-                else if (currentMainTab == 1) currentPage = 6;
-                else if (currentMainTab == 2) currentPage = 7;
-                else if (currentMainTab == 3) currentPage = 8;
+                else if (currentMainTab == 1) currentPage = 5; // Was 6
+                else if (currentMainTab == 2) currentPage = 6; // Was 7
+                else if (currentMainTab == 3) currentPage = 7; // Was 8
                 renderMenu();
             } else if (menuSelection == -1) { // SUBTITLE IS HIGHLIGHTED
-                if (currentMainTab == 0) { // Only flip pages if in the multi-page Recipes tab
-                    currentPage = (currentPage % 5) + 1;
+                if (currentMainTab == 0) { 
+                    currentPage = (currentPage % 4) + 1; // Was % 5
                     renderMenu();
                 }
             } else if (isNamingMode) {
@@ -921,49 +917,28 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     case 6: p.rollOff = Math.max(0, Math.min(5, p.rollOff + dir)); break;
                     case 7: p.vignette = Math.max(0, Math.min(5, p.vignette + dir)); break;
                 }
-            } else if (currentPage == 2) { // 2. HARDWARE TONE & STYLE
-                switch(sel) {
-                    case 0: String[] clrs = {"standard", "vivid", "portrait", "landscape", "mono", "sunset", "sepia"};
-                            int ci = java.util.Arrays.asList(clrs).indexOf(p.colorMode); 
-                            if (ci == -1) ci = 0;
-                            p.colorMode = clrs[(ci + dir + 7) % 7]; break; 
-                    case 1: p.contrast = Math.max(-3, Math.min(3, p.contrast + dir)); break;
-                    case 2: p.saturation = Math.max(-16, Math.min(16, p.saturation + dir)); break;
-                    case 3: p.sharpness = Math.max(-3, Math.min(3, p.sharpness + dir)); break;
-                    case 4: p.sharpnessGain = Math.max(-7, Math.min(7, p.sharpnessGain + dir)); break; // Moved here!
-                    case 5: p.wbShift = Math.max(-7, Math.min(7, p.wbShift + dir)); break;
-                    case 6: p.wbShiftGM = Math.max(-7, Math.min(7, p.wbShiftGM + dir)); break;
-                }
-            } else if (currentPage == 3) { // 3. CHANNEL MIXER
+            } else if (currentPage == 2) { // 2. TONE & STYLE
                 if (sel == 0) {
-                    p.isMatrixAdvanced = !p.isMatrixAdvanced;
-                    // UX Protection: If they toggle to Advanced while on row 3, 
-                    // bump their cursor up to row 1 so it doesn't get lost in hidden rows.
-                    if (p.isMatrixAdvanced && menuSelection > 1) menuSelection = 1; 
-                } else if (!p.isMatrixAdvanced) { // SIMPLE MODE SLIDERS
-                    switch(sel) {
-                        case 1: p.mixRedBlue = Math.max(-500, Math.min(500, p.mixRedBlue + (dir * 25))); break;
-                        case 2: p.mixGreenRed = Math.max(-500, Math.min(500, p.mixGreenRed + (dir * 25))); break;
-                        case 3: p.mixBlueGreen = Math.max(-500, Math.min(500, p.mixBlueGreen + (dir * 25))); break;
-                    }
-                } else if (p.isMatrixAdvanced && sel == 1) {
-                    // This is the [ENTER] Edit row. Turning the dial here does nothing.
-                    // We will catch the ENTER keypress in Phase 2.
+                    String[] styles = {"Standard", "Vivid", "Neutral", "Clear", "Deep", "Light", "Portrait", "Landscape", "Sunset", "Night Scene", "Autumn Leaves", "Black & White", "Sepia"};
+                    int idx = 0; for(int i=0; i<styles.length; i++) if(styles[i].equalsIgnoreCase(p.colorMode)) idx = i;
+                    p.colorMode = styles[(idx + dir + styles.length) % styles.length];
                 }
-            } else if (currentPage == 4) { // 4. PRO BASE & 6-AXIS
-                switch(sel) {
-                    case 0: String[] prs = {"off", "pro-standard", "pro-vivid", "pro-portrait"}; 
-                            int pi = java.util.Arrays.asList(prs).indexOf(p.proColorMode); 
-                            if (pi == -1) pi = 0;
-                            p.proColorMode = prs[(pi + dir + 4) % 4]; break; // Moved here!
-                    case 1: p.colorDepthRed = Math.max(-7, Math.min(7, p.colorDepthRed + dir)); break;
-                    case 2: p.colorDepthGreen = Math.max(-7, Math.min(7, p.colorDepthGreen + dir)); break;
-                    case 3: p.colorDepthBlue = Math.max(-7, Math.min(7, p.colorDepthBlue + dir)); break;
-                    case 4: p.colorDepthCyan = Math.max(-7, Math.min(7, p.colorDepthCyan + dir)); break;
-                    case 5: p.colorDepthMagenta = Math.max(-7, Math.min(7, p.colorDepthMagenta + dir)); break;
-                    case 6: p.colorDepthYellow = Math.max(-7, Math.min(7, p.colorDepthYellow + dir)); break;
+                else if (sel == 1) p.contrast = Math.max(-3, Math.min(3, p.contrast + dir));
+                else if (sel == 2) p.saturation = Math.max(-3, Math.min(3, p.saturation + dir));
+                else if (sel == 3) p.sharpness = Math.max(-3, Math.min(3, p.sharpness + dir));
+                else if (sel == 4) p.sharpnessGain = Math.max(-50, Math.min(50, p.sharpnessGain + (dir * 5)));
+                
+            } else if (currentPage == 3) { // 3. ADVANCED COLOR ENGINE
+                if (sel == 0) p.wbShift = Math.max(-7, Math.min(7, p.wbShift + dir));
+                else if (sel == 1) p.wbShiftGM = Math.max(-7, Math.min(7, p.wbShiftGM + dir));
+                else if (sel == 2) {
+                    String[] modes = {"off", "pro-standard", "pro-vivid", "pro-portrait", "pro-cinema"};
+                    int idx = 0; for(int i=0; i<modes.length; i++) if(modes[i].equals(p.proColorMode)) idx = i;
+                    p.proColorMode = modes[(idx + dir + modes.length) % modes.length];
                 }
-            } else if (currentPage == 5) { // 5. HACKS & EFFECTS
+                // sel 3 (6-Axis) and sel 4 (Matrix) are [ENTER] only. Turning the dial here does nothing.
+
+            } else if (currentPage == 4) { // 4. HACKS & EFFECTS
                 switch(sel) {
                     case 0: String[] pfx = {"off", "toy-camera", "pop-color", "posterization", "retro-photo", "soft-high-key", "part-color", "rough-mono", "soft-focus", "hdr-art", "richtone-mono", "miniature", "illust", "watercolor"};
                             int pfi = java.util.Arrays.asList(pfx).indexOf(p.pictureEffect); 
@@ -984,6 +959,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     case 4: p.shadingRed = Math.max(-16, Math.min(16, p.shadingRed + dir)); break;
                     case 5: p.shadingBlue = Math.max(-16, Math.min(16, p.shadingBlue + dir)); break;
                 }
+            } else if (currentPage == 5) { // 5. GLOBAL SETTINGS
+                if (sel == 0) recipeManager.setQualityIndex(Math.max(0, Math.min(2, recipeManager.getQualityIndex() + dir)));
+                else if (sel == 2) prefShowFocusMeter = !prefShowFocusMeter;
+                else if (sel == 3) prefShowCinemaMattes = !prefShowCinemaMattes;
+                else if (sel == 4) prefShowGridLines = !prefShowGridLines;
+                else if (sel == 5) prefJpegQuality = Math.max(60, Math.min(100, prefJpegQuality + (dir * 5)));
             }
         }
         
@@ -1220,29 +1201,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             p.set("color-depth-yellow", String.valueOf(prof.colorDepthYellow));
         }
 
-        // --- SMART ROUTING CHANNEL MIXER ---
-        if (p.get("rgb-matrix-mode") != null) {
-            if (!prof.isMatrixAdvanced) {
-                // SIMPLE MODE: Use the 3 sliders and force 1024 diagonals
-                boolean isMixing = (prof.mixRedBlue != 0 || prof.mixGreenRed != 0 || prof.mixBlueGreen != 0);
-                if (!isMixing) {
-                    p.set("rgb-matrix-mode", "false");
-                    p.set("rgb-matrix", "1024,0,0, 0,1024,0, 0,0,1024"); 
-                } else {
-                    p.set("rgb-matrix-mode", "true");
-                    String mStr = String.format("1024,0,%d, %d,1024,0, 0,%d,1024", 
-                                    prof.mixRedBlue, prof.mixGreenRed, prof.mixBlueGreen);
-                    p.set("rgb-matrix", mStr);
-                }
-            } else {
-                // ADVANCED MODE: Send the live 9-point HUD array!
-                p.set("rgb-matrix-mode", "true");
-                String mStr = String.format("%d,%d,%d,%d,%d,%d,%d,%d,%d",
-                    prof.advMatrix[0], prof.advMatrix[1], prof.advMatrix[2],
-                    prof.advMatrix[3], prof.advMatrix[4], prof.advMatrix[5],
-                    prof.advMatrix[6], prof.advMatrix[7], prof.advMatrix[8]);
-                p.set("rgb-matrix", mStr);
-            }
+        // --- BIONZ Channel Mixer (Pure HUD Math) ---
+        if (p2.get("rgb-matrix-mode") != null) {
+            p2.set("rgb-matrix-mode", "true");
+            String mStr = String.format("%d,%d,%d,%d,%d,%d,%d,%d,%d",
+                prof.advMatrix[0], prof.advMatrix[1], prof.advMatrix[2],
+                prof.advMatrix[3], prof.advMatrix[4], prof.advMatrix[5],
+                prof.advMatrix[6], prof.advMatrix[7], prof.advMatrix[8]);
+            p2.set("rgb-matrix", mStr);
         }
 
         if (p.get("lens-correction") != null) p.set("lens-correction", "true");
@@ -1392,16 +1358,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         tvMenuSubtitle.setBackgroundColor(menuSelection == -1 ? Color.rgb(230, 50, 15) : Color.TRANSPARENT);
         if (currentPage == 1) tvMenuSubtitle.setText("1. [SW] Look & Textures");
         else if (currentPage == 2) tvMenuSubtitle.setText("2. [HW] Tone & Style");
-        else if (currentPage == 3) tvMenuSubtitle.setText("3. [HW] BIONZ Channel Mixer");
-        else if (currentPage == 4) tvMenuSubtitle.setText("4. [HW] Pro Base & 6-Axis");
-        else if (currentPage == 5) tvMenuSubtitle.setText("5. [HW] Hacks & Effects");
-        else if (currentPage == 6) tvMenuSubtitle.setText("Global Settings");
-        else if (currentPage == 7) tvMenuSubtitle.setText("Web Dashboard Server");
-        else if (currentPage == 8) tvMenuSubtitle.setText("Resources & Community");
+        else if (currentPage == 3) tvMenuSubtitle.setText("3. [HW] Advanced Color Engine");
+        else if (currentPage == 4) tvMenuSubtitle.setText("4. [HW] Hacks & Effects");
+        else if (currentPage == 5) tvMenuSubtitle.setText("Global Settings");
+        else if (currentPage == 6) tvMenuSubtitle.setText("Web Dashboard Server");
+        else if (currentPage == 7) tvMenuSubtitle.setText("Resources & Community");
 
         for (int i = 0; i < 8; i++) menuRows[i].setVisibility(View.GONE);
         if (supportTabContainer != null) supportTabContainer.setVisibility(View.GONE);
-        if (currentPage == 8) { supportTabContainer.setVisibility(View.VISIBLE); currentItemCount = 0; return; }
+        if (currentPage == 7) { supportTabContainer.setVisibility(View.VISIBLE); currentItemCount = 0; return; }
 
         RTLProfile p = recipeManager.getCurrentProfile();
         int itemCount = 0;
@@ -1437,30 +1402,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     menuRows[i].setVisibility(View.VISIBLE);
                 }
             } else if (currentPage == 2) {
-                itemCount = 7;
-                String[] rLabels = {"Creative Style", "Contrast", "Saturation", "Sharpness", "Micro-Contrast", "WB Shift (A-B)", "WB Shift (G-M)"};
+                itemCount = 5;
+                String[] rLabels = {"Creative Style", "Contrast", "Saturation", "Sharpness", "Micro-Contrast"};
+                String[] rValues = { (p.colorMode != null ? p.colorMode : "STANDARD").toUpperCase(), String.format("%+d", p.contrast), String.format("%+d", p.saturation), String.format("%+d", p.sharpness), String.format("%+d", p.sharpnessGain) };
+                for (int i = 0; i < 5; i++) { menuLabels[i].setText(rLabels[i]); menuValues[i].setText(rValues[i]); menuRows[i].setVisibility(View.VISIBLE); }
+            } else if (currentPage == 3) {
+                itemCount = 5;
                 String abStr = p.wbShift == 0 ? "0" : (p.wbShift < 0 ? "B" + Math.abs(p.wbShift) : "A" + p.wbShift);
                 String gmStr = p.wbShiftGM == 0 ? "0" : (p.wbShiftGM < 0 ? "M" + Math.abs(p.wbShiftGM) : "G" + p.wbShiftGM);
-                String[] rValues = { (p.colorMode != null ? p.colorMode : "STANDARD").toUpperCase(), String.format("%+d", p.contrast), String.format("%+d", p.saturation), String.format("%+d", p.sharpness), String.format("%+d", p.sharpnessGain), abStr, gmStr };
-                for (int i = 0; i < 7; i++) { menuLabels[i].setText(rLabels[i]); menuValues[i].setText(rValues[i]); menuRows[i].setVisibility(View.VISIBLE); }
-            } else if (currentPage == 3) {
-                if (!p.isMatrixAdvanced) {
-                    itemCount = 4;
-                    String[] rLabels = {"Matrix Mode", "Mix: Cine Red", "Mix: Gold Green", "Mix: Deep Teal"};
-                    String[] rValues = {"[ SIMPLE ]", String.format("%+d", p.mixRedBlue), String.format("%+d", p.mixGreenRed), String.format("%+d", p.mixBlueGreen)};
-                    for (int i = 0; i < 4; i++) { menuLabels[i].setText(rLabels[i]); menuValues[i].setText(rValues[i]); menuRows[i].setVisibility(View.VISIBLE); }
-                } else {
-                    itemCount = 2;
-                    String[] rLabels = {"Matrix Mode", "[ENTER] Edit 9-Point Grid"};
-                    String[] rValues = {"[ ADVANCED ]", ">>>"};
-                    for (int i = 0; i < 2; i++) { menuLabels[i].setText(rLabels[i]); menuValues[i].setText(rValues[i]); menuRows[i].setVisibility(View.VISIBLE); }
-                }
+                String[] rLabels = {"White Balance (A-B)", "White Balance (G-M)", "Pro Color Base", "6-Axis Color Depths", "BIONZ RGB Matrix"};
+                String[] rValues = { abStr, gmStr, (p.proColorMode != null ? p.proColorMode : "OFF").toUpperCase(), "[ENTER] >>>", "[ENTER] >>>" };
+                for (int i = 0; i < 5; i++) { menuLabels[i].setText(rLabels[i]); menuValues[i].setText(rValues[i]); menuRows[i].setVisibility(View.VISIBLE); }
             } else if (currentPage == 4) {
-                itemCount = 7;
-                String[] rLabels = {"Pro Color Base", "Red Depth", "Green Depth", "Blue Depth", "Cyan Depth", "Magenta Depth", "Yellow Depth"};
-                String[] rValues = { (p.proColorMode != null ? p.proColorMode : "OFF").toUpperCase(), String.format("%+d", p.colorDepthRed), String.format("%+d", p.colorDepthGreen), String.format("%+d", p.colorDepthBlue), String.format("%+d", p.colorDepthCyan), String.format("%+d", p.colorDepthMagenta), String.format("%+d", p.colorDepthYellow) };
-                for (int i = 0; i < 7; i++) { menuLabels[i].setText(rLabels[i]); menuValues[i].setText(rValues[i]); menuRows[i].setVisibility(View.VISIBLE); }
-            } else if (currentPage == 5) {
                 itemCount = 6;
                 String[] rLabels = {"Picture Effect", "Toy Cam Tone", "Toy Cam Vignette", "Soft Focus Lvl", "Edge Shade (R)", "Edge Shade (B)"};
                 String[] rValues = { 
@@ -1473,13 +1426,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 };
                 for (int i = 0; i < 6; i++) { menuLabels[i].setText(rLabels[i]); menuValues[i].setText(rValues[i]); menuRows[i].setVisibility(View.VISIBLE); }
             }
-        } else if (currentPage == 6) {
+        } else if (currentPage == 5) {
             itemCount = 6;
             String[] qLabels = {"1/4 RES", "HALF RES", "FULL RES"};
             String[] gLabels = {"Global Resolution", "Base Scene", "Manual Focus Meter", "Anamorphic Crop", "Rule of Thirds Grid", "JPEG Quality"};
             String[] gValues = { qLabels[recipeManager.getQualityIndex()], scn, prefShowFocusMeter ? "ON" : "OFF", prefShowCinemaMattes ? "ON" : "OFF", prefShowGridLines ? "ON" : "OFF", String.valueOf(prefJpegQuality) };
             for (int i = 0; i < 6; i++) { menuLabels[i].setText(gLabels[i]); menuValues[i].setText(gValues[i]); menuRows[i].setVisibility(View.VISIBLE); }
-        } else if (currentPage == 7) {
+        } else if (currentPage == 6) {
             itemCount = 3;
             String[] cLabels = {"Camera Hotspot", "Home Wi-Fi", "Stop Networking"};
             String[] cValues = { hotspotStatus, wifiStatus, "" };
@@ -1490,13 +1443,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         for (int i = 0; i < itemCount; i++) {
             boolean isActive = true;
             
-            // Page 4: 6-Axis Dependencies (Require Pro Base to be ON)
-            if (currentMainTab == 0 && currentPage == 4) {
-                if (i >= 1) isActive = !"off".equals(p.proColorMode); 
+            // Page 3: 6-Axis (Row 3) requires Pro Base (Row 2) to be ON
+            if (currentMainTab == 0 && currentPage == 3) {
+                if (i == 3) isActive = !"off".equals(p.proColorMode); 
             }
             
-            // Page 5: Effects Dependencies
-            if (currentMainTab == 0 && currentPage == 5) {
+            // Page 4: Effects Dependencies
+            if (currentMainTab == 0 && currentPage == 4) {
                 if (i == 1 || i == 2) isActive = "toy-camera".equals(p.pictureEffect);
                 if (i == 3) isActive = "soft-focus".equals(p.pictureEffect);
             }
@@ -2188,7 +2141,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             public void run() {
                 if (menuSelection == 0) hotspotStatus = status;
                 else if (menuSelection == 1) wifiStatus = status;
-                if (isMenuOpen && currentPage == 7) renderMenu(); 
+                if (isMenuOpen && currentPage == 6) renderMenu(); 
             }
         });
     }
