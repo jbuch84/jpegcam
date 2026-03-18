@@ -445,6 +445,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private void exitMenu() {
         isMenuOpen = false;
         isNamingMode = false;
+        
+        // --- MATRIX HUD SAFETY CLEAR ---
+        isMatrixEditMode = false;
+        if (matrixOverlayContainer != null) matrixOverlayContainer.setVisibility(View.GONE);
+        
         menuContainer.setVisibility(View.GONE); 
         mainUIContainer.setVisibility(displayState == 0 ? View.VISIBLE : View.GONE); 
         
@@ -491,6 +496,30 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     public void onEnterPressed() {
         if (isPlaybackMode) { exitPlayback(); return; }
         if (isProcessing) return;
+
+        // --- MATRIX HUD TOGGLE ---
+        if (isMatrixEditMode) {
+            // EXITING HUD: Hide overlay, show menu
+            isMatrixEditMode = false;
+            matrixOverlayContainer.setVisibility(View.GONE);
+            mainUIContainer.setVisibility(View.GONE);
+            menuContainer.setVisibility(View.VISIBLE);
+            recipeManager.savePreferences();
+            return;
+        }
+        
+        RTLProfile p = recipeManager.getCurrentProfile();
+        if (isMenuOpen && currentMainTab == 0 && currentPage == 3 && p.isMatrixAdvanced && menuSelection == 1) {
+            // ENTERING HUD: Hide menu, show overlay + live view
+            isMatrixEditMode = true;
+            matrixEditSelection = 0; // Reset cursor to R-R
+            menuContainer.setVisibility(View.GONE);
+            mainUIContainer.setVisibility(View.VISIBLE);
+            setHUDVisibility(View.GONE); // Hide the standard mode/battery text to clear the screen
+            matrixOverlayContainer.setVisibility(View.VISIBLE);
+            updateMatrixOverlayUI();
+            return;
+        }
         
         if (isCalibrating && calibStep == 0) {
             calibStep = 10; 
