@@ -79,6 +79,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private LinearLayout[] menuRows = new LinearLayout[8];
     private TextView[] menuLabels = new TextView[8];
     private TextView[] menuValues = new TextView[8];
+
+    // --- MATRIX OVERLAY VARIABLES ---
+    private boolean isMatrixEditMode = false;
+    private int matrixEditSelection = 0;
+    private LinearLayout matrixOverlayContainer;
+    private TextView[] matrixLabels = new TextView[9];
+    private TextView[] matrixValues = new TextView[9];
     
     private BatteryView batteryIcon;
     private ImageView playbackImageView;
@@ -571,6 +578,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public void onUpPressed() {
+        if (isMatrixEditMode) { handleMatrixAdjustment(1); return; }
         if (isProcessing || waitingForProfileChoice) return;
         if (isCalibrating) {
             if (calibStep == 2) {
@@ -611,6 +619,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public void onDownPressed() {
+        if (isMatrixEditMode) { handleMatrixAdjustment(-1); return; }
         if (isProcessing) return;
         if (waitingForProfileChoice) {
             waitingForProfileChoice = false;
@@ -652,6 +661,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public void onLeftPressed() {
+        if (isMatrixEditMode) {
+            matrixEditSelection = Math.max(0, matrixEditSelection - 1);
+            updateMatrixOverlayUI();
+            return;
+        }
         if (isProcessing) return;
         if (isCalibrating && calibStep == 0) {
             detectedFocalLength = Math.max(10.0f, detectedFocalLength - 1.0f);
@@ -714,6 +728,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public void onRightPressed() {
+        if (isMatrixEditMode) {
+            matrixEditSelection = Math.min(8, matrixEditSelection + 1);
+            updateMatrixOverlayUI();
+            return;
+        }
         if (isProcessing) return;
         if (isCalibrating && calibStep == 0) {
             detectedFocalLength = Math.min(600.0f, detectedFocalLength + 1.0f);
@@ -763,6 +782,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     
     @Override 
     public void onDialRotated(int direction) { 
+        if (isMatrixEditMode) { handleMatrixAdjustment(direction); return; }
         if (isPlaybackMode) { showPlaybackImage(playbackIndex + direction); } 
         else if (isMenuOpen) {
             if (isNamingMode) { 
@@ -1215,6 +1235,43 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         renderMenu(); 
     }
 
+    // --- HUD MATRIX LOGIC ---
+    private void updateMatrixOverlayUI() {
+        RTLProfile p = recipeManager.getCurrentProfile();
+        for (int i = 0; i < 9; i++) {
+            matrixValues[i].setText(String.valueOf(p.advMatrix[i]));
+            
+            if (i == matrixEditSelection) {
+                // Highlight active slot in filmOS Orange
+                matrixLabels[i].setTextColor(Color.rgb(230, 50, 15));
+                matrixValues[i].setTextColor(Color.rgb(230, 50, 15));
+            } else {
+                matrixLabels[i].setTextColor(Color.GRAY);
+                matrixValues[i].setTextColor(Color.WHITE);
+            }
+        }
+    }
+
+    private void handleMatrixAdjustment(int dir) {
+        RTLProfile p = recipeManager.getCurrentProfile();
+        
+        // Diagonals (0, 4, 8) max at 2048 to prevent absolute blowouts, min at -1024
+        // Off-Diagonals (Bleeds) max at 1024 (100% crosstalk)
+        int step = 25; 
+        
+        if (matrixEditSelection == 0 || matrixEditSelection == 4 || matrixEditSelection == 8) {
+            p.advMatrix[matrixEditSelection] = Math.max(-1024, Math.min(2048, p.advMatrix[matrixEditSelection] + (dir * step)));
+        } else {
+            p.advMatrix[matrixEditSelection] = Math.max(-1024, Math.min(1024, p.advMatrix[matrixEditSelection] + (dir * step)));
+        }
+        
+        updateMatrixOverlayUI();
+        
+        // Live view debounce (150ms is fast enough to feel responsive but slow enough to not crash the daemon)
+        uiHandler.removeCallbacks(applySettingsRunnable); 
+        uiHandler.postDelayed(applySettingsRunnable, 150);
+    }
+    
     // --- 3. THE MENU RENDERING (Dependencies Visualized & Dynamic Rows) ---
     private void renderMenu() {
         String scn = "UNKNOWN";
@@ -1597,6 +1654,40 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         playbackContainer.addView(tvPlaybackInfo, pbInfoParams);
         
         rootLayout.addView(playbackContainer, new FrameLayout.LayoutParams(-1, -1));
+
+        // --- LIVE MATRIX OVERLAY UI ---
+        matrixOverlayContainer = new LinearLayout(this); 
+        matrixOverlayContainer.setOrientation(LinearLayout.HORIZONTAL); 
+        matrixOverlayContainer.setBackgroundColor(Color.argb(220, 15, 15, 15)); 
+        matrixOverlayContainer.setPadding(10, 15, 10, 15);
+        matrixOverlayContainer.setVisibility(View.GONE);
+        
+        String[] mLabels = {"R-R", "G-R", "B-R", "R-G", "G-G", "B-G", "R-B", "G-B", "B-B"};
+        for (int i = 0; i < 9; i++) {
+            LinearLayout cell = new LinearLayout(this);
+            cell.setOrientation(LinearLayout.VERTICAL);
+            cell.setGravity(Gravity.CENTER);
+            
+            matrixLabels[i] = new TextView(this);
+            matrixLabels[i].setText(mLabels[i]);
+            matrixLabels[i].setTextColor(Color.GRAY);
+            matrixLabels[i].setTextSize(14);
+            matrixLabels[i].setTypeface(Typeface.DEFAULT_BOLD);
+            
+            matrixValues[i] = new TextView(this);
+            matrixValues[i].setText("0");
+            matrixValues[i].setTextColor(Color.WHITE);
+            matrixValues[i].setTextSize(18);
+            matrixValues[i].setTypeface(Typeface.DEFAULT_BOLD);
+            
+            cell.addView(matrixLabels[i]);
+            cell.addView(matrixValues[i]);
+            matrixOverlayContainer.addView(cell, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        }
+        
+        FrameLayout.LayoutParams overlayParams = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM); 
+        overlayParams.setMargins(0, 0, 0, 130); // Sits right above your bottom exposure bar
+        mainUIContainer.addView(matrixOverlayContainer, overlayParams);
     }
 
     private TextView createTabHeader(String text) {
