@@ -12,7 +12,7 @@ android {
         
         // Bumped versioning for the filmOS era
         versionCode 2
-        versionName "1.1"
+        versionName "1.2"
         
         externalNativeBuild {
             cmake {
@@ -49,13 +49,12 @@ android {
         }
     }
 
-    // Renamed the final output file
+    // Dynamically rename the final output file based on versionName
     applicationVariants.all { variant ->
         variant.outputs.all {
-            outputFileName = "filmOS-v1.1.apk"
+            outputFileName = "filmOS-v${variant.versionName}.apk"
         }
     }
-}
 
 repositories {
     maven { url "https://jitpack.io" }
