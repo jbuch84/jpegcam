@@ -542,9 +542,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         if (isMenuOpen && currentMainTab == 0 && currentPage == 2 && menuSelection == 3) {
             launchHudMode(0); return;
         }
+        // LAUNCH EFFECT BASE (Page 3, Row 0)
+        if (isMenuOpen && currentMainTab == 0 && currentPage == 3 && menuSelection == 0) {
+            launchHudMode(8); return;
+        }
         // LAUNCH EFFECT TWEAKER (Page 3, Row 1)
         if (isMenuOpen && currentMainTab == 0 && currentPage == 3 && menuSelection == 1) {
-            if ("toy-camera".equals(p.pictureEffect) || "soft-focus".equals(p.pictureEffect)) {
+            String eff = p.pictureEffect != null ? p.pictureEffect : "off";
+            if ("toy-camera".equals(eff) || "soft-focus".equals(eff) || "hdr-art".equals(eff) || "illust".equals(eff) || "watercolor".equals(eff) || "part-color".equals(eff) || "miniature".equals(eff)) {
                 launchHudMode(5); return;
             }
         }
@@ -1213,7 +1218,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             p.set("pro-color-mode", safeProMode);
         }
 
-        // SAFE PICTURE EFFECTS (Prevents setParameters crashes)
+        // SAFE PICTURE EFFECTS (Matches PARAMS.TXT Exactly)
         if (p.get("picture-effect") != null) {
             String eff = prof.pictureEffect != null ? prof.pictureEffect.toLowerCase() : "off";
             p.set("picture-effect", eff);
@@ -1223,23 +1228,22 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             
             if ("toy-camera".equals(eff)) {
                 if (!effStr.equals("normal") && !effStr.equals("cool") && !effStr.equals("warm") && !effStr.equals("green") && !effStr.equals("magenta")) effStr = "normal";
-                if (p.get("pe-toy-camera-tuning") != null) p.set("pe-toy-camera-tuning", effStr);
+                if (p.get("pe-toy-camera-effect") != null) p.set("pe-toy-camera-effect", effStr);
+                if (p.get("pe-toy-camera-tuning") != null) p.set("pe-toy-camera-tuning", String.valueOf(prof.vignetteHardware));
                 
-            } else if ("soft-focus".equals(eff)) {
-                String[] lvls = {"low", "mid", "high"};
-                int validLvl = Math.max(0, Math.min(2, prof.softFocusLevel - 1));
-                if (p.get("pe-soft-focus-level") != null) p.set("pe-soft-focus-level", lvls[validLvl]);
+            } else if ("soft-focus".equals(eff) || "hdr-art".equals(eff) || "illust".equals(eff) || "watercolor".equals(eff)) {
+                String val = String.valueOf(Math.max(1, Math.min(3, prof.softFocusLevel)));
+                if ("soft-focus".equals(eff) && p.get("pe-soft-focus-effect-level") != null) p.set("pe-soft-focus-effect-level", val);
+                else if ("hdr-art".equals(eff) && p.get("pe-hdr-art-effect-level") != null) p.set("pe-hdr-art-effect-level", val);
+                else if ("illust".equals(eff) && p.get("pe-illust-effect-level") != null) p.set("pe-illust-effect-level", val);
+                else if ("watercolor".equals(eff) && p.get("pe-watercolor-effect-level") != null) p.set("pe-watercolor-effect-level", val);
                 
-            } else if ("partial-color".equals(eff)) {
+            } else if ("part-color".equals(eff)) {
                 if (!effStr.equals("red") && !effStr.equals("green") && !effStr.equals("blue") && !effStr.equals("yellow")) effStr = "red";
-                if (p.get("pe-partial-color") != null) p.set("pe-partial-color", effStr);
-                
-            } else if ("hdr-painting".equals(eff)) {
-                if (!effStr.equals("low") && !effStr.equals("mid") && !effStr.equals("high")) effStr = "mid";
-                if (p.get("pe-hdr-painting-level") != null) p.set("pe-hdr-painting-level", effStr);
+                if (p.get("pe-part-color-effect") != null) p.set("pe-part-color-effect", effStr);
                 
             } else if ("miniature".equals(eff)) {
-                if (!effStr.equals("auto") && !effStr.equals("top") && !effStr.equals("middle") && !effStr.equals("bottom")) effStr = "auto";
+                if (!effStr.equals("auto") && !effStr.equals("left") && !effStr.equals("vcenter") && !effStr.equals("right") && !effStr.equals("upper") && !effStr.equals("hcenter") && !effStr.equals("lower")) effStr = "auto";
                 if (p.get("pe-miniature-focus-area") != null) p.set("pe-miniature-focus-area", effStr);
             }
         }
@@ -1389,7 +1393,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             for (int i=0; i<2; i++) values[i] = vals[i] == 0 ? "0" : String.format("%+d", vals[i]);
             
         } else if (currentHudMode == 5) { // MODE 5: SHAPESHIFTING EFFECT TWEAKER
-            activeCells = 1; // Default
+            activeCells = 1;
             String eff = p.pictureEffect != null ? p.pictureEffect : "off";
             String genericStr = p.peToyCameraTone != null ? p.peToyCameraTone.toUpperCase() : "NORM";
             
@@ -1398,17 +1402,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 labels = new String[]{"T-TONE", "HW-VIG"};
                 values[0] = genericStr.equals("NORMAL") ? "NORM" : (genericStr.equals("MAGENTA") ? "MAG" : genericStr);
                 values[1] = p.vignetteHardware == 0 ? "0" : String.format("%+d", p.vignetteHardware);
-            } else if ("soft-focus".equals(eff)) {
-                labels = new String[]{"SF-LVL"};
+            } else if ("soft-focus".equals(eff) || "hdr-art".equals(eff) || "illust".equals(eff) || "watercolor".equals(eff)) {
+                labels = new String[]{"LEVEL"};
                 values[0] = String.valueOf(p.softFocusLevel);
-            } else if ("partial-color".equals(eff)) {
-                labels = new String[]{"P-COLOR"};
+            } else if ("part-color".equals(eff)) {
+                labels = new String[]{"COLOR"};
                 values[0] = genericStr.equals("NORMAL") ? "RED" : genericStr; 
-            } else if ("hdr-painting".equals(eff)) {
-                labels = new String[]{"HDR-LVL"};
-                values[0] = genericStr.equals("NORMAL") ? "MID" : genericStr;
             } else if ("miniature".equals(eff)) {
-                labels = new String[]{"M-AREA"};
+                labels = new String[]{"AREA"};
                 values[0] = genericStr.equals("NORMAL") ? "AUTO" : genericStr;
             } else {
                 labels = new String[]{"EFFECT"};
@@ -1424,10 +1425,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             labels = new String[]{"PRO BASE"};
             values[0] = p.proColorMode != null ? p.proColorMode.toUpperCase() : "OFF";
         } else if (currentHudMode == 8) { // MODE 8: EFFECTS
-            activeCells = 2;
-            labels = new String[]{"EFFECT", "SOFT-FOCUS"};
+            activeCells = 1;
+            labels = new String[]{"EFFECT"};
             values[0] = p.pictureEffect != null ? p.pictureEffect.toUpperCase() : "OFF";
-            values[1] = "LVL " + p.softFocusLevel;
         }
 
         // 2. PAINT THE SCREEN
@@ -1515,16 +1515,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             
         } else if (currentHudMode == 5) { // MODE 5: EFFECT SHAPESHIFTER MATH
             String eff = p.pictureEffect != null ? p.pictureEffect : "off";
-            
             if (hudSelection == 0) {
-                if ("soft-focus".equals(eff)) {
+                if ("soft-focus".equals(eff) || "hdr-art".equals(eff) || "illust".equals(eff) || "watercolor".equals(eff)) {
                     p.softFocusLevel = Math.max(1, Math.min(3, p.softFocusLevel + dir));
                 } else {
                     String[] opts = {"normal"};
                     if ("toy-camera".equals(eff)) opts = new String[]{"normal", "cool", "warm", "green", "magenta"};
-                    else if ("partial-color".equals(eff)) opts = new String[]{"red", "green", "blue", "yellow"};
-                    else if ("hdr-painting".equals(eff)) opts = new String[]{"low", "mid", "high"};
-                    else if ("miniature".equals(eff)) opts = new String[]{"auto", "top", "middle", "bottom"};
+                    else if ("part-color".equals(eff)) opts = new String[]{"red", "green", "blue", "yellow"};
+                    else if ("miniature".equals(eff)) opts = new String[]{"auto", "left", "vcenter", "right", "upper", "hcenter", "lower"};
                     
                     if (opts.length > 1) {
                         int idx = 0; for(int i=0; i<opts.length; i++) if(opts[i].equals(p.peToyCameraTone)) idx = i;
@@ -1532,11 +1530,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     }
                 }
             } else if (hudSelection == 1 && "toy-camera".equals(eff)) {
-                p.vignetteHardware = Math.max(-5, Math.min(5, p.vignetteHardware + dir)); 
+                p.vignetteHardware = Math.max(-16, Math.min(16, p.vignetteHardware + dir)); 
             }
         } else if (currentHudMode == 6) { // MODE 6: FOUNDATION MATH
             if (hudSelection == 0) {
-                String[] styles = {"Standard", "Vivid", "Neutral", "Clear", "Deep", "Light", "Portrait", "Landscape", "Sunset", "Night Scene", "Autumn Leaves", "Black & White", "Sepia"};
+                String[] styles = {"standard", "vivid", "portrait", "landscape", "mono", "sunset", "sepia"};
                 int idx = 0; for(int i=0; i<styles.length; i++) if(styles[i].equalsIgnoreCase(p.colorMode)) idx = i;
                 p.colorMode = styles[(idx + dir + styles.length) % styles.length];
             } else if (hudSelection == 1) {
@@ -1548,11 +1546,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             p.proColorMode = modes[(idx + dir + modes.length) % modes.length];
         } else if (currentHudMode == 8) { // MODE 8: EFFECTS MATH
             if (hudSelection == 0) {
-                String[] eff = {"off", "toy-camera", "pop-color", "posterization", "retro-photo", "soft-high-key", "partial-color", "high-contrast-mono", "soft-focus", "hdr-painting", "rich-tone-mono", "miniature", "watercolor", "illustration"};
+                String[] eff = {"off", "toy-camera", "pop-color", "posterization", "retro-photo", "soft-high-key", "part-color", "rough-mono", "soft-focus", "hdr-art", "richtone-mono", "miniature", "watercolor", "illust"};
                 int idx = 0; for(int i=0; i<eff.length; i++) if(eff[i].equals(p.pictureEffect)) idx = i;
                 p.pictureEffect = eff[(idx + dir + eff.length) % eff.length];
-            } else if (hudSelection == 1) {
-                p.softFocusLevel = Math.max(1, Math.min(3, p.softFocusLevel + dir));
             }
         }
         
@@ -1656,7 +1652,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 itemCount = 4;
                 String abStr = p.wbShift == 0 ? "0" : (p.wbShift < 0 ? "B" + Math.abs(p.wbShift) : "A" + p.wbShift);
                 String gmStr = p.wbShiftGM == 0 ? "0" : (p.wbShiftGM < 0 ? "M" + Math.abs(p.wbShiftGM) : "G" + p.wbShiftGM);
-                String combinedWb = (menuSelection == 0) ? "[ENTER] >>>" : (abStr + ", " + gmStr);
+                String combinedWb = "[ " + abStr + ", " + gmStr + " ]"; // <--- NO MORE [ENTER]
 
                 // DATA PREVIEWS: 6-Axis and Matrix
                 boolean sixIsStd = p.colorDepthRed==0 && p.colorDepthGreen==0 && p.colorDepthBlue==0 && p.colorDepthCyan==0 && p.colorDepthMagenta==0 && p.colorDepthYellow==0;
@@ -1674,28 +1670,33 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 
                 String paramStr = "N/A";
                 boolean hasParams = false;
-                if ("toy-camera".equals(p.pictureEffect)) {
-                    paramStr = "[ T-TONE: " + (p.peToyCameraTone != null ? p.peToyCameraTone.toUpperCase() : "NORM") + " ]";
+                String eff = p.pictureEffect != null ? p.pictureEffect : "off";
+                
+                if ("toy-camera".equals(eff)) {
+                    String tTone = p.peToyCameraTone != null ? p.peToyCameraTone.toUpperCase() : "NORM";
+                    if (tTone.equals("NORMAL")) tTone = "NORM"; else if (tTone.equals("MAGENTA")) tTone = "MAG";
+                    paramStr = "[ " + tTone + " | " + String.format("%+d", p.vignetteHardware) + " ]";
                     hasParams = true;
-                } else if ("soft-focus".equals(p.pictureEffect)) {
-                    paramStr = "[ SF-LVL: " + p.softFocusLevel + " ]";
+                } else if ("soft-focus".equals(eff) || "hdr-art".equals(eff) || "illust".equals(eff) || "watercolor".equals(eff)) {
+                    paramStr = "[ LVL: " + p.softFocusLevel + " ]";
+                    hasParams = true;
+                } else if ("part-color".equals(eff)) {
+                    paramStr = "[ COLOR: " + (p.peToyCameraTone != null ? p.peToyCameraTone.toUpperCase() : "RED") + " ]";
+                    hasParams = true;
+                } else if ("miniature".equals(eff)) {
+                    paramStr = "[ AREA: " + (p.peToyCameraTone != null ? p.peToyCameraTone.toUpperCase() : "AUTO") + " ]";
                     hasParams = true;
                 }
 
                 String shadeStr = "[ R " + String.format("%+d", p.shadingRed) + " | B " + String.format("%+d", p.shadingBlue) + " ]";
 
                 String[] rLabels = {"Picture Effect Base", "Effect Tweaker", "Edge Shading Editor"};
-                String[] rValues = { (p.pictureEffect != null ? p.pictureEffect : "OFF").toUpperCase(), paramStr, shadeStr };
+                String[] rValues = { eff.toUpperCase(), paramStr, shadeStr };
                 
                 for (int i = 0; i < 3; i++) { 
                     menuLabels[i].setText(rLabels[i]); 
                     menuValues[i].setText(rValues[i]); 
                     menuRows[i].setVisibility(View.VISIBLE); 
-                    
-                    if (i == 1) { // Grey out if the effect has no parameters!
-                        menuLabels[i].setTextColor(hasParams ? (menuSelection == i ? Color.BLACK : Color.WHITE) : Color.DKGRAY);
-                        menuValues[i].setTextColor(hasParams ? (menuSelection == i ? Color.BLACK : Color.WHITE) : Color.DKGRAY);
-                    }
                 }
             } else if (currentPage == 4) {
                 itemCount = 6;
@@ -1720,14 +1721,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         for (int i = 0; i < itemCount; i++) {
             boolean isActive = true;
             
-            // Page 3: 6-Axis (Row 2) requires Pro Base (Row 1) to be ON
-            if (currentMainTab == 0 && currentPage == 3) {
-                if (i == 2) isActive = !"off".equals(p.proColorMode); 
+            // Check if the Effect Tweaker has parameters to adjust
+            if (currentMainTab == 0 && currentPage == 3 && i == 1) {
+                String eff = p.pictureEffect != null ? p.pictureEffect : "off";
+                isActive = ("toy-camera".equals(eff) || "soft-focus".equals(eff) || "hdr-art".equals(eff) || "illust".equals(eff) || "watercolor".equals(eff) || "part-color".equals(eff) || "miniature".equals(eff));
             }
             
             // Page 4: SW Effects Dependencies (FIXED GRAIN SIZE)
             if (currentMainTab == 0 && currentPage == 4) {
-                if (i == 3) isActive = (p.grain > 0); // Only active if Grain Amt is not OFF
+                if (i == 3) isActive = (p.grain > 0); 
             }
 
             if (i == menuSelection) {
