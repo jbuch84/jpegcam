@@ -305,27 +305,34 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
             }
         } // <--- This is the closing bracket of Path B (the `else` block)
 
-        // --- 6. TRUE HALATION (Symmetric Horizontal Bleed) ---
+        // --- 6. TRUE HALATION (Pro-Grade "Shadow Catch" Bleed) ---
         if (halation > 0) {
             int halo_energy = 0;
-            int halo_decay = 200; // ~78% retention per pixel (spreads the glow smoothly)
-            int halo_max = (halation == 1) ? 35 : 75; // Intensity of the red glow
+            int halo_decay = 210; // ~82% retention per pixel for a wide, cinematic smear
+            int charge_power = (halation == 1) ? 70 : 140; // Max stored light energy
 
             // Pass 1: Left-to-Right Smear
             for (int x = 0; x < row_stride; x += 3) {
                 int y_est = use_rgb_path ? ((row_buf[x]*77 + row_buf[x+1]*150 + row_buf[x+2]*29) >> 8) : row_buf[x];
                 
-                if (y_est > 235) { // We hit a bright core
-                    halo_energy = halo_max; // Charge the battery
-                } else if (halo_energy > 0) { // We are in the shadows next to a core
-                    if (use_rgb_path) {
-                        row_buf[x]   = (uint8_t)CLAMP(row_buf[x] + halo_energy); // Boost Red
-                        row_buf[x+1] = (uint8_t)CLAMP(row_buf[x+1] + (halo_energy >> 2)); // Tiny Green boost (makes it fiery orange-red)
-                    } else {
-                        row_buf[x+2] = (uint8_t)CLAMP(row_buf[x+2] + halo_energy); // Boost Cr (Red)
-                        row_buf[x+1] = (uint8_t)CLAMP(row_buf[x+1] - (halo_energy >> 2)); // Drop Cb (pulls away from magenta)
+                if (y_est > 240) { 
+                    // 1. We hit a blown-out core. Charge the battery!
+                    halo_energy = charge_power; 
+                } else if (halo_energy > 0) { 
+                    // 2. MAGIC KEY: Darker pixels catch more glow. White pixels hide the glow.
+                    int catch_rate = 255 - y_est; 
+                    int apply = (halo_energy * catch_rate) >> 8;
+                    
+                    if (apply > 0) {
+                        if (use_rgb_path) {
+                            row_buf[x]   = (uint8_t)CLAMP(row_buf[x] + apply); // Boost Red
+                            row_buf[x+1] = (uint8_t)CLAMP(row_buf[x+1] + (apply >> 3)); // Slight Green for warmth
+                        } else {
+                            row_buf[x+2] = (uint8_t)CLAMP(row_buf[x+2] + apply); // Boost Cr (Red)
+                            row_buf[x+1] = (uint8_t)CLAMP(row_buf[x+1] - (apply >> 2)); // Drop Cb
+                        }
                     }
-                    halo_energy = (halo_energy * halo_decay) >> 8; // Decay the energy
+                    halo_energy = (halo_energy * halo_decay) >> 8; // Decay as it travels
                 }
             }
 
@@ -334,15 +341,20 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
             for (int x = row_stride - 3; x >= 0; x -= 3) {
                 int y_est = use_rgb_path ? ((row_buf[x]*77 + row_buf[x+1]*150 + row_buf[x+2]*29) >> 8) : row_buf[x];
                 
-                if (y_est > 235) {
-                    halo_energy = halo_max;
+                if (y_est > 240) {
+                    halo_energy = charge_power;
                 } else if (halo_energy > 0) {
-                    if (use_rgb_path) {
-                        row_buf[x]   = (uint8_t)CLAMP(row_buf[x] + halo_energy); 
-                        row_buf[x+1] = (uint8_t)CLAMP(row_buf[x+1] + (halo_energy >> 2)); 
-                    } else {
-                        row_buf[x+2] = (uint8_t)CLAMP(row_buf[x+2] + halo_energy); 
-                        row_buf[x+1] = (uint8_t)CLAMP(row_buf[x+1] - (halo_energy >> 2)); 
+                    int catch_rate = 255 - y_est; 
+                    int apply = (halo_energy * catch_rate) >> 8;
+                    
+                    if (apply > 0) {
+                        if (use_rgb_path) {
+                            row_buf[x]   = (uint8_t)CLAMP(row_buf[x] + apply); 
+                            row_buf[x+1] = (uint8_t)CLAMP(row_buf[x+1] + (apply >> 3)); 
+                        } else {
+                            row_buf[x+2] = (uint8_t)CLAMP(row_buf[x+2] + apply); 
+                            row_buf[x+1] = (uint8_t)CLAMP(row_buf[x+1] - (apply >> 2)); 
+                        }
                     }
                     halo_energy = (halo_energy * halo_decay) >> 8;
                 }
