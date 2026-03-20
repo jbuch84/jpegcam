@@ -1026,9 +1026,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 else if (sel == 9) p.subtractiveSat = (p.subtractiveSat + dir + 3) % 3;
                  else if (sel == 10) p.halation = (p.halation + dir + 3) % 3;
             } else if (currentPage == 5) { // 5. ANALOG PHYSICS (SW)
-                if (sel == 0) p.shadowToe = Math.max(0, Math.min(2, p.shadowToe + dir));
-                else if (sel == 1) p.subtractiveSat = Math.max(0, Math.min(2, p.subtractiveSat + dir));
-                else if (sel == 2) p.halation = Math.max(0, Math.min(2, p.halation + dir));
+                if (sel == 0) p.rollOff = Math.max(0, Math.min(5, p.rollOff + dir));
+                else if (sel == 1) p.shadowToe = Math.max(0, Math.min(2, p.shadowToe + dir));
+                else if (sel == 2) p.subtractiveSat = Math.max(0, Math.min(2, p.subtractiveSat + dir));
+                else if (sel == 3) p.colorChrome = Math.max(0, Math.min(2, p.colorChrome + dir));
+                else if (sel == 4) p.chromeBlue = Math.max(0, Math.min(2, p.chromeBlue + dir));
+                else if (sel == 5) p.halation = Math.max(0, Math.min(2, p.halation + dir));
             }
         } else if (currentPage == 6) { // 6. GLOBAL SETTINGS (SHIFTED FROM 5)
             if (sel == 0) recipeManager.setQualityIndex(Math.max(0, Math.min(2, recipeManager.getQualityIndex() + dir)));
@@ -1742,14 +1745,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 String satStr = p.subtractiveSat == 0 ? "OFF" : (p.subtractiveSat == 1 ? "WEAK" : "HEAVY");
                 String haloStr = p.halation == 0 ? "OFF" : (p.halation == 1 ? "WEAK" : "STRONG");
 
-                String[] rLabels = {"Highlight Roll-Off", "Shadow Roll-Off (Toe)", "Subtractive Saturation", "Color Chrome", "Chrome Blue", "Halation (Red Glow)"};
+                // The text on the left
+                String[] rLabels = {"Highlight Roll-Off", "Shadow Roll-Off (Toe)", "Subtractive Sat", "Color Chrome", "Chrome Blue", "Halation (Red Glow)"};
+                
+                // The values on the right (Must match the exact order above!)
                 String[] rValues = {
-                    amtLabels[Math.max(0, Math.min(5, p.rollOff))], // Keep your amtLabels formatting
-                    toeStr, 
-                    satStr, 
-                    chromeStr, 
-                    chromeBlueStr, 
-                    haloStr
+                    amtLabels[Math.max(0, Math.min(5, p.rollOff))], // Index 0
+                    toeStr,                                         // Index 1
+                    satStr,                                         // Index 2
+                    chromeStr,                                      // Index 3
+                    chromeBlueStr,                                  // Index 4
+                    haloStr                                         // Index 5
                 };
                 
                 for (int i = 0; i < 6; i++) { 
