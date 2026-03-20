@@ -310,7 +310,8 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
             // ==========================================
             // PATH B: THE YUV EXPRESSWAY (Luminance Only)
             // ==========================================
-            int mod_y = abs_y >> grainSize;
+            uint32_t seed = master_seed + (abs_y * 1337); // RESTORED: Your random seed logic
+            int prev_noise = 0;                           // RESTORED: Your moving average memory
             long long d_sq_y = (long long)(abs_y - cy_center) * (abs_y - cy_center);
             
             for (int x = 0, px = 0; x < row_stride; x += 3, ++px) {
@@ -331,8 +332,7 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
                     outY = (outY * v_m) >> 8;
                 }
 
-                // --- FIXED: CHROMA SCALER ---
-                // If Brightness changed, we MUST scale the Color by the exact same ratio!
+                // CHROMA SCALER
                 if (oldY != outY) {
                     int ratio_256 = (outY * 256) / (oldY == 0 ? 1 : oldY);
                     int cb = row_buf[x+1] - 128;
@@ -341,18 +341,21 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
                     row_buf[x+2] = (unsigned char)(128 + ((cr * ratio_256) >> 8));
                 }
                 
-                // 3. Fast Spatially Hashed Organic Grain (Applied AFTER color scaling, just like real film!)
+                // 3. RESTORED: YOUR PROVEN ORGANIC GRAIN ALGORITHM
                 if (grain > 0) {
-                    int mod_x = px >> grainSize;
+                    // Generate noise the original way
+                    int raw_noise = (fast_rand(&seed) & 0xFF) - 128;
                     
-                    // Prime-number Bitwise Hash: Seamless, 0-latency pseudo-random indexing
-                    int hash_index = (mod_x * 73856093 ^ mod_y * 19349663) & 65535;
-                    int raw_grain = noise_pool[hash_index];
+                    // Your original moving average (kills pixelation, adds organic clumps)
+                    int noise = (grainSize == 0) ? raw_noise : (grainSize == 1) ? (raw_noise + prev_noise) >> 1 : (raw_noise + prev_noise * 2) / 3;
                     
-                    // Parabolic mask: Peaks at ~254 at value 128. Clamps at pure 0 and 255.
-                    int lum_mask = (outY * (255 - outY)) >> 6; 
+                    // Your original luminance mask
+                    int mask = (outY < 128) ? outY : 255 - outY; 
+                    if (outY < 64) mask = (mask * outY) >> 6;
                     
-                    outY += ((raw_grain * lum_mask * grain) >> 15);
+                    int gv = (noise * mask * grain) >> 15; 
+                    outY += gv;
+                    prev_noise = raw_noise;
                 }
                 
                 // Write only the Y channel (Cb and Cr pass through untouched if no vignette)
