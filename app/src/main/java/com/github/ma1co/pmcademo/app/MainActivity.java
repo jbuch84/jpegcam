@@ -1668,7 +1668,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         String[] amtLabels = {"OFF", "LOW", "MED", "HIGH", "V.HIGH", "MAX"};
         String[] sizeLabels = {"SMALL", "MED", "LARGE"};
 
-        if (currentPage == 1) {
+        if (currentMainTab == 0) {
+            if (currentPage == 1) {
                 itemCount = 5; // --- CHANGED: Room for DRO
                 String rawName = p.profileName != null ? p.profileName : "";
                 while (rawName.length() < 8) rawName += " ";
@@ -1688,11 +1689,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 String fndStr = "[ " + (p.colorMode != null ? p.colorMode : "STD").toUpperCase() + " | M-CON " + String.format("%+d", p.sharpnessGain) + " ]";
                 String tsStr = String.format("[ %+d,  %+d,  %+d ]", p.contrast, p.saturation, p.sharpness);
 
-                // --- CHANGED: Added DRO to arrays
                 String[] rLabels = {"Recipe Slot", "Profile Name", "Foundation Base", "Tone & Style", "DRO (Dynamic Range)"};
                 String[] rValues = { String.valueOf(recipeManager.getCurrentSlot() + 1), displayHtmlName, fndStr, tsStr, p.dro != null ? p.dro.toUpperCase() : "OFF" };
                 
-                for (int i = 0; i < 5; i++) { // --- CHANGED: Loop over 5 items
+                for (int i = 0; i < 5; i++) {
                     menuLabels[i].setText(rLabels[i]);
                     if (i == 1 && (isNamingMode || displayHtmlName.contains("&nbsp;"))) menuValues[i].setText(android.text.Html.fromHtml(rValues[i]));
                     else menuValues[i].setText(rValues[i].trim());
@@ -1702,9 +1702,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 itemCount = 4;
                 String abStr = p.wbShift == 0 ? "0" : (p.wbShift < 0 ? "B" + Math.abs(p.wbShift) : "A" + p.wbShift);
                 String gmStr = p.wbShiftGM == 0 ? "0" : (p.wbShiftGM < 0 ? "M" + Math.abs(p.wbShiftGM) : "G" + p.wbShiftGM);
-                String combinedWb = "[ " + abStr + ", " + gmStr + " ]"; // <--- NO MORE [ENTER]
+                String combinedWb = "[ " + abStr + ", " + gmStr + " ]"; 
 
-                // DATA PREVIEWS: 6-Axis and Matrix
                 boolean sixIsStd = p.colorDepthRed==0 && p.colorDepthGreen==0 && p.colorDepthBlue==0 && p.colorDepthCyan==0 && p.colorDepthMagenta==0 && p.colorDepthYellow==0;
                 String sixStr = sixIsStd ? "[ STANDARD ]" : "[ CUSTOM ]";
                 
