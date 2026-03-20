@@ -468,9 +468,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         // --- UNIVERSAL HUD SAFETY CLEAR ---
         isHudActive = false;
         if (hudOverlayContainer != null) hudOverlayContainer.setVisibility(View.GONE);
+        if (hudTooltipText != null) hudTooltipText.setVisibility(View.GONE);   // <-- FIXED: Hide Tooltip
+        if (wbGridContainer != null) wbGridContainer.setVisibility(View.GONE); // <-- FIXED: Hide WB Grid
         
         menuContainer.setVisibility(View.GONE); 
-        mainUIContainer.setVisibility(displayState == 0 ? View.VISIBLE : View.GONE); 
+        mainUIContainer.setVisibility(displayState == 0 ? View.VISIBLE : View.GONE);
         
         recipeManager.savePreferences();
         
