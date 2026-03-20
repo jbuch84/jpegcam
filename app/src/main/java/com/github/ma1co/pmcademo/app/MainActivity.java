@@ -1490,8 +1490,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 hudValues[i].setText(values[i]);
                 
                 if (i == hudSelection) {
-                    hudLabels[i].setTextColor(Color.rgb(230, 50, 15));
-                    hudValues[i].setTextColor(Color.rgb(230, 50, 15));
+                    hudLabels[i].setTextColor(Color.rgb(255, 87, 34));
+                    hudValues[i].setTextColor(Color.rgb(255, 87, 34));
                 } else {
                     hudLabels[i].setTextColor(Color.GRAY);
                     hudValues[i].setTextColor(Color.WHITE);
@@ -1650,17 +1650,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         }
 
         // TABS
-        tvTabRTL.setBackgroundColor(menuSelection == -2 && currentMainTab == 0 ? Color.rgb(230, 50, 15) : Color.TRANSPARENT);
-        tvTabSettings.setBackgroundColor(menuSelection == -2 && currentMainTab == 1 ? Color.rgb(230, 50, 15) : Color.TRANSPARENT);
-        tvTabNetwork.setBackgroundColor(menuSelection == -2 && currentMainTab == 2 ? Color.rgb(230, 50, 15) : Color.TRANSPARENT);
-        tvTabSupport.setBackgroundColor(menuSelection == -2 && currentMainTab == 3 ? Color.rgb(230, 50, 15) : Color.TRANSPARENT);
+        tvTabRTL.setBackgroundColor(menuSelection == -2 && currentMainTab == 0 ? Color.rgb(255, 87, 34) : Color.TRANSPARENT);
+        tvTabSettings.setBackgroundColor(menuSelection == -2 && currentMainTab == 1 ? Color.rgb(255, 87, 34) : Color.TRANSPARENT);
+        tvTabNetwork.setBackgroundColor(menuSelection == -2 && currentMainTab == 2 ? Color.rgb(255, 87, 34) : Color.TRANSPARENT);
+        tvTabSupport.setBackgroundColor(menuSelection == -2 && currentMainTab == 3 ? Color.rgb(255, 87, 34) : Color.TRANSPARENT);
         tvTabRTL.setTextColor(currentMainTab == 0 ? Color.WHITE : Color.GRAY);
         tvTabSettings.setTextColor(currentMainTab == 1 ? Color.WHITE : Color.GRAY);
         tvTabNetwork.setTextColor(currentMainTab == 2 ? Color.WHITE : Color.GRAY);
         tvTabSupport.setTextColor(currentMainTab == 3 ? Color.WHITE : Color.GRAY);
 
         // SUBTITLE
-        tvMenuSubtitle.setBackgroundColor(menuSelection == -1 ? Color.rgb(230, 50, 15) : Color.TRANSPARENT);
+        tvMenuSubtitle.setBackgroundColor(menuSelection == -1 ? Color.rgb(255, 87, 34) : Color.TRANSPARENT);
         if (currentPage == 1) tvMenuSubtitle.setText("1. Recipe Identity & Base [HW]");
         else if (currentPage == 2) tvMenuSubtitle.setText("2. Advanced Color Engine [HW]");
         else if (currentPage == 3) tvMenuSubtitle.setText("3. Effects & Shading [HW]");
@@ -1799,7 +1799,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 if (i == 3) isActive = (p.grain > 0);    // Grain Size requires Grain Amt
             }
 
+            // --- NEW: Extract the plain text so we can inject arrows safely ---
+            String plainText = menuLabels[i].getText().toString().replace("> ", "").replace("  ", "");
+
             if (i == menuSelection) {
+                menuLabels[i].setText("> " + plainText); // <-- INJECT ACTIVE ARROW
+
                 if (!isActive) {
                     menuRows[i].setBackgroundColor(Color.TRANSPARENT);
                     menuLabels[i].setTextColor(Color.DKGRAY);
@@ -1807,13 +1812,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 } else if (isMenuEditing || isNamingMode) {
                     menuRows[i].setBackgroundColor(Color.TRANSPARENT);
                     menuLabels[i].setTextColor(Color.WHITE);
-                    menuValues[i].setTextColor(Color.rgb(230, 50, 15));
+                    menuValues[i].setTextColor(Color.rgb(255, 87, 34)); // Alpha Orange
                 } else {
-                    menuRows[i].setBackgroundColor(Color.rgb(230, 50, 15));
+                    menuRows[i].setBackgroundColor(Color.rgb(255, 87, 34)); // Alpha Orange
                     menuLabels[i].setTextColor(Color.WHITE);
                     menuValues[i].setTextColor(Color.WHITE);
                 }
             } else {
+                menuLabels[i].setText("  " + plainText); // <-- INJECT SPACING TO KEEP ALIGNMENT
+
                 menuRows[i].setBackgroundColor(Color.TRANSPARENT);
                 if (!isActive) {
                     menuLabels[i].setTextColor(Color.DKGRAY);
@@ -1976,7 +1983,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
         TextView tvUrl = new TextView(this);
         tvUrl.setText("jpgcookbook.com/hub");
-        tvUrl.setTextColor(Color.rgb(230, 50, 15));
+        tvUrl.setTextColor(Color.rgb(255, 87, 34));
         tvUrl.setTextSize(18);
         tvUrl.setTypeface(Typeface.DEFAULT_BOLD);
 
@@ -2063,9 +2070,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             hudCells[i] = new LinearLayout(this);
             hudCells[i].setOrientation(LinearLayout.VERTICAL);
             hudCells[i].setGravity(Gravity.CENTER);
+            hudCells[i].setBackgroundResource(R.drawable.hud_box); // <-- NEW: Applies the LCD Border
             
             hudLabels[i] = new TextView(this);
-            hudLabels[i].setTextColor(Color.GRAY);
+            hudLabels[i].setTextColor(Color.DKGRAY); // <-- INCREASED CONTRAST: Darker gray for inactive text
             hudLabels[i].setTextSize(14);
             hudLabels[i].setTypeface(Typeface.DEFAULT_BOLD);
             
@@ -2130,7 +2138,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         
         // Live Coordinates Text (e.g., A2, G1)
         wbValueText = new TextView(this);
-        wbValueText.setTextColor(Color.rgb(230, 50, 15));
+        wbValueText.setTextColor(Color.rgb(255, 87, 34));
         if (digitalFont != null) wbValueText.setTypeface(digitalFont);
         else wbValueText.setTypeface(Typeface.DEFAULT_BOLD);
         wbValueText.setTextSize(16);
@@ -2140,7 +2148,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         
         // The Moving Orange Cursor (API 10 Safe)
         wbCursor = new View(this);
-        wbCursor.setBackgroundColor(Color.rgb(230, 50, 15));
+        wbCursor.setBackgroundColor(Color.rgb(255, 87, 34));
         FrameLayout.LayoutParams cursorParams = new FrameLayout.LayoutParams(14, 14, Gravity.TOP | Gravity.LEFT);
         cursorParams.setMargins(153, 153, 0, 0); // 320 grid center (160) minus half cursor size (7) = 153
         wbGridContainer.addView(wbCursor, cursorParams);
@@ -2374,7 +2382,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         
         if (!isProcessing && tvTopStatus != null) {
             tvTopStatus.setText(customName + " [" + displayName + "]\n" + (isReady ? "READY" : "LOADING.."));
-            tvTopStatus.setTextColor(mDialMode == DIAL_MODE_RTL ? Color.rgb(230, 50, 15) : Color.WHITE);
+            
+            if (mDialMode == DIAL_MODE_RTL) {
+                tvTopStatus.setTextColor(Color.rgb(255, 87, 34)); // Menu mode active (Alpha Orange)
+            } else if (isReady) {
+                tvTopStatus.setTextColor(Color.rgb(0, 230, 118)); // System is hot (Cinema Green)
+            } else {
+                tvTopStatus.setTextColor(Color.WHITE); // Default loading/standby
+            }
         }
         
         String sm = p.getSceneMode(); 
@@ -2401,12 +2416,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         if (tvValIso != null) tvValIso.setText(pm.getISOSensitivity() == 0 ? "ISO AUTO" : "ISO " + pm.getISOSensitivity());
         if (tvValEv != null) tvValEv.setText(String.format("%+.1f", p.getExposureCompensation() * p.getExposureCompensationStep()));
         
-        if (tvReview != null) tvReview.setBackgroundColor(mDialMode == DIAL_MODE_REVIEW ? Color.rgb(230, 50, 15) : Color.argb(140, 40, 40, 40));
-        if (tvValShutter != null) tvValShutter.setTextColor(mDialMode == DIAL_MODE_SHUTTER ? Color.rgb(230, 50, 15) : Color.WHITE);
-        if (tvValAperture != null) tvValAperture.setTextColor(mDialMode == DIAL_MODE_APERTURE ? Color.rgb(230, 50, 15) : Color.WHITE);
-        if (tvValIso != null) tvValIso.setTextColor(mDialMode == DIAL_MODE_ISO ? Color.rgb(230, 50, 15) : Color.WHITE);
-        if (tvValEv != null) tvValEv.setTextColor(mDialMode == DIAL_MODE_EXPOSURE ? Color.rgb(230, 50, 15) : Color.WHITE);
-        if (tvMode != null) tvMode.setTextColor(mDialMode == DIAL_MODE_PASM ? Color.rgb(230, 50, 15) : Color.WHITE);
+        if (tvReview != null) tvReview.setBackgroundColor(mDialMode == DIAL_MODE_REVIEW ? Color.rgb(255, 87, 34) : Color.argb(140, 40, 40, 40));
+        if (tvValShutter != null) tvValShutter.setTextColor(mDialMode == DIAL_MODE_SHUTTER ? Color.rgb(255, 87, 34) : Color.WHITE);
+        if (tvValAperture != null) tvValAperture.setTextColor(mDialMode == DIAL_MODE_APERTURE ? Color.rgb(255, 87, 34) : Color.WHITE);
+        if (tvValIso != null) tvValIso.setTextColor(mDialMode == DIAL_MODE_ISO ? Color.rgb(255, 87, 34) : Color.WHITE);
+        if (tvValEv != null) tvValEv.setTextColor(mDialMode == DIAL_MODE_EXPOSURE ? Color.rgb(255, 87, 34) : Color.WHITE);
+        if (tvMode != null) tvMode.setTextColor(mDialMode == DIAL_MODE_PASM ? Color.rgb(255, 87, 34) : Color.WHITE);
         
         String fm = p.getFocusMode();
         cachedIsManualFocus = "manual".equals(fm);
@@ -2420,7 +2435,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             }
             else if ("continuous-video".equals(fm) || "continuous-picture".equals(fm)) tvFocusMode.setText("AF-C"); 
             else tvFocusMode.setText(fm != null ? fm.toUpperCase() : "AF");
-            tvFocusMode.setTextColor(mDialMode == DIAL_MODE_FOCUS ? Color.rgb(230, 50, 15) : Color.WHITE);
+            tvFocusMode.setTextColor(mDialMode == DIAL_MODE_FOCUS ? Color.rgb(255, 87, 34) : Color.WHITE);
         }
         
         if (focusMeter != null) {
