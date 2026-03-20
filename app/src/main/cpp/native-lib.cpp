@@ -255,7 +255,6 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
                     int r256 = (targetY * 256) / (currentY == 0 ? 1 : currentY);
                     outR = (outR * r256) >> 8; outG = (outG * r256) >> 8; outB = (outB * r256) >> 8;
                 }
-                if (halation > 0 && targetY > 230) outR = (outR * (256 + (halation * 20))) >> 8;
 
                 if (vignette > 0) {
                     long long d_sq = ((long long)(x/3)-cx)*((long long)(x/3)-cx) + (long long)(abs_y-cy_center)*(abs_y-cy_center);
@@ -290,7 +289,6 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
                 if (colorChrome > 0 && outY > 60 && sat > 30) outY -= (sat * colorChrome * outY) >> 15;
                 if (chromeBlue > 0 && cb > 15 && outY > 80) { outY -= (cb * chromeBlue) >> 2; cr -= (cb * chromeBlue) >> 4; }
                 if (subtractiveSat > 0 && sat > 20) outY -= (sat >> (6 - subtractiveSat));
-                if (halation > 0 && outY > 235) cr += (halation == 1 ? 30 : 60);
                 if (outY < 8) outY = 8;
 
                 if (oldY != outY) {
@@ -305,7 +303,52 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
                 }
                 row_buf[x] = (uint8_t)CLAMP(outY);
             }
+        } // <--- This is the closing bracket of Path B (the `else` block)
+
+        // --- 6. TRUE HALATION (Symmetric Horizontal Bleed) ---
+        if (halation > 0) {
+            int halo_energy = 0;
+            int halo_decay = 200; // ~78% retention per pixel (spreads the glow smoothly)
+            int halo_max = (halation == 1) ? 35 : 75; // Intensity of the red glow
+
+            // Pass 1: Left-to-Right Smear
+            for (int x = 0; x < row_stride; x += 3) {
+                int y_est = use_rgb_path ? ((row_buf[x]*77 + row_buf[x+1]*150 + row_buf[x+2]*29) >> 8) : row_buf[x];
+                
+                if (y_est > 235) { // We hit a bright core
+                    halo_energy = halo_max; // Charge the battery
+                } else if (halo_energy > 0) { // We are in the shadows next to a core
+                    if (use_rgb_path) {
+                        row_buf[x]   = (uint8_t)CLAMP(row_buf[x] + halo_energy); // Boost Red
+                        row_buf[x+1] = (uint8_t)CLAMP(row_buf[x+1] + (halo_energy >> 2)); // Tiny Green boost (makes it fiery orange-red)
+                    } else {
+                        row_buf[x+2] = (uint8_t)CLAMP(row_buf[x+2] + halo_energy); // Boost Cr (Red)
+                        row_buf[x+1] = (uint8_t)CLAMP(row_buf[x+1] - (halo_energy >> 2)); // Drop Cb (pulls away from magenta)
+                    }
+                    halo_energy = (halo_energy * halo_decay) >> 8; // Decay the energy
+                }
+            }
+
+            // Pass 2: Right-to-Left Smear
+            halo_energy = 0;
+            for (int x = row_stride - 3; x >= 0; x -= 3) {
+                int y_est = use_rgb_path ? ((row_buf[x]*77 + row_buf[x+1]*150 + row_buf[x+2]*29) >> 8) : row_buf[x];
+                
+                if (y_est > 235) {
+                    halo_energy = halo_max;
+                } else if (halo_energy > 0) {
+                    if (use_rgb_path) {
+                        row_buf[x]   = (uint8_t)CLAMP(row_buf[x] + halo_energy); 
+                        row_buf[x+1] = (uint8_t)CLAMP(row_buf[x+1] + (halo_energy >> 2)); 
+                    } else {
+                        row_buf[x+2] = (uint8_t)CLAMP(row_buf[x+2] + halo_energy); 
+                        row_buf[x+1] = (uint8_t)CLAMP(row_buf[x+1] - (halo_energy >> 2)); 
+                    }
+                    halo_energy = (halo_energy * halo_decay) >> 8;
+                }
+            }
         }
+
         jpeg_write_scanlines(&cinfo_c, row_pointer, 1);
     }
     

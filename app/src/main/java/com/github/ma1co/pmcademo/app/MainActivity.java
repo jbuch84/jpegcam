@@ -1716,39 +1716,43 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     menuRows[i].setVisibility(View.VISIBLE); 
                 }
             } else if (currentPage == 4) {
-                itemCount = 8; 
+                itemCount = 5; 
                 
-                String chromeStr = p.colorChrome == 0 ? "OFF" : (p.colorChrome == 1 ? "WEAK" : "STRONG");
-                String chromeBlueStr = p.chromeBlue == 0 ? "OFF" : (p.chromeBlue == 1 ? "WEAK" : "STRONG");
-
-                String[] rLabels = {"LUT File", "LUT Opacity", "Grain Amt", "Grain Size", "Highlight Roll-Off", "Vignette", "Color Chrome", "Chrome Blue"};
+                String[] rLabels = {"LUT File", "LUT Opacity", "Grain Amount", "Grain Size", "Vignette"};
                 String[] rValues = { 
                     recipeManager.getRecipeNames().get(p.lutIndex), 
                     p.opacity + "%", 
                     amtLabels[Math.max(0, Math.min(5, p.grain))], 
                     sizeLabels[Math.max(0, Math.min(2, p.grainSize))], 
-                    amtLabels[Math.max(0, Math.min(5, p.rollOff))], 
-                    amtLabels[Math.max(0, Math.min(5, p.vignette))],
-                    chromeStr,
-                    chromeBlueStr
+                    amtLabels[Math.max(0, Math.min(5, p.vignette))]
                 };
                 
-                for (int i = 0; i < 8; i++) { 
+                for (int i = 0; i < 5; i++) { 
                     menuLabels[i].setText(rLabels[i]); 
                     menuValues[i].setText(rValues[i]); 
                     menuRows[i].setVisibility(View.VISIBLE); 
                 }
-            } else if (currentPage == 5) {
-                itemCount = 3; 
                 
+            } else if (currentPage == 5) {
+                itemCount = 6; 
+                
+                String chromeStr = p.colorChrome == 0 ? "OFF" : (p.colorChrome == 1 ? "WEAK" : "STRONG");
+                String chromeBlueStr = p.chromeBlue == 0 ? "OFF" : (p.chromeBlue == 1 ? "WEAK" : "STRONG");
                 String toeStr = p.shadowToe == 0 ? "OFF" : (p.shadowToe == 1 ? "WEAK" : "FILMIC");
                 String satStr = p.subtractiveSat == 0 ? "OFF" : (p.subtractiveSat == 1 ? "WEAK" : "HEAVY");
                 String haloStr = p.halation == 0 ? "OFF" : (p.halation == 1 ? "WEAK" : "STRONG");
 
-                String[] rLabels = {"Shadow Roll-Off (Toe)", "Subtractive Saturation", "Halation (Red Glow)"};
-                String[] rValues = {toeStr, satStr, haloStr};
+                String[] rLabels = {"Highlight Roll-Off", "Shadow Roll-Off (Toe)", "Subtractive Saturation", "Color Chrome", "Chrome Blue", "Halation (Red Glow)"};
+                String[] rValues = {
+                    amtLabels[Math.max(0, Math.min(5, p.rollOff))], // Keep your amtLabels formatting
+                    toeStr, 
+                    satStr, 
+                    chromeStr, 
+                    chromeBlueStr, 
+                    haloStr
+                };
                 
-                for (int i = 0; i < 3; i++) { 
+                for (int i = 0; i < 6; i++) { 
                     menuLabels[i].setText(rLabels[i]); 
                     menuValues[i].setText(rValues[i]); 
                     menuRows[i].setVisibility(View.VISIBLE); 
