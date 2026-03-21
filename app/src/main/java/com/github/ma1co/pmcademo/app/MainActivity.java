@@ -1852,8 +1852,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         
         FrameLayout.LayoutParams topParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL); 
         topParams.setMargins(0, 15, 0, 0); 
-        // --- FIX: Attach to the un-hideable root window ---
-        rootLayout.addView(tvTopStatus, topParams);
+        // REVERT to mainUIContainer
+        mainUIContainer.addView(tvTopStatus, topParams);
         
         LinearLayout rightBar = new LinearLayout(this); 
         rightBar.setOrientation(LinearLayout.VERTICAL); 
@@ -2261,6 +2261,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     p.set("color-depth-yellow", "0");
                 }
                 
+                p.setFocusMode("auto");
+                
                 c.setParameters(p);
                 Log.d("filmOS", "Successfully zeroed out hardware hacks.");
                 
@@ -2280,11 +2282,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        // FIX: Only kill the process if the user manually exited the app.
-        // If false, the camera is just hibernating us for sleep/power-off, so let it live!
-        if (isFinishing()) {
-            System.exit(0);
-        }
+        System.exit(0); // Restored to clear memory leaks on shutdown
     }
     
     private void setHUDVisibility(int v) { 
