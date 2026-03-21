@@ -2217,7 +2217,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         uiHandler.post(liveUpdater); 
     }
     
-    @Override 
+    @@Override 
     protected void onPause() { 
         super.onPause(); 
         uiHandler.removeCallbacksAndMessages(null); 
@@ -2227,14 +2227,22 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 Camera c = cameraManager.getCamera();
                 Camera.Parameters p = c.getParameters();
                 
-                // 1. CLEAN FOCUS RESTORE: Put the lens back to exactly how the user had it.
+                // --- 1. SAVE PASM MODE ---
+                String currentPasm = p.getSceneMode();
+                if (currentPasm != null) {
+                    getSharedPreferences("filmOS_Prefs", MODE_PRIVATE)
+                        .edit().putString("savedPasmMode", currentPasm).apply();
+                }
+                
+                // --- 2. CLEAN FOCUS RESTORE ---
+                // Put the lens back to exactly how the user had it.
                 if (savedFocusMode != null) {
                     p.setFocusMode(savedFocusMode);
                 } else {
                     p.setFocusMode("auto"); // Failsafe so stock OS doesn't get stuck
                 }
                 
-                // 2. ZERO OUT HARDWARE HACKS
+                // --- 3. ZERO OUT HARDWARE HACKS ---
                 if (p.get("picture-effect") != null) p.set("picture-effect", "off");
                 if (p.get("rgb-matrix-mode") != null) p.set("rgb-matrix-mode", "false");
                 if (p.get("pro-color-mode") != null) p.set("pro-color-mode", "off");
@@ -2251,18 +2259,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 }
                 
                 c.setParameters(p);
-                Log.d("filmOS", "Successfully zeroed out hardware hacks and restored focus.");
+                Log.d("filmOS", "Successfully saved mode, zeroed hardware, and restored focus.");
                 Thread.sleep(200);
             } catch (Exception e) {}
         }
         
-        if (cameraManager != null) cameraManager.close(); 
-        try { unregisterReceiver(sonyCameraReceiver); unregisterReceiver(batteryReceiver); } catch (Exception e) {}
-        if (connectivityManager != null) connectivityManager.stopNetworking(); 
-        if (recipeManager != null) recipeManager.savePreferences(); 
-        setAutoPowerOffMode(true);
-    }
-        
+        // (Duplication removed below here!)
         if (cameraManager != null) cameraManager.close(); 
         try { unregisterReceiver(sonyCameraReceiver); unregisterReceiver(batteryReceiver); } catch (Exception e) {}
         if (connectivityManager != null) connectivityManager.stopNetworking(); 
