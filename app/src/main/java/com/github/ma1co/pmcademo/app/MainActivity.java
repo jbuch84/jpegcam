@@ -1852,7 +1852,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         
         FrameLayout.LayoutParams topParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL); 
         topParams.setMargins(0, 15, 0, 0); 
-        mainUIContainer.addView(tvTopStatus, topParams);
+        // --- FIX: Attach to the un-hideable root window ---
+        rootLayout.addView(tvTopStatus, topParams);
         
         LinearLayout rightBar = new LinearLayout(this); 
         rightBar.setOrientation(LinearLayout.VERTICAL); 
@@ -2220,11 +2221,26 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     protected void onPause() { 
         super.onPause(); 
         uiHandler.removeCallbacksAndMessages(null); 
+
+        // --- NEW: Save the software PASM state before the app hibernates ---
+        if (cameraManager != null && cameraManager.getCamera() != null) {
+            try {
+                String currentPasm = cameraManager.getCamera().getParameters().getSceneMode();
+                if (currentPasm != null) {
+                    getSharedPreferences("filmOS_Prefs", MODE_PRIVATE).edit().putString("savedPasmMode", currentPasm).apply();
+                }
+            } catch (Exception e) {}
+        }
         
         if (cameraManager != null && cameraManager.getCamera() != null) {
             try {
                 Camera c = cameraManager.getCamera();
                 Camera.Parameters p = c.getParameters();
+                
+                // --- NEW: Restore focus if user hard-exited while menu was open ---
+                if (isMenuOpen && savedFocusMode != null) {
+                    p.setFocusMode(savedFocusMode);
+                }
                 
                 if (p.get("picture-effect") != null) p.set("picture-effect", "off");
                 if (p.get("rgb-matrix-mode") != null) p.set("rgb-matrix-mode", "false");
@@ -2264,11 +2280,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        System.exit(0);
+        // FIX: Only kill the process if the user manually exited the app.
+        // If false, the camera is just hibernating us for sleep/power-off, so let it live!
+        if (isFinishing()) {
+            System.exit(0);
+        }
     }
     
     private void setHUDVisibility(int v) { 
-        if (tvTopStatus != null) tvTopStatus.setVisibility(v); 
+        if (tvTopStatus != null) {
+            // FIX: Keep text visible if processing, otherwise obey the 'v' command
+            tvTopStatus.setVisibility(isProcessing ? View.VISIBLE : v); 
+        }
         if (llBottomBar != null) llBottomBar.setVisibility(v); 
         if (tvBattery != null) tvBattery.setVisibility(v); 
         if (batteryIcon != null) batteryIcon.setVisibility(v); 
@@ -2467,22 +2490,36 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 Log.d("filmOS_Lens", "Boot: Native Lens Detected: " + hardwareFocalLength + "mm");
                 
                 autoEquipMatchingLens(hardwareFocalLength);
-                
-                if (cameraManager.getCamera() != null) {
-                    try {
-                        Camera c = cameraManager.getCamera();
-                        Camera.Parameters p = c.getParameters();
-                        p.setFocusMode("auto"); 
-                        c.setParameters(p);
-                        cachedIsManualFocus = false;
-                    } catch (Exception e) {}
-                }
             } else {
                 isNativeLensAttached = false;
                 Log.d("filmOS_Lens", "Boot: Manual Lens Detected");
             }
+
+            // --- THE NEW SANDBOX MEMORY INJECTION ---
+            if (cameraManager.getCamera() != null) {
+                try {
+                    Camera c = cameraManager.getCamera();
+                    Camera.Parameters p = c.getParameters();
+                    
+                    // 1. Restore the PASM mode you were using last time
+                    String savedMode = getSharedPreferences("filmOS_Prefs", MODE_PRIVATE).getString("savedPasmMode", "manual-exposure");
+                    List<String> supportedModes = p.getSupportedSceneModes();
+                    if (supportedModes != null && supportedModes.contains(savedMode)) {
+                        p.setSceneMode(savedMode);
+                    }
+                    
+                    c.setParameters(p);
+                    
+                    // 2. Sync the UI with whatever focus mode the camera is ACTUALLY in,
+                    // without forcing it to switch!
+                    cachedIsManualFocus = "manual".equals(p.getFocusMode());
+                } catch (Exception e) {
+                    Log.e("filmOS", "Failed to restore camera state on boot: " + e.getMessage());
+                }
+            }
         }
-        
+
+        // --- FORCE HARDWARE TO INGEST THE BOOT RECIPE ---
         applyHardwareRecipe();
         
         updateMainHUD();
