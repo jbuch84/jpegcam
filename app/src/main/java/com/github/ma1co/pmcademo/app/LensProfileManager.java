@@ -35,9 +35,9 @@ public class LensProfileManager {
         // Constructor left intentionally blank to avoid stale SD card references on boot.
     }
     
-    // Dynamically fetches the root exactly like GRADED does
+    // Dynamically fetches the root from our central Filepaths class
     private File getLensesDir() {
-        File dir = new File(Environment.getExternalStorageDirectory(), "LENSES");
+        File dir = new File(Filepaths.getAppDir(), "LENSES");
         if (!dir.exists()) {
             dir.mkdirs();
         }

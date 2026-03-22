@@ -119,8 +119,7 @@ public class HttpServer extends NanoHTTPD {
                 long bytesAvailable = (long)stat.getBlockSize() * (long)stat.getAvailableBlocks();
                 double gbAvailable = bytesAvailable / (1024.0 * 1024.0 * 1024.0);
                 
-                // Assume GRADED folder is inside the app directory to prevent root clutter
-                File gradedDir = new File(Filepaths.getStorageRoot(), "GRADED");
+                File gradedDir = Filepaths.getGradedDir();
                 boolean hasGraded = gradedDir.exists() && gradedDir.listFiles() != null && gradedDir.listFiles().length > 0;
                 
                 String json = String.format("{\"storage_gb\": \"%.1f\", \"has_graded\": %b}", gbAvailable, hasGraded);
@@ -194,7 +193,7 @@ public class HttpServer extends NanoHTTPD {
         List<File> result = new ArrayList<File>();
         
         if (folderType != null && folderType.equals("GRADED")) {
-            File gradedDir = new File(Filepaths.getStorageRoot(), "GRADED");
+            File gradedDir = Filepaths.getGradedDir();
             if (gradedDir.exists()) {
                 File[] files = gradedDir.listFiles();
                 if (files != null) {
@@ -234,7 +233,7 @@ public class HttpServer extends NanoHTTPD {
      */
     private File findRequestedFile(String folder, String name) {
         if (folder != null && folder.equals("GRADED")) {
-            return new File(new File(Filepaths.getStorageRoot(), "GRADED"), name);
+            return new File(Filepaths.getGradedDir(), name);
         } else {
             File dcimDir = Filepaths.getDcimDir();
             if (dcimDir.exists()) {

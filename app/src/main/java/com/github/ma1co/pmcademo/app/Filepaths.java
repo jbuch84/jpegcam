@@ -61,7 +61,7 @@ public class Filepaths {
      * Directory for the processed/graded output images.
      */
     public static File getGradedDir() {
-        File dir = new File(getStorageRoot(), "GRADED");
+        File dir = new File(getAppDir(), "GRADED");
         if (!dir.exists()) {
             dir.mkdirs();
         }
