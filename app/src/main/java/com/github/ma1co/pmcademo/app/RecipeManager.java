@@ -5,10 +5,6 @@ import java.io.*;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * filmOS Manager: Recipe & Persistence
- * Extracted from MainActivity to manage LUT recipes and SD-card backups.
- */
 public class RecipeManager {
     private RTLProfile[] profiles = new RTLProfile[10];
     private int currentSlot = 0;
@@ -19,7 +15,7 @@ public class RecipeManager {
 
     public RecipeManager() {
         for (int i = 0; i < 10; i++) {
-            profiles[i] = new RTLProfile(i); // Passes index to set default "RECIPE X"
+            profiles[i] = new RTLProfile(i); 
         }
         scanRecipes();
     }
@@ -40,16 +36,19 @@ public class RecipeManager {
         recipeNames.add("NONE"); 
         
         File lutDir = getLutDir();
-        if (lutDir.exists() && lutDir.listFiles() != null) {
+        if (lutDir != null && lutDir.exists() && lutDir.listFiles() != null) {
             for (File f : lutDir.listFiles()) {
                 String rawName = f.getName();
                 String u = rawName.toUpperCase();
                 
                 if (rawName.startsWith(".")) continue;
 
-                if (f.length() > 2048 && (u.endsWith(".CUB") || u.endsWith(".CUBE"))) {
+                // Lowered filesize threshold to 100 bytes just in case they have a tiny test LUT
+                if (f.length() > 100 && (u.endsWith(".CUB") || u.endsWith(".CUBE"))) {
                     recipePaths.add(f.getAbsolutePath());
-                    String prettyName = u.replace(".CUB", "").replace(".CUBE", "");
+                    
+                    // FIX: Replaced .CUBE *before* .CUB to prevent leaving a trailing "E"
+                    String prettyName = u.replace(".CUBE", "").replace(".CUB", "");
                     
                     if (prettyName.contains("~")) {
                         prettyName = prettyName.substring(0, prettyName.indexOf("~"));
@@ -75,10 +74,29 @@ public class RecipeManager {
     }
 
     private File getLutDir() {
-        File lutDir = new File(Environment.getExternalStorageDirectory(), "LUTS");
-        if (!lutDir.exists()) lutDir = new File("/storage/sdcard0/LUTS");
-        if (!lutDir.exists()) lutDir = new File("/mnt/sdcard/LUTS");
-        return lutDir;
+        // Aggressively hunt for the SD card across all Sony camera models
+        String[] possibleMounts = {
+            Environment.getExternalStorageDirectory().getAbsolutePath(),
+            "/storage/sdcard0", // Default for older/basic models
+            "/storage/sdcard1", // Actual SD card on A7S II, A6500, etc.
+            "/mnt/sdcard",
+            "/mnt/extSdCard",
+            "/storage/extSdCard"
+        };
+        
+        String[] possibleFolders = { "LUTS", "luts", "Luts", "LUTs" };
+
+        for (String mount : possibleMounts) {
+            for (String folder : possibleFolders) {
+                File testDir = new File(mount, folder);
+                if (testDir.exists() && testDir.isDirectory()) {
+                    return testDir;
+                }
+            }
+        }
+        
+        // Failsafe: Return default so savePreferences() can create it if it truly doesn't exist
+        return new File(Environment.getExternalStorageDirectory(), "LUTS");
     }
 
     public void savePreferences() {
@@ -109,23 +127,16 @@ public class RecipeManager {
                   .append(p.saturation).append(",") // 12
                   .append(p.sharpness).append(",") // 13
                   .append(safeName).append(",") // 14
-                  
-                  // --- NEW HUD HW VARIABLES ---
                   .append(p.colorMode).append(",") // 15
                   .append(p.sharpnessGain).append(",") // 16
-                  
-                  // Pack 6-Axis with colons
                   .append(p.colorDepthRed).append(":").append(p.colorDepthGreen).append(":")
                   .append(p.colorDepthBlue).append(":").append(p.colorDepthCyan).append(":")
                   .append(p.colorDepthMagenta).append(":").append(p.colorDepthYellow).append(",") // 17
-                  
-                  // Pack 9-Point Matrix with colons
                   .append(p.advMatrix[0]).append(":").append(p.advMatrix[1]).append(":")
                   .append(p.advMatrix[2]).append(":").append(p.advMatrix[3]).append(":")
                   .append(p.advMatrix[4]).append(":").append(p.advMatrix[5]).append(":")
                   .append(p.advMatrix[6]).append(":").append(p.advMatrix[7]).append(":")
                   .append(p.advMatrix[8]).append(",") // 18
-                  
                   .append(p.proColorMode).append(",") // 19
                   .append(p.pictureEffect).append(",") // 20
                   .append(p.peToyCameraTone).append(",") // 21
@@ -133,12 +144,8 @@ public class RecipeManager {
                   .append(p.softFocusLevel).append(",") // 23
                   .append(p.shadingRed).append(",") // 24
                   .append(p.shadingBlue).append(",") // 25
-                  
-                  // --- Fuji Chrome Effects ---
                   .append(p.colorChrome).append(",") // 26
                   .append(p.chromeBlue).append(",") // 27
-                  
-                  // --- Analog Physics ---
                   .append(p.shadowToe).append(",") // 28
                   .append(p.subtractiveSat).append(",") // 29
                   .append(p.halation).append("\n"); // 30
@@ -160,8 +167,6 @@ public class RecipeManager {
                     if (line.startsWith("quality=")) qualityIndex = Integer.parseInt(line.split("=")[1]);
                     else if (line.startsWith("slot=")) currentSlot = Integer.parseInt(line.split("=")[1]);
                     else if (!line.startsWith("prefs=")) { 
-                        
-                        // Use -1 to preserve empty strings (like an empty Profile Name)
                         String[] parts = line.split(",", -1); 
                         
                         if (parts.length >= 6) {
@@ -184,58 +189,40 @@ public class RecipeManager {
                                 p.wbShift = Integer.parseInt(parts[8]);
                                 p.dro = parts[9];
                             }
-                            if (parts.length >= 11) {
-                                p.wbShiftGM = Integer.parseInt(parts[10]);
-                            }
+                            if (parts.length >= 11) p.wbShiftGM = Integer.parseInt(parts[10]);
                             if (parts.length >= 14) {
                                 p.contrast = Integer.parseInt(parts[11]);
                                 p.saturation = Integer.parseInt(parts[12]);
                                 p.sharpness = Integer.parseInt(parts[13]);
                             }
-                            if (parts.length >= 15) {
-                                p.profileName = parts[14];
-                            }
+                            if (parts.length >= 15) p.profileName = parts[14];
                             
-                            // --- NEW HUD HW VARIABLES ---
                             if (parts.length >= 26) {
                                 p.colorMode = parts[15];
                                 p.sharpnessGain = Integer.parseInt(parts[16]);
                                 
-                                // Unpack 6-Axis
                                 String[] cDepths = parts[17].split(":");
                                 if (cDepths.length == 6) {
-                                    p.colorDepthRed = Integer.parseInt(cDepths[0]);
-                                    p.colorDepthGreen = Integer.parseInt(cDepths[1]);
-                                    p.colorDepthBlue = Integer.parseInt(cDepths[2]);
-                                    p.colorDepthCyan = Integer.parseInt(cDepths[3]);
-                                    p.colorDepthMagenta = Integer.parseInt(cDepths[4]);
-                                    p.colorDepthYellow = Integer.parseInt(cDepths[5]);
+                                    p.colorDepthRed = Integer.parseInt(cDepths[0]); p.colorDepthGreen = Integer.parseInt(cDepths[1]);
+                                    p.colorDepthBlue = Integer.parseInt(cDepths[2]); p.colorDepthCyan = Integer.parseInt(cDepths[3]);
+                                    p.colorDepthMagenta = Integer.parseInt(cDepths[4]); p.colorDepthYellow = Integer.parseInt(cDepths[5]);
                                 }
                                 
-                                // Unpack 9-Point Matrix
                                 String[] mtx = parts[18].split(":");
                                 if (mtx.length == 9) {
-                                    for(int m=0; m<9; m++) {
-                                        p.advMatrix[m] = Integer.parseInt(mtx[m]);
-                                    }
+                                    for(int m=0; m<9; m++) p.advMatrix[m] = Integer.parseInt(mtx[m]);
                                 }
                                 
-                                p.proColorMode = parts[19];
-                                p.pictureEffect = parts[20];
-                                p.peToyCameraTone = parts[21];
-                                p.vignetteHardware = Integer.parseInt(parts[22]);
-                                p.softFocusLevel = Integer.parseInt(parts[23]);
-                                p.shadingRed = Integer.parseInt(parts[24]);
-                                p.shadingBlue = Integer.parseInt(parts[25]);
+                                p.proColorMode = parts[19]; p.pictureEffect = parts[20]; p.peToyCameraTone = parts[21];
+                                p.vignetteHardware = Integer.parseInt(parts[22]); p.softFocusLevel = Integer.parseInt(parts[23]);
+                                p.shadingRed = Integer.parseInt(parts[24]); p.shadingBlue = Integer.parseInt(parts[25]);
                             }
 
-                            // --- NEW: Fuji Chrome Effects ---
                             if (parts.length >= 28) {
                                 p.colorChrome = Integer.parseInt(parts[26]);
                                 p.chromeBlue = Integer.parseInt(parts[27]);
                             }
 
-                            // --- NEW: Analog Physics ---
                             if (parts.length >= 31) {
                                 p.shadowToe = Integer.parseInt(parts[28]);
                                 p.subtractiveSat = Integer.parseInt(parts[29]);
