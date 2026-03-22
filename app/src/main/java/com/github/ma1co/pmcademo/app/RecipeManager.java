@@ -1,9 +1,10 @@
+// Part 1 of 1 - RecipeManager.java (Replaces existing file)
+// Location: app/src/main/java/com/github/ma1co/pmcademo/app/RecipeManager.java
+
 package com.github.ma1co.pmcademo.app;
 
-import android.os.Environment;
 import java.io.*;
 import java.util.ArrayList;
-import java.util.List;
 
 public class RecipeManager {
     private RTLProfile[] profiles = new RTLProfile[10];
@@ -76,21 +77,6 @@ public class RecipeManager {
     private File getLutDir() {
         // Now using our centralized dynamic pathing
         return Filepaths.getLutDir();
-    }
-        
-        String[] possibleFolders = { "LUTS", "luts", "Luts", "LUTs" };
-
-        for (String mount : possibleMounts) {
-            for (String folder : possibleFolders) {
-                File testDir = new File(mount, folder);
-                if (testDir.exists() && testDir.isDirectory()) {
-                    return testDir;
-                }
-            }
-        }
-        
-        // Failsafe: Return default so savePreferences() can create it if it truly doesn't exist
-        return new File(Environment.getExternalStorageDirectory(), "LUTS");
     }
 
     public void savePreferences() {
