@@ -37,11 +37,7 @@ public class LensProfileManager {
     
     // Dynamically fetches the root from our central Filepaths class
     private File getLensesDir() {
-        File dir = new File(Filepaths.getAppDir(), "LENSES");
-        if (!dir.exists()) {
-            dir.mkdirs();
-        }
-        return dir;
+        return Filepaths.getLensesDir();
     }
 
     public static String generateFilename(float focalLength, float maxAperture, boolean isManual) {
