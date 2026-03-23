@@ -12,7 +12,7 @@ android {
         
         // Bumped versioning for the JPEG.CAM era
         versionCode 5
-        versionName "1.5"
+        versionName "1.41"
         
         externalNativeBuild {
             cmake {
