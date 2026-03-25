@@ -32,7 +32,7 @@ public class SonyCameraManager {
         void onIsoChanged();
         void onFocusPositionChanged(float ratio);
         void onFocalLengthChanged(float focalLengthMm); 
-        void onHardwareStateChanged(); // <-- NEW: Catch physical Mode Dial turns
+        void onHardwareStateChanged(); // <-- NEW: Listen for physical dial turns
     }
 
     private CameraEventListener listener;
@@ -262,7 +262,6 @@ public class SonyCameraManager {
                     @Override 
                     public Object invoke(Object p, java.lang.reflect.Method m, Object[] a) {
                         if (m.getName().equals("onChanged") && listener != null) {
-                            // Fires when the physical Mode dial (PASM) is turned on A7-series cameras
                             listener.onHardwareStateChanged();
                         }
                         return null;

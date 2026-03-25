@@ -131,6 +131,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     
     private float hardwareFocalLength = 0.0f;
     private boolean isNativeLensAttached = false;
+    private boolean hasPhysicalPasmDial = false;
     
     private float virtualAperture = 2.8f;
     private float virtualFocusRatio = 0.5f;
@@ -243,6 +244,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        String model = android.os.Build.MODEL.toUpperCase();
+        hasPhysicalPasmDial = model.contains("ILCE-7") || model.contains("ILCE-9") || model.contains("ILCE-1") || model.contains("ILCA-99");
         
         // Force creation of our JPGCAM folder skeleton immediately on boot
         Filepaths.buildAppStructure();
@@ -1123,6 +1127,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             try { c.setParameters(p); } catch (Exception e) {}
         }
         else if (mDialMode == DIAL_MODE_PASM) {
+            if (hasPhysicalPasmDial) return; // <-- NEW: Prevent software override on A7II!
+            
             List<String> valid = new ArrayList<String>(); 
             String[] desired = {"program-auto", "aperture-priority", "shutter-priority", "shutter-speed-priority", "manual-exposure"};
             List<String> supported = p.getSupportedSceneModes();
@@ -2472,17 +2478,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     Camera c = cameraManager.getCamera();
                     Camera.Parameters p = c.getParameters();
                     
-                    // 1. Restore the PASM mode you were using last time
-                    String savedMode = getSharedPreferences("JPEG.CAM_Prefs", MODE_PRIVATE).getString("savedPasmMode", "manual-exposure");
-                    List<String> supportedModes = p.getSupportedSceneModes();
-                    if (supportedModes != null && supportedModes.contains(savedMode)) {
-                        p.setSceneMode(savedMode);
-                    }
+                    // We no longer force the PASM mode here. We let the physical dial dictate the mode!
                     
-                    c.setParameters(p);
-                    
-                    // 2. Sync the UI with whatever focus mode the camera is ACTUALLY in,
-                    // without forcing it to switch!
+                    // Sync the UI with whatever focus mode the camera is ACTUALLY in
                     cachedIsManualFocus = "manual".equals(p.getFocusMode());
                 } catch (Exception e) {
                     Log.e("JPEG.CAM", "Failed to restore camera state on boot: " + e.getMessage());
@@ -2503,13 +2501,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     public void onApertureChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
 
     @Override 
-    public void onHardwareStateChanged() { 
-        runOnUiThread(new Runnable() { 
-            public void run() { 
-                // Safely update tvMode and other HUD elements when physical dials move
-                requestHudUpdate(); 
-            } 
-        }); 
+    public void onHardwareStateChanged() {
+        runOnUiThread(new Runnable() {
+            public void run() {
+                requestHudUpdate();
+            }
+        });
     }
     
     @Override 

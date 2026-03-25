@@ -36,39 +36,49 @@ public class RecipeManager {
         recipePaths.add("NONE"); 
         recipeNames.add("NONE"); 
         
-        File lutDir = getLutDir();
-        if (lutDir != null && lutDir.exists() && lutDir.listFiles() != null) {
-            for (File f : lutDir.listFiles()) {
-                String rawName = f.getName();
-                String u = rawName.toUpperCase();
-                
-                if (rawName.startsWith(".")) continue;
+        File[] possibleDirs = {
+            new File(Environment.getExternalStorageDirectory(), "LUTS"),
+            new File(Environment.getExternalStorageDirectory(), "luts"),
+            new File("/storage/sdcard0/LUTS"),
+            new File("/storage/sdcard1/LUTS")
+        };
+        
+        for (File lutDir : possibleDirs) {
+            if (lutDir.exists() && lutDir.isDirectory()) {
+                File[] files = lutDir.listFiles();
+                if (files != null) {
+                    for (File f : files) {
+                        String rawName = f.getName();
+                        String u = rawName.toUpperCase();
+                        
+                        if (rawName.startsWith(".")) continue;
 
-                // Lowered filesize threshold to 100 bytes just in case they have a tiny test LUT
-                if (f.length() > 100 && (u.endsWith(".CUB") || u.endsWith(".CUBE"))) {
-                    recipePaths.add(f.getAbsolutePath());
-                    
-                    // FIX: Replaced .CUBE *before* .CUB to prevent leaving a trailing "E"
-                    String prettyName = u.replace(".CUBE", "").replace(".CUB", "");
-                    
-                    if (prettyName.contains("~")) {
-                        prettyName = prettyName.substring(0, prettyName.indexOf("~"));
-                    }
-                    
-                    try {
-                        BufferedReader br = new BufferedReader(new FileReader(f));
-                        String line;
-                        for(int j=0; j<15; j++) {
-                            line = br.readLine();
-                            if (line != null && line.startsWith("TITLE")) {
-                                prettyName = line.replace("TITLE", "").replace("\"", "").trim().toUpperCase();
-                                break;
+                        if (u.endsWith(".CUB") || u.endsWith(".CUBE")) {
+                            if (!recipePaths.contains(f.getAbsolutePath())) {
+                                recipePaths.add(f.getAbsolutePath());
+                                
+                                String prettyName = u.replace(".CUBE", "").replace(".CUB", "");
+                                if (prettyName.contains("~")) {
+                                    prettyName = prettyName.substring(0, prettyName.indexOf("~"));
+                                }
+                                
+                                try {
+                                    BufferedReader br = new BufferedReader(new FileReader(f));
+                                    String line;
+                                    for(int j=0; j<15; j++) {
+                                        line = br.readLine();
+                                        if (line != null && line.startsWith("TITLE")) {
+                                            prettyName = line.replace("TITLE", "").replace("\"", "").trim().toUpperCase();
+                                            break;
+                                        }
+                                    }
+                                    br.close();
+                                } catch (Exception e) {}
+                                
+                                recipeNames.add(prettyName);
                             }
                         }
-                        br.close();
-                    } catch (Exception e) {}
-                    
-                    recipeNames.add(prettyName);
+                    }
                 }
             }
         }
