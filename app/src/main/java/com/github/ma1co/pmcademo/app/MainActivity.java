@@ -1255,8 +1255,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         p.setWhiteBalance(wb);
         
         if (p.get("white-balance-shift-mode") != null) p.set("white-balance-shift-mode", (prof.wbShift != 0 || prof.wbShiftGM != 0) ? "true" : "false");
+        // We add a minus sign to prof.wbShiftGM to invert the Green/Magenta axis for the hardware
         if (p.get("white-balance-shift-lb") != null) p.set("white-balance-shift-lb", String.valueOf(prof.wbShift)); 
-        if (p.get("white-balance-shift-cc") != null) p.set("white-balance-shift-cc", String.valueOf(prof.wbShiftGM));
+        if (p.get("white-balance-shift-cc") != null) p.set("white-balance-shift-cc", String.valueOf(-prof.wbShiftGM));
         if (p.get("contrast") != null) p.set("contrast", String.valueOf(prof.contrast)); 
         if (p.get("saturation") != null) p.set("saturation", String.valueOf(prof.saturation)); 
         if (p.get("sharpness") != null) p.set("sharpness", String.valueOf(prof.sharpness));
@@ -2634,32 +2635,47 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             String metaText = (idx + 1) + " / " + playbackFiles.size() + "\n" + file.getName() + "\n" + apStr + " | " + speedStr + " | " + isoStr;
             if (tvPlaybackInfo != null) tvPlaybackInfo.setText(metaText);
 
-            BitmapFactory.Options opts = new BitmapFactory.Options();
             
+            // --- HIGH-QUALITY / MEMORY-SAFE DECODE ---
+            // 1. Read just the dimensions of the file (uses 0 RAM)
+            BitmapFactory.Options opts = new BitmapFactory.Options();
             opts.inJustDecodeBounds = true;
             BitmapFactory.decodeFile(path, opts);
             
+            // 2. Target a crisp screen resolution
             final int reqWidth = 1024;
             final int reqHeight = 768;
             int inSampleSize = 1;
 
+            // 3. Aggressively calculate the shrink factor 
+            // (Using || ensures we shrink until BOTH sides fit safely)
             if (opts.outHeight > reqHeight || opts.outWidth > reqWidth) {
-                final int halfHeight = opts.outHeight / 2;
-                final int halfWidth = opts.outWidth / 2;
-                while ((halfHeight / inSampleSize) >= reqHeight && (halfWidth / inSampleSize) >= reqWidth) {
+                while ((opts.outHeight / inSampleSize) > reqHeight || (opts.outWidth / inSampleSize) > reqWidth) {
                     inSampleSize *= 2;
                 }
             }
 
+            // 4. Decode the actual image at the safe resolution
             opts.inJustDecodeBounds = false;
             opts.inSampleSize = inSampleSize;
+            // Force 16-bit color (2 bytes per pixel). This instantly halves the RAM usage!
             opts.inPreferredConfig = Bitmap.Config.RGB_565; 
             opts.inPurgeable = true;
             opts.inInputShareable = true;
 
             Bitmap raw = BitmapFactory.decodeFile(path, opts);
-            if (raw == null) return;
 
+            if (raw == null) {
+                if (tvPlaybackInfo != null) tvPlaybackInfo.setText((idx + 1) + " / " + playbackFiles.size() + "\n[DECODE ERROR]");
+                return;
+            }
+
+            if (raw == null) {
+                if (tvPlaybackInfo != null) tvPlaybackInfo.setText((idx + 1) + " / " + playbackFiles.size() + "\n[DECODE ERROR]");
+                return;
+            }
+
+            // 3. Handle Rotation & Anamorphic Squeeze
             int orient = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
             int rot = 0; 
             if (orient == ExifInterface.ORIENTATION_ROTATE_90) rot = 90; 
@@ -2673,7 +2689,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             Bitmap bmp = Bitmap.createBitmap(raw, 0, 0, raw.getWidth(), raw.getHeight(), m, true);
             
             if (raw != bmp) {
-                raw.recycle();
+                raw.recycle(); // Instantly destroy the intermediate raw bitmap
                 raw = null;
             }
             

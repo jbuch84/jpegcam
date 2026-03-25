@@ -1,6 +1,3 @@
-// Part 1 of 1 - HttpServer.java (Replaces existing file)
-// Location: app/src/main/java/com/github/ma1co/pmcademo/app/HttpServer.java
-
 package com.github.ma1co.pmcademo.app;
 
 import android.content.Context;
@@ -35,10 +32,22 @@ public class HttpServer extends NanoHTTPD {
     @Override
     public Response serve(IHTTPSession session) {
         String uri = session.getUri();
-        
+        Method method = session.getMethod();
+
+        // --- NATIVE CORS HANDSHAKE ---
+        // This allows your website to send LUTs directly to the camera 
+        // without the user needing to install any browser extensions.
+        if (Method.OPTIONS.equals(method)) {
+            Response res = newFixedLengthResponse(Response.Status.OK, NanoHTTPD.MIME_PLAINTEXT, "");
+            res.addHeader("Access-Control-Allow-Origin", "*");
+            res.addHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+            res.addHeader("Access-Control-Allow-Headers", "x-file-name, content-length, content-type");
+            return res;
+        }
+
         try {
-            // Upload endpoint
-            if (Method.POST.equals(session.getMethod()) && (uri.equals("/api/upload_lut") || uri.equals("/api/upload"))) {
+            // Upload endpoint for LUTs and Lenses
+            if (Method.POST.equals(method) && (uri.equals("/api/upload_lut") || uri.equals("/api/upload"))) {
                 FileOutputStream out = null;
                 File tempFile = null;
                 File destFile = null;
@@ -51,14 +60,14 @@ public class HttpServer extends NanoHTTPD {
                         return newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json", "{\"error\":\"Missing filename\"}");
                     }
 
-                    // --- THE SMART ROUTER LOGIC ---
+                    // Smart Router Logic
                     String lowerName = fileName.toLowerCase();
                     File targetDir = null;
                     
                     if (lowerName.endsWith(".cube") || lowerName.endsWith(".cub")) {
-                        targetDir = Filepaths.getLutDir(); // Use centralized truth
+                        targetDir = Filepaths.getLutDir();
                     } else if (lowerName.endsWith(".txt") || lowerName.endsWith(".lens")) {
-                        targetDir = new File(Filepaths.getAppDir(), "LENSES"); // Keep it inside JPGCAM
+                        targetDir = new File(Filepaths.getAppDir(), "LENSES");
                     } else {
                         return newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json", "{\"error\":\"Unsupported file type\"}");
                     }
@@ -68,7 +77,7 @@ public class HttpServer extends NanoHTTPD {
                     String contentLengthStr = headers.get("content-length");
                     int contentLength = contentLengthStr != null ? Integer.parseInt(contentLengthStr) : 0;
                     
-                    // Save as .tmp so Sony's MediaScanner completely ignores the incoming stream
+                    // Save stream to a temporary file first
                     tempFile = new File(targetDir, "upload_" + System.currentTimeMillis() + ".tmp");
                     destFile = new File(targetDir, fileName);
 
@@ -91,29 +100,30 @@ public class HttpServer extends NanoHTTPD {
                     out.close(); 
                     out = null;
 
-                    // --- THE SWITCH ---
+                    // Finalize the file rename
                     if (tempFile.exists()) {
                         if (destFile.exists()) destFile.delete(); 
-                        boolean success = tempFile.renameTo(destFile);
-                        if (!success) {
-                            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json", "{\"error\":\"OS blocked rename operation\"}");
-                        }
+                        tempFile.renameTo(destFile);
                     }
 
-                    return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"status\":\"success\"}");
+                    Response success = newFixedLengthResponse(Response.Status.OK, "application/json", "{\"status\":\"success\"}");
+                    success.addHeader("Access-Control-Allow-Origin", "*");
+                    return success;
                 } catch (Exception e) {
                     if (tempFile != null && tempFile.exists()) tempFile.delete(); 
-                    return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json", "{\"error\":\"Upload stream failed\"}");
+                    return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json", "{\"error\":\"Upload failed\"}");
                 } finally {
                     try { if (out != null) out.close(); } catch (Exception e) {}
                 }
             }
 
+            // Dashboard Home
             if (uri.equals("/")) {
                 InputStream is = context.getAssets().open("index.html");
                 return newChunkedResponse(Response.Status.OK, "text/html", is);
             }
 
+            // System Status API
             if (uri.equals("/api/system")) {
                 StatFs stat = new StatFs(Filepaths.getStorageRoot().getPath());
                 long bytesAvailable = (long)stat.getBlockSize() * (long)stat.getAvailableBlocks();
@@ -126,6 +136,7 @@ public class HttpServer extends NanoHTTPD {
                 return newFixedLengthResponse(Response.Status.OK, "application/json", json);
             }
 
+            // File Listing API
             if (uri.startsWith("/api/files")) {
                 Map<String, String> params = session.getParms();
                 String folderParam = params.get("folder"); 
@@ -144,6 +155,7 @@ public class HttpServer extends NanoHTTPD {
                 return newFixedLengthResponse(Response.Status.OK, "application/json", json.toString());
             }
 
+            // Image Delivery (Thumbs and Full Size)
             if (uri.startsWith("/thumb/") || uri.startsWith("/full/")) {
                 Map<String, String> params = session.getParms();
                 String folder = params.get("folder");
@@ -155,7 +167,7 @@ public class HttpServer extends NanoHTTPD {
                     if (uri.startsWith("/full/")) {
                         return newFixedLengthResponse(Response.Status.OK, "image/jpeg", new FileInputStream(file), file.length());
                     } else {
-                        // Thumbnail processing
+                        // Extract embedded thumbnail if available
                         if (folder != null && !folder.equals("GRADED")) {
                             try {
                                 ExifInterface exif = new ExifInterface(file.getAbsolutePath());
@@ -164,6 +176,7 @@ public class HttpServer extends NanoHTTPD {
                             } catch (Exception e) {}
                         }
                         
+                        // Generate thumbnail from full image
                         BitmapFactory.Options opts = new BitmapFactory.Options();
                         opts.inSampleSize = 8;
                         opts.inPurgeable = true; 
@@ -185,13 +198,8 @@ public class HttpServer extends NanoHTTPD {
         return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "404");
     }
 
-    /**
-     * Dynamically searches for original JPEGs across all Sony MSDCF folders, 
-     * preventing the "100MSDCF" hardcode bug.
-     */
     private List<File> getMediaFiles(String folderType) {
         List<File> result = new ArrayList<File>();
-        
         if (folderType != null && folderType.equals("GRADED")) {
             File gradedDir = Filepaths.getGradedDir();
             if (gradedDir.exists()) {
@@ -203,7 +211,6 @@ public class HttpServer extends NanoHTTPD {
                 }
             }
         } else {
-            // Scan DCIM dynamically
             File dcimDir = Filepaths.getDcimDir();
             if (dcimDir.exists()) {
                 File[] subDirs = dcimDir.listFiles();
@@ -221,16 +228,12 @@ public class HttpServer extends NanoHTTPD {
                 }
             }
         }
-        
         Collections.sort(result, new Comparator<File>() {
             public int compare(File f1, File f2) { return Long.valueOf(f2.lastModified()).compareTo(f1.lastModified()); }
         });
         return result;
     }
 
-    /**
-     * Helper to safely locate a file without hardcoding its exact subdirectory.
-     */
     private File findRequestedFile(String folder, String name) {
         if (folder != null && folder.equals("GRADED")) {
             return new File(Filepaths.getGradedDir(), name);
@@ -242,12 +245,12 @@ public class HttpServer extends NanoHTTPD {
                     for (File subDir : subDirs) {
                         if (subDir.isDirectory() && subDir.getName().toUpperCase().endsWith("MSDCF")) {
                             File testFile = new File(subDir, name);
-                            if (testFile.exists()) return testFile; // Found it
+                            if (testFile.exists()) return testFile; 
                         }
                     }
                 }
             }
         }
-        return null; // Not found
+        return null;
     }
 }
