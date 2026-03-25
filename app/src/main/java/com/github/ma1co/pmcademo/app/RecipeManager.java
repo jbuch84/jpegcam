@@ -1,10 +1,9 @@
-// Part 1 of 1 - RecipeManager.java (Replaces existing file)
-// Location: app/src/main/java/com/github/ma1co/pmcademo/app/RecipeManager.java
-
 package com.github.ma1co.pmcademo.app;
 
+import android.os.Environment;
 import java.io.*;
 import java.util.ArrayList;
+import java.util.List;
 
 public class RecipeManager {
     private RTLProfile[] profiles = new RTLProfile[10];
@@ -36,46 +35,57 @@ public class RecipeManager {
         recipePaths.add("NONE"); 
         recipeNames.add("NONE"); 
         
-        File[] possibleDirs = {
-            new File(Environment.getExternalStorageDirectory(), "LUTS"),
-            new File(Environment.getExternalStorageDirectory(), "luts"),
-            new File("/storage/sdcard0/LUTS"),
-            new File("/storage/sdcard1/LUTS")
+        // Scan ALL possible mount points instead of stopping at the first one
+        String[] possibleMounts = {
+            Environment.getExternalStorageDirectory().getAbsolutePath(),
+            "/storage/sdcard0", // Default for older/basic models
+            "/storage/sdcard1", // Actual SD card on A7S II, A6500, etc.
+            "/mnt/sdcard",
+            "/mnt/extSdCard",
+            "/storage/extSdCard"
         };
         
-        for (File lutDir : possibleDirs) {
-            if (lutDir.exists() && lutDir.isDirectory()) {
-                File[] files = lutDir.listFiles();
-                if (files != null) {
-                    for (File f : files) {
-                        String rawName = f.getName();
-                        String u = rawName.toUpperCase();
-                        
-                        if (rawName.startsWith(".")) continue;
+        // Strictly look inside the JPEGCAM app folder
+        String[] possibleFolders = { "JPEGCAM/LUTS", "JPEGCAM/luts", "jpegcam/LUTS", "jpegcam/luts" };
 
-                        if (u.endsWith(".CUB") || u.endsWith(".CUBE")) {
-                            if (!recipePaths.contains(f.getAbsolutePath())) {
-                                recipePaths.add(f.getAbsolutePath());
-                                
-                                String prettyName = u.replace(".CUBE", "").replace(".CUB", "");
-                                if (prettyName.contains("~")) {
-                                    prettyName = prettyName.substring(0, prettyName.indexOf("~"));
-                                }
-                                
-                                try {
-                                    BufferedReader br = new BufferedReader(new FileReader(f));
-                                    String line;
-                                    for(int j=0; j<15; j++) {
-                                        line = br.readLine();
-                                        if (line != null && line.startsWith("TITLE")) {
-                                            prettyName = line.replace("TITLE", "").replace("\"", "").trim().toUpperCase();
-                                            break;
-                                        }
+        for (String mount : possibleMounts) {
+            for (String folder : possibleFolders) {
+                File lutDir = new File(mount, folder);
+                if (lutDir.exists() && lutDir.isDirectory()) {
+                    File[] files = lutDir.listFiles();
+                    if (files != null) {
+                        for (File f : files) {
+                            String rawName = f.getName();
+                            String u = rawName.toUpperCase();
+                            
+                            if (rawName.startsWith(".")) continue;
+
+                            if (f.length() > 0 && (u.endsWith(".CUB") || u.endsWith(".CUBE"))) {
+                                // Prevent duplicates if the OS symlinks paths (e.g. sdcard0 and Environment pointing to the same place)
+                                if (!recipePaths.contains(f.getAbsolutePath())) {
+                                    recipePaths.add(f.getAbsolutePath());
+                                    
+                                    String prettyName = u.replace(".CUBE", "").replace(".CUB", "");
+                                    
+                                    if (prettyName.contains("~")) {
+                                        prettyName = prettyName.substring(0, prettyName.indexOf("~"));
                                     }
-                                    br.close();
-                                } catch (Exception e) {}
-                                
-                                recipeNames.add(prettyName);
+                                    
+                                    try {
+                                        BufferedReader br = new BufferedReader(new FileReader(f));
+                                        String line;
+                                        for(int j=0; j<15; j++) {
+                                            line = br.readLine();
+                                            if (line != null && line.startsWith("TITLE")) {
+                                                prettyName = line.replace("TITLE", "").replace("\"", "").trim().toUpperCase();
+                                                break;
+                                            }
+                                        }
+                                        br.close();
+                                    } catch (Exception e) {}
+                                    
+                                    recipeNames.add(prettyName);
+                                }
                             }
                         }
                     }
@@ -85,8 +95,29 @@ public class RecipeManager {
     }
 
     private File getLutDir() {
-        // Now using our centralized dynamic pathing
-        return Filepaths.getLutDir();
+        // Used primarily for saving preferences. Still stops at the first valid path.
+        String[] possibleMounts = {
+            Environment.getExternalStorageDirectory().getAbsolutePath(),
+            "/storage/sdcard0",
+            "/storage/sdcard1",
+            "/mnt/sdcard",
+            "/mnt/extSdCard",
+            "/storage/extSdCard"
+        };
+        
+        String[] possibleFolders = { "JPEGCAM/LUTS", "JPEGCAM/luts", "jpegcam/LUTS", "jpegcam/luts" };
+
+        for (String mount : possibleMounts) {
+            for (String folder : possibleFolders) {
+                File testDir = new File(mount, folder);
+                if (testDir.exists() && testDir.isDirectory()) {
+                    return testDir;
+                }
+            }
+        }
+        
+        // Failsafe: Return default JPEGCAM folder so savePreferences() creates the correct structure
+        return new File(Environment.getExternalStorageDirectory(), "JPEGCAM/LUTS");
     }
 
     public void savePreferences() {
