@@ -1255,8 +1255,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         p.setWhiteBalance(wb);
         
         if (p.get("white-balance-shift-mode") != null) p.set("white-balance-shift-mode", (prof.wbShift != 0 || prof.wbShiftGM != 0) ? "true" : "false");
+        // We add a minus sign to prof.wbShiftGM to invert the Green/Magenta axis for the hardware
         if (p.get("white-balance-shift-lb") != null) p.set("white-balance-shift-lb", String.valueOf(prof.wbShift)); 
-        if (p.get("white-balance-shift-cc") != null) p.set("white-balance-shift-cc", String.valueOf(prof.wbShiftGM));
+        if (p.get("white-balance-shift-cc") != null) p.set("white-balance-shift-cc", String.valueOf(-prof.wbShiftGM));
         if (p.get("contrast") != null) p.set("contrast", String.valueOf(prof.contrast)); 
         if (p.get("saturation") != null) p.set("saturation", String.valueOf(prof.saturation)); 
         if (p.get("sharpness") != null) p.set("sharpness", String.valueOf(prof.sharpness));
@@ -2637,33 +2638,38 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             // --- THE 24MB HEAP LIFESAVER: EXIF THUMBNAIL EXTRACTION ---
             Bitmap raw = null;
             
-            // 1. Try to pull the tiny embedded EXIF thumbnail first (uses < 150 KB of RAM)
-            byte[] thumbData = exif.getThumbnail();
-            if (thumbData != null && thumbData.length > 0) {
-                BitmapFactory.Options thumbOpts = new BitmapFactory.Options();
-                thumbOpts.inPreferredConfig = Bitmap.Config.RGB_565; // Force 16-bit color (saves 50% RAM)
-                raw = BitmapFactory.decodeByteArray(thumbData, 0, thumbData.length, thumbOpts);
-            }
+            // --- HIGH-QUALITY / MEMORY-SAFE DECODE ---
+            // 1. Read just the dimensions of the file (uses 0 RAM)
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inJustDecodeBounds = true;
+            BitmapFactory.decodeFile(path, opts);
+            
+            // 2. Target a crisp screen resolution
+            final int reqWidth = 1024;
+            final int reqHeight = 768;
+            int inSampleSize = 1;
 
-            // 2. Fallback: If no thumbnail exists, do a hyper-aggressive file decode
-            if (raw == null) {
-                BitmapFactory.Options opts = new BitmapFactory.Options();
-                opts.inJustDecodeBounds = true;
-                BitmapFactory.decodeFile(path, opts);
-                
-                // Aggressively target a tiny 640x480 envelope
-                int inSampleSize = 1;
-                while ((opts.outHeight / inSampleSize) > 480 || (opts.outWidth / inSampleSize) > 640) {
+            // 3. Aggressively calculate the shrink factor 
+            // (Using || ensures we shrink until BOTH sides fit safely)
+            if (opts.outHeight > reqHeight || opts.outWidth > reqWidth) {
+                while ((opts.outHeight / inSampleSize) > reqHeight || (opts.outWidth / inSampleSize) > reqWidth) {
                     inSampleSize *= 2;
                 }
+            }
 
-                opts.inJustDecodeBounds = false;
-                opts.inSampleSize = inSampleSize;
-                opts.inPreferredConfig = Bitmap.Config.RGB_565; 
-                opts.inPurgeable = true;
-                opts.inInputShareable = true;
+            // 4. Decode the actual image at the safe resolution
+            opts.inJustDecodeBounds = false;
+            opts.inSampleSize = inSampleSize;
+            // Force 16-bit color (2 bytes per pixel). This instantly halves the RAM usage!
+            opts.inPreferredConfig = Bitmap.Config.RGB_565; 
+            opts.inPurgeable = true;
+            opts.inInputShareable = true;
 
-                raw = BitmapFactory.decodeFile(path, opts);
+            Bitmap raw = BitmapFactory.decodeFile(path, opts);
+
+            if (raw == null) {
+                if (tvPlaybackInfo != null) tvPlaybackInfo.setText((idx + 1) + " / " + playbackFiles.size() + "\n[DECODE ERROR]");
+                return;
             }
 
             if (raw == null) {
