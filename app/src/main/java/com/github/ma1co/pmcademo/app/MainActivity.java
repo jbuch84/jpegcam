@@ -2496,27 +2496,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     Log.e("JPEG.CAM", "Failed to restore camera state on boot: " + e.getMessage());
                 }
             }
+        } // <-- NEW: This bracket closes the massive "if (cameraManager != null)" block!
 
         // --- FORCE HARDWARE TO INGEST THE BOOT RECIPE ---
         applyHardwareRecipe();
         
         updateMainHUD();
-    }
+    } // <-- STILL HERE: This bracket closes onCameraReady()
     
     @Override 
     public void onShutterSpeedChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
     
     @Override 
     public void onApertureChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
-
-    @Override 
-    public void onHardwareStateChanged() {
-        runOnUiThread(new Runnable() {
-            public void run() {
-                requestHudUpdate();
-            }
-        });
-    }
     
     @Override 
     public void onIsoChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
