@@ -89,7 +89,7 @@ public class SonyFileScanner {
                             String name = f.getName().toUpperCase();
                             if (name.endsWith(".JPG") && !name.startsWith("FILM_") && !name.startsWith("PRCS") && !name.startsWith("TEMP_")) {
                                 
-                                // BYPASS TIMESTAMPS: Sony file paths strictly increment (e.g. 100MSDCF/DSC0001 -> 100MSDCF/DSC0002)
+                                // BYPASS TIMESTAMPS: Sony file paths strictly increment
                                 String currentFilePath = f.getAbsolutePath();
                                 if (currentFilePath.compareTo(maxFilePath) > 0) {
                                     maxFilePath = currentFilePath;
@@ -110,8 +110,12 @@ public class SonyFileScanner {
                 
                 if (triggerCallback && mCallback != null) {
                     if (mCallback.isReadyToProcess()) {
+                        
+                        // JAVA FIX: Create a final copy of the string for the inner class
+                        final String finalPathToProcess = maxFilePath; 
+                        
                         mainHandler.post(new Runnable() {
-                            @Override public void run() { mCallback.onNewPhotoDetected(maxFilePath); }
+                            @Override public void run() { mCallback.onNewPhotoDetected(finalPathToProcess); }
                         });
                     } else {
                         Log.w("JPEG.CAM", "Engine blocked processing. (LUT is 0/OFF or processor not initialized).");
