@@ -1,6 +1,7 @@
 package com.github.ma1co.pmcademo.app;
 
 import android.os.Environment;
+import android.util.Log;
 import java.io.*;
 import java.util.ArrayList;
 
@@ -11,6 +12,20 @@ public class RecipeManager {
     
     private ArrayList<String> recipePaths = new ArrayList<String>();
     private ArrayList<String> recipeNames = new ArrayList<String>();
+
+    // Centralized lists to eliminate duplication and ensure consistency
+    private static final String[] POSSIBLE_MOUNTS = {
+        Environment.getExternalStorageDirectory().getAbsolutePath(),
+        "/storage/sdcard0", 
+        "/storage/sdcard1", 
+        "/mnt/sdcard",
+        "/mnt/extSdCard",
+        "/storage/extSdCard"
+    };
+    
+    private static final String[] POSSIBLE_FOLDERS = { 
+        "JPEGCAM/LUTS", "jpegcam/luts", "JPEGCAM/luts", "jpegcam/LUTS" 
+    };
 
     public RecipeManager() {
         for (int i = 0; i < 10; i++) {
@@ -28,29 +43,20 @@ public class RecipeManager {
     public ArrayList<String> getRecipePaths() { return recipePaths; }
     public ArrayList<String> getRecipeNames() { return recipeNames; }
 
+    /**
+     * Aggressively scans all possible mount points for LUT files inside the JPEGCAM folder.
+     */
     public void scanRecipes() { 
         recipePaths.clear(); 
         recipeNames.clear(); 
         recipePaths.add("NONE"); 
         recipeNames.add("NONE"); 
         
-        // Scan ALL possible mounts to catch the A7II's physical SD card (/storage/sdcard1)
-        String[] possibleMounts = {
-            Environment.getExternalStorageDirectory().getAbsolutePath(),
-            "/storage/sdcard0", 
-            "/storage/sdcard1", 
-            "/mnt/sdcard",
-            "/mnt/extSdCard",
-            "/storage/extSdCard"
-        };
-        
-        // Strictly look inside the JPEGCAM app folder
-        String[] possibleFolders = { "JPEGCAM/LUTS", "JPEGCAM/luts", "jpegcam/LUTS", "jpegcam/luts" };
-
-        for (String mount : possibleMounts) {
-            for (String folder : possibleFolders) {
+        for (String mount : POSSIBLE_MOUNTS) {
+            for (String folder : POSSIBLE_FOLDERS) {
                 File lutDir = new File(mount, folder);
                 if (lutDir.exists() && lutDir.isDirectory()) {
+                    Log.d("JPEG.CAM", "Scanning for LUTs in: " + lutDir.getAbsolutePath());
                     File[] files = lutDir.listFiles();
                     if (files != null) {
                         for (File f : files) {
@@ -59,27 +65,26 @@ public class RecipeManager {
                             
                             if (rawName.startsWith(".")) continue;
 
-                            // Must be > 100 bytes and a CUBE file
-                            if (f.length() > 100 && (u.endsWith(".CUB") || u.endsWith(".CUBE"))) {
-                                
-                                // Prevent duplicates if the OS maps multiple paths to the same physical SD card
+                            // .CUBE files check (> 10 bytes)
+                            if (f.length() > 10 && (u.endsWith(".CUB") || u.endsWith(".CUBE"))) {
                                 if (!recipePaths.contains(f.getAbsolutePath())) {
                                     recipePaths.add(f.getAbsolutePath());
                                     
-                                    // Strip extensions safely
+                                    // Default name from filename
                                     String prettyName = u.replace(".CUBE", "").replace(".CUB", "");
-                                    
                                     if (prettyName.contains("~")) {
                                         prettyName = prettyName.substring(0, prettyName.indexOf("~"));
                                     }
                                     
+                                    // Try to parse internal LUT title
                                     try {
                                         BufferedReader br = new BufferedReader(new FileReader(f));
                                         String line;
                                         for(int j=0; j<15; j++) {
                                             line = br.readLine();
-                                            if (line != null && line.startsWith("TITLE")) {
-                                                prettyName = line.replace("TITLE", "").replace("\"", "").trim().toUpperCase();
+                                            if (line != null && line.toUpperCase().startsWith("TITLE")) {
+                                                prettyName = line.replace("TITLE", "").replace("title", "")
+                                                                .replace("\"", "").trim().toUpperCase();
                                                 break;
                                             }
                                         }
@@ -87,6 +92,7 @@ public class RecipeManager {
                                     } catch (Exception e) {}
                                     
                                     recipeNames.add(prettyName);
+                                    Log.d("JPEG.CAM", "Found LUT: " + prettyName + " at " + f.getAbsolutePath());
                                 }
                             }
                         }
@@ -96,29 +102,19 @@ public class RecipeManager {
         }
     }
 
+    /**
+     * Returns the primary directory for saving preference backups.
+     */
     private File getLutDir() {
-        // Used primarily for saving preferences. Returns the first valid path it finds.
-        String[] possibleMounts = {
-            Environment.getExternalStorageDirectory().getAbsolutePath(),
-            "/storage/sdcard0",
-            "/storage/sdcard1",
-            "/mnt/sdcard",
-            "/mnt/extSdCard",
-            "/storage/extSdCard"
-        };
-        
-        String[] possibleFolders = { "JPEGCAM/LUTS", "JPEGCAM/luts", "jpegcam/LUTS", "jpegcam/luts" };
-
-        for (String mount : possibleMounts) {
-            for (String folder : possibleFolders) {
+        for (String mount : POSSIBLE_MOUNTS) {
+            for (String folder : POSSIBLE_FOLDERS) {
                 File testDir = new File(mount, folder);
                 if (testDir.exists() && testDir.isDirectory()) {
                     return testDir;
                 }
             }
         }
-        
-        // Failsafe: Return default JPEGCAM folder so savePreferences() creates the correct structure
+        // Failsafe: return default folder on external storage
         return new File(Environment.getExternalStorageDirectory(), "JPEGCAM/LUTS");
     }
 
@@ -138,46 +134,49 @@ public class RecipeManager {
                 String path = (p.lutIndex >= 0 && p.lutIndex < recipePaths.size()) ? recipePaths.get(p.lutIndex) : "NONE";
                 String safeName = p.profileName != null ? p.profileName : "";
                 
-                sb.append(i).append(",").append(path).append(",") // 0, 1
-                  .append(p.opacity).append(",").append(p.grain).append(",") // 2, 3
-                  .append(p.grainSize).append(",").append(p.rollOff).append(",") // 4, 5
-                  .append(p.vignette).append(",") // 6
-                  .append(p.whiteBalance).append(",") // 7
-                  .append(p.wbShift).append(",") // 8
-                  .append(p.dro).append(",") // 9
-                  .append(p.wbShiftGM).append(",") // 10
-                  .append(p.contrast).append(",") // 11
-                  .append(p.saturation).append(",") // 12
-                  .append(p.sharpness).append(",") // 13
-                  .append(safeName).append(",") // 14
-                  .append(p.colorMode).append(",") // 15
-                  .append(p.sharpnessGain).append(",") // 16
+                sb.append(i).append(",").append(path).append(",") 
+                  .append(p.opacity).append(",").append(p.grain).append(",") 
+                  .append(p.grainSize).append(",").append(p.rollOff).append(",") 
+                  .append(p.vignette).append(",") 
+                  .append(p.whiteBalance).append(",") 
+                  .append(p.wbShift).append(",") 
+                  .append(p.dro).append(",") 
+                  .append(p.wbShiftGM).append(",") 
+                  .append(p.contrast).append(",") 
+                  .append(p.saturation).append(",") 
+                  .append(p.sharpness).append(",") 
+                  .append(safeName).append(",") 
+                  .append(p.colorMode).append(",") 
+                  .append(p.sharpnessGain).append(",") 
                   .append(p.colorDepthRed).append(":").append(p.colorDepthGreen).append(":")
                   .append(p.colorDepthBlue).append(":").append(p.colorDepthCyan).append(":")
-                  .append(p.colorDepthMagenta).append(":").append(p.colorDepthYellow).append(",") // 17
+                  .append(p.colorDepthMagenta).append(":").append(p.colorDepthYellow).append(",") 
                   .append(p.advMatrix[0]).append(":").append(p.advMatrix[1]).append(":")
                   .append(p.advMatrix[2]).append(":").append(p.advMatrix[3]).append(":")
                   .append(p.advMatrix[4]).append(":").append(p.advMatrix[5]).append(":")
                   .append(p.advMatrix[6]).append(":").append(p.advMatrix[7]).append(":")
-                  .append(p.advMatrix[8]).append(",") // 18
-                  .append(p.proColorMode).append(",") // 19
-                  .append(p.pictureEffect).append(",") // 20
-                  .append(p.peToyCameraTone).append(",") // 21
-                  .append(p.vignetteHardware).append(",") // 22
-                  .append(p.softFocusLevel).append(",") // 23
-                  .append(p.shadingRed).append(",") // 24
-                  .append(p.shadingBlue).append(",") // 25
-                  .append(p.colorChrome).append(",") // 26
-                  .append(p.chromeBlue).append(",") // 27
-                  .append(p.shadowToe).append(",") // 28
-                  .append(p.subtractiveSat).append(",") // 29
-                  .append(p.halation).append("\n"); // 30
+                  .append(p.advMatrix[8]).append(",") 
+                  .append(p.proColorMode).append(",") 
+                  .append(p.pictureEffect).append(",") 
+                  .append(p.peToyCameraTone).append(",") 
+                  .append(p.vignetteHardware).append(",") 
+                  .append(p.softFocusLevel).append(",") 
+                  .append(p.shadingRed).append(",") 
+                  .append(p.shadingBlue).append(",") 
+                  .append(p.colorChrome).append(",") 
+                  .append(p.chromeBlue).append(",") 
+                  .append(p.shadowToe).append(",") 
+                  .append(p.subtractiveSat).append(",") 
+                  .append(p.halation).append("\n"); 
             }
             fos.write(sb.toString().getBytes()); 
             fos.flush(); 
             fos.getFD().sync(); 
             fos.close();
-        } catch (Exception e) {}
+            Log.d("JPEG.CAM", "Preferences saved to: " + backupFile.getAbsolutePath());
+        } catch (Exception e) {
+            Log.e("JPEG.CAM", "Save error: " + e.getMessage());
+        }
     }
 
     public void loadPreferences() {
@@ -240,12 +239,10 @@ public class RecipeManager {
                                 p.vignetteHardware = Integer.parseInt(parts[22]); p.softFocusLevel = Integer.parseInt(parts[23]);
                                 p.shadingRed = Integer.parseInt(parts[24]); p.shadingBlue = Integer.parseInt(parts[25]);
                             }
-
                             if (parts.length >= 28) {
                                 p.colorChrome = Integer.parseInt(parts[26]);
                                 p.chromeBlue = Integer.parseInt(parts[27]);
                             }
-
                             if (parts.length >= 31) {
                                 p.shadowToe = Integer.parseInt(parts[28]);
                                 p.subtractiveSat = Integer.parseInt(parts[29]);
@@ -255,7 +252,10 @@ public class RecipeManager {
                     }
                 }
                 br.close(); 
-            } catch (Exception e) {}
+                Log.d("JPEG.CAM", "Preferences loaded successfully.");
+            } catch (Exception e) {
+                Log.e("JPEG.CAM", "Load error: " + e.getMessage());
+            }
         }
     } 
 }

@@ -1,27 +1,47 @@
-// Part 1 of 1 - Filepaths.java (Replaces existing file)
-// Location: app/src/main/java/com/github/ma1co/pmcademo/app/Filepaths.java
-
 package com.github.ma1co.pmcademo.app;
 
 import android.os.Environment;
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 
 public class Filepaths {
 
-    public static File getStorageRoot() {
-        return Environment.getExternalStorageDirectory();
+    /**
+     * Returns a list of all possible storage locations.
+     * Necessary because A7II mounts physical SD cards at /storage/sdcard1.
+     */
+    public static List<File> getStorageRoots() {
+        ArrayList<File> roots = new ArrayList<File>();
+        roots.add(Environment.getExternalStorageDirectory()); // Usually /storage/sdcard0
+        roots.add(new File("/storage/sdcard1"));              // Physical SD on A7 series
+        roots.add(new File("/mnt/sdcard"));
+        roots.add(new File("/storage/extSdCard"));
+        return roots;
     }
 
     public static File getAppDir() {
-        File dir = new File(getStorageRoot(), "JPGCAM");
-        if (!dir.exists()) dir.mkdirs();
-        return dir;
+        // Look for the existing JPEGCAM folder on any mount point
+        for (File root : getStorageRoots()) {
+            File dir = new File(root, "JPEGCAM");
+            if (dir.exists()) return dir;
+        }
+        // Failsafe: Create it on the default external storage
+        File defaultDir = new File(Environment.getExternalStorageDirectory(), "JPEGCAM");
+        if (!defaultDir.exists()) defaultDir.mkdirs();
+        return defaultDir;
     }
 
     public static File getLutDir() {
-        File dir = new File(getAppDir(), "LUTS");
-        if (!dir.exists()) dir.mkdirs();
-        return dir;
+        // Look for the existing JPEGCAM/LUTS folder on any mount point
+        for (File root : getStorageRoots()) {
+            File dir = new File(root, "JPEGCAM/LUTS");
+            if (dir.exists()) return dir;
+        }
+        // Failsafe: Create it in the app directory
+        File defaultDir = new File(getAppDir(), "LUTS");
+        if (!defaultDir.exists()) defaultDir.mkdirs();
+        return defaultDir;
     }
 
     public static File getRecipeDir() {
@@ -43,13 +63,12 @@ public class Filepaths {
     }
 
     public static File getDcimDir() {
-        return new File(getStorageRoot(), "DCIM");
+        // Prioritize physical SD card for the DCIM folder on A7II
+        File sd1 = new File("/storage/sdcard1/DCIM");
+        if (sd1.exists()) return sd1;
+        return new File(Environment.getExternalStorageDirectory(), "DCIM");
     }
 
-    /**
-     * Forces the creation of the entire JPGCAM folder skeleton.
-     * Should be called once during app boot.
-     */
     public static void buildAppStructure() {
         getAppDir();
         getLutDir();

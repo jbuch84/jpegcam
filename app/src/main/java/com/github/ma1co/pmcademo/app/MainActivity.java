@@ -245,8 +245,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        String model = android.os.Build.MODEL.toUpperCase();
-        hasPhysicalPasmDial = model.contains("ILCE-7") || model.contains("ILCE-9") || model.contains("ILCE-1") || model.contains("ILCA-99");
+        String model = android.os.Build.MODEL;
+        Log.d("JPEG.CAM", "HARDWARE ID: " + model);
+        String uModel = model.toUpperCase();
+        // Broader detection for A7/A6000 series physical dials
+        hasPhysicalPasmDial = uModel.contains("ILCE-7") || uModel.contains("ILCE-6") || uModel.contains("ILCE-5000") == false;
         
         // Force creation of our JPGCAM folder skeleton immediately on boot
         Filepaths.buildAppStructure();
@@ -2458,6 +2461,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override 
     public void onHardwareStateChanged() {
+        Log.d("JPEG.CAM", "Physical Mode Dial Clicked!");
         runOnUiThread(new Runnable() {
             public void run() {
                 requestHudUpdate();
@@ -2468,49 +2472,31 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     @Override 
     public void onCameraReady() {
         syncHardwareState();
-        
         if (cameraManager != null) {
             hardwareFocalLength = cameraManager.getInitialFocalLength();
             if (hardwareFocalLength > 0.0f) {
                 isNativeLensAttached = true;
-                Log.d("JPEG.CAM_Lens", "Boot: Native Lens Detected: " + hardwareFocalLength + "mm");
-                
                 autoEquipMatchingLens(hardwareFocalLength);
             } else {
                 isNativeLensAttached = false;
-                Log.d("JPEG.CAM_Lens", "Boot: Manual Lens Detected");
             }
 
-            // --- THE NEW SANDBOX MEMORY INJECTION ---
             if (cameraManager.getCamera() != null) {
                 try {
                     Camera c = cameraManager.getCamera();
-                    Camera.Parameters p = c.getParameters();
-                    
-                    // We no longer force the PASM mode here. We let the physical dial dictate the mode!
-                    
-                    // Sync the UI with whatever focus mode the camera is ACTUALLY in
-                    cachedIsManualFocus = "manual".equals(p.getFocusMode());
+                    cachedIsManualFocus = "manual".equals(c.getParameters().getFocusMode());
                 } catch (Exception e) {
-                    Log.e("JPEG.CAM", "Failed to restore camera state on boot: " + e.getMessage());
+                    Log.e("JPEG.CAM", "Boot Sync Failed: " + e.getMessage());
                 }
             }
-        } // <-- NEW: This bracket closes the massive "if (cameraManager != null)" block!
-
-        // --- FORCE HARDWARE TO INGEST THE BOOT RECIPE ---
+        }
         applyHardwareRecipe();
-        
         updateMainHUD();
-    } // <-- STILL HERE: This bracket closes onCameraReady()
+    }
     
-    @Override 
-    public void onShutterSpeedChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
-    
-    @Override 
-    public void onApertureChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
-    
-    @Override 
-    public void onIsoChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
+    @Override public void onShutterSpeedChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
+    @Override public void onApertureChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
+    @Override public void onIsoChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
     
     @Override 
     public void onFocusPositionChanged(final float ratio) {
