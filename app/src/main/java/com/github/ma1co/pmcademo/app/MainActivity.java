@@ -1536,7 +1536,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             
             // Lock the boundaries to -200% and +200%
             p.advMatrix[hudSelection] = Math.max(-200, Math.min(200, target)); 
-        } // <--- This was the other missing brace!
             
         } else if (currentHudMode == 1) { 
             if (hudSelection == 0) p.colorDepthRed = Math.max(-7, Math.min(7, p.colorDepthRed + dir));
@@ -1545,6 +1544,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             else if (hudSelection == 3) p.colorDepthCyan = Math.max(-7, Math.min(7, p.colorDepthCyan + dir));
             else if (hudSelection == 4) p.colorDepthMagenta = Math.max(-7, Math.min(7, p.colorDepthMagenta + dir));
             else if (hudSelection == 5) p.colorDepthYellow = Math.max(-7, Math.min(7, p.colorDepthYellow + dir));
+            
         } else if (currentHudMode == 3) { 
             if (hudSelection == 0) p.contrast = Math.max(-3, Math.min(3, p.contrast + dir));
             else if (hudSelection == 1) p.saturation = Math.max(-3, Math.min(3, p.saturation + dir));
@@ -1573,6 +1573,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             } else if (hudSelection == 1 && "toy-camera".equals(eff)) {
                 p.vignetteHardware = Math.max(-16, Math.min(16, p.vignetteHardware + dir)); 
             }
+            
         } else if (currentHudMode == 6) { 
             if (hudSelection == 0) {
                 String[] styles = {"standard", "vivid", "portrait", "landscape", "mono", "sunset", "sepia"};
@@ -1581,16 +1582,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             } else if (hudSelection == 1) {
                 p.sharpnessGain = Math.max(-50, Math.min(50, p.sharpnessGain + (dir * 5)));
             }
+            
         } else if (currentHudMode == 7) { 
             String[] modes = {"off", "pro-standard", "pro-vivid", "pro-portrait"};
             int idx = 0; for(int i=0; i<modes.length; i++) if(modes[i].equals(p.proColorMode)) idx = i;
             p.proColorMode = modes[(idx + dir + modes.length) % modes.length];
+            
         } else if (currentHudMode == 8) { 
             if (hudSelection == 0) {
                 String[] eff = {"off", "toy-camera", "pop-color", "posterization", "retro-photo", "soft-high-key", "part-color", "rough-mono", "soft-focus", "hdr-art", "richtone-mono", "miniature", "watercolor", "illust"};
                 int idx = 0; for(int i=0; i<eff.length; i++) if(eff[i].equals(p.pictureEffect)) idx = i;
                 p.pictureEffect = eff[(idx + dir + eff.length) % eff.length];
             }
+            
         } else if (currentHudMode == 9) { 
             if (hudSelection == 0) {
                 String[] droModes = {"OFF", "AUTO", "LVL 1", "LVL 2", "LVL 3", "LVL 4", "LVL 5"};
