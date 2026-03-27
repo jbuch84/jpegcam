@@ -1,8 +1,6 @@
-// Part 1 of 1 - RecipeManager.java (Replaces existing file)
-// Location: app/src/main/java/com/github/ma1co/pmcademo/app/RecipeManager.java
-
 package com.github.ma1co.pmcademo.app;
 
+import android.util.Log;
 import java.io.*;
 import java.util.ArrayList;
 
@@ -10,14 +8,11 @@ public class RecipeManager {
     private RTLProfile[] profiles = new RTLProfile[10];
     private int currentSlot = 0;
     private int qualityIndex = 1;
-    
     private ArrayList<String> recipePaths = new ArrayList<String>();
     private ArrayList<String> recipeNames = new ArrayList<String>();
 
     public RecipeManager() {
-        for (int i = 0; i < 10; i++) {
-            profiles[i] = new RTLProfile(i); 
-        }
+        for (int i = 0; i < 10; i++) profiles[i] = new RTLProfile(i);
         scanRecipes();
     }
 
@@ -26,9 +21,13 @@ public class RecipeManager {
     public int getQualityIndex() { return qualityIndex; }
     public void setQualityIndex(int index) { this.qualityIndex = (index + 3) % 3; }
     public RTLProfile getCurrentProfile() { return profiles[currentSlot]; }
-    public RTLProfile getProfile(int index) { return profiles[index]; }
     public ArrayList<String> getRecipePaths() { return recipePaths; }
     public ArrayList<String> getRecipeNames() { return recipeNames; }
+
+    // Restored for MainActivity.java
+    public RTLProfile getProfile(int index) {
+        return profiles[index];
+    }
 
     public void scanRecipes() { 
         recipePaths.clear(); 
@@ -36,52 +35,42 @@ public class RecipeManager {
         recipePaths.add("NONE"); 
         recipeNames.add("NONE"); 
         
-        File lutDir = getLutDir();
-        if (lutDir != null && lutDir.exists() && lutDir.listFiles() != null) {
-            for (File f : lutDir.listFiles()) {
-                String rawName = f.getName();
-                String u = rawName.toUpperCase();
-                
-                if (rawName.startsWith(".")) continue;
-
-                // Lowered filesize threshold to 100 bytes just in case they have a tiny test LUT
-                if (f.length() > 100 && (u.endsWith(".CUB") || u.endsWith(".CUBE"))) {
-                    recipePaths.add(f.getAbsolutePath());
-                    
-                    // FIX: Replaced .CUBE *before* .CUB to prevent leaving a trailing "E"
-                    String prettyName = u.replace(".CUBE", "").replace(".CUB", "");
-                    
-                    if (prettyName.contains("~")) {
-                        prettyName = prettyName.substring(0, prettyName.indexOf("~"));
-                    }
-                    
-                    try {
-                        BufferedReader br = new BufferedReader(new FileReader(f));
-                        String line;
-                        for(int j=0; j<15; j++) {
-                            line = br.readLine();
-                            if (line != null && line.startsWith("TITLE")) {
-                                prettyName = line.replace("TITLE", "").replace("\"", "").trim().toUpperCase();
-                                break;
+        for (File root : Filepaths.getStorageRoots()) {
+            File lutDir = new File(root, "JPEGCAM/LUTS");
+            if (lutDir.exists() && lutDir.isDirectory()) {
+                Log.d("JPEG.CAM", "Scanning: " + lutDir.getAbsolutePath());
+                File[] files = lutDir.listFiles();
+                if (files != null) {
+                    for (File f : files) {
+                        String u = f.getName().toUpperCase();
+                        if (!u.startsWith(".") && (u.endsWith(".CUB") || u.endsWith(".CUBE"))) {
+                            if (!recipePaths.contains(f.getAbsolutePath())) {
+                                recipePaths.add(f.getAbsolutePath());
+                                String name = u.replace(".CUBE", "").replace(".CUB", "");
+                                try {
+                                    BufferedReader br = new BufferedReader(new FileReader(f));
+                                    String line;
+                                    for(int j=0; j<10; j++) {
+                                        line = br.readLine();
+                                        if (line != null && line.toUpperCase().startsWith("TITLE")) {
+                                            name = line.split("\"")[1].toUpperCase();
+                                            break;
+                                        }
+                                    }
+                                    br.close();
+                                } catch (Exception e) {}
+                                recipeNames.add(name);
                             }
                         }
-                        br.close();
-                    } catch (Exception e) {}
-                    
-                    recipeNames.add(prettyName);
+                    }
                 }
             }
         }
     }
 
-    private File getLutDir() {
-        // Now using our centralized dynamic pathing
-        return Filepaths.getLutDir();
-    }
-
     public void savePreferences() {
         try {
-            File lutDir = getLutDir();
+            File lutDir = Filepaths.getLutDir();
             if (!lutDir.exists()) lutDir.mkdirs(); 
             File backupFile = new File(lutDir, "RTLBAK.TXT");
             
@@ -93,7 +82,9 @@ public class RecipeManager {
             for(int i=0; i<10; i++) {
                 RTLProfile p = profiles[i];
                 String path = (p.lutIndex >= 0 && p.lutIndex < recipePaths.size()) ? recipePaths.get(p.lutIndex) : "NONE";
-                String safeName = p.profileName != null ? p.profileName : "";
+                
+                // ROBUST FIX 1: Strip commas from names so they don't break the CSV format!
+                String safeName = p.profileName != null ? p.profileName.replace(",", "") : "";
                 
                 sb.append(i).append(",").append(path).append(",") // 0, 1
                   .append(p.opacity).append(",").append(p.grain).append(",") // 2, 3
@@ -134,11 +125,13 @@ public class RecipeManager {
             fos.flush(); 
             fos.getFD().sync(); 
             fos.close();
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            Log.e("JPEG.CAM", "Failed to save RTLBAK: " + e.getMessage());
+        }
     }
 
     public void loadPreferences() {
-        File backupFile = new File(getLutDir(), "RTLBAK.TXT");
+        File backupFile = new File(Filepaths.getLutDir(), "RTLBAK.TXT");
         if (backupFile.exists()) {
             try {
                 BufferedReader br = new BufferedReader(new FileReader(backupFile));
@@ -181,17 +174,22 @@ public class RecipeManager {
                                 p.colorMode = parts[15];
                                 p.sharpnessGain = Integer.parseInt(parts[16]);
                                 
-                                String[] cDepths = parts[17].split(":");
-                                if (cDepths.length == 6) {
-                                    p.colorDepthRed = Integer.parseInt(cDepths[0]); p.colorDepthGreen = Integer.parseInt(cDepths[1]);
-                                    p.colorDepthBlue = Integer.parseInt(cDepths[2]); p.colorDepthCyan = Integer.parseInt(cDepths[3]);
-                                    p.colorDepthMagenta = Integer.parseInt(cDepths[4]); p.colorDepthYellow = Integer.parseInt(cDepths[5]);
-                                }
+                                // ROBUST FIX 2: Mini try-catches for arrays to prevent domino-crashing
+                                try {
+                                    String[] cDepths = parts[17].split(":");
+                                    if (cDepths.length == 6) {
+                                        p.colorDepthRed = Integer.parseInt(cDepths[0]); p.colorDepthGreen = Integer.parseInt(cDepths[1]);
+                                        p.colorDepthBlue = Integer.parseInt(cDepths[2]); p.colorDepthCyan = Integer.parseInt(cDepths[3]);
+                                        p.colorDepthMagenta = Integer.parseInt(cDepths[4]); p.colorDepthYellow = Integer.parseInt(cDepths[5]);
+                                    }
+                                } catch (Exception e) {} // Silently ignore bad color depths, keeping defaults
                                 
-                                String[] mtx = parts[18].split(":");
-                                if (mtx.length == 9) {
-                                    for(int m=0; m<9; m++) p.advMatrix[m] = Integer.parseInt(mtx[m]);
-                                }
+                                try {
+                                    String[] mtx = parts[18].split(":");
+                                    if (mtx.length == 9) {
+                                        for(int m=0; m<9; m++) p.advMatrix[m] = Integer.parseInt(mtx[m]);
+                                    }
+                                } catch (Exception e) {} // Silently ignore bad matrix arrays, keeping defaults
                                 
                                 p.proColorMode = parts[19]; p.pictureEffect = parts[20]; p.peToyCameraTone = parts[21];
                                 p.vignetteHardware = Integer.parseInt(parts[22]); p.softFocusLevel = Integer.parseInt(parts[23]);
@@ -212,7 +210,9 @@ public class RecipeManager {
                     }
                 }
                 br.close(); 
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                Log.e("JPEG.CAM", "Failed to load RTLBAK fully: " + e.getMessage());
+            }
         }
     } 
 }

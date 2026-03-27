@@ -16,12 +16,13 @@ import java.util.List;
  */
 public class AdvancedFocusMeterView extends View {
     private Paint trackPaint, needlePaint, dofPaint, markPaint, liveTextPaint, rulerTextPaint, bgPaint;
-    private Paint telemetryPaintLeft, telemetryPaintRight; // --- NEW PAINTS ---
+    private Paint telemetryPaintLeft, telemetryPaintRight; 
     
     private LensMath.GaugeState currentState = null;
     private float currentRatio = 0.5f;
     private float currentAperture = 2.8f;
     private float currentFocalLength = 50.0f;
+    private float currentCoC = 0.020f; // Stores dynamic sensor size
     private boolean isCalibrating = false;
     
     // Holds the dynamic calibration points to draw the dots
@@ -67,7 +68,7 @@ public class AdvancedFocusMeterView extends View {
         bgPaint.setColor(Color.DKGRAY);
         bgPaint.setStrokeWidth(4);
 
-        // --- NEW: TELEMETRY HUD SETUP ---
+        // --- TELEMETRY HUD SETUP ---
         telemetryPaintLeft = new Paint();
         telemetryPaintLeft.setColor(Color.argb(200, 200, 200, 200)); // Slight transparency
         telemetryPaintLeft.setTextSize(14);
@@ -79,13 +80,17 @@ public class AdvancedFocusMeterView extends View {
         telemetryPaintRight.setTextAlign(Paint.Align.RIGHT);
     }
 
-    // Feeds the view the UI dots AND the math result
-    public void update(float ratio, float aperture, float focalLength, boolean isCalibrating, List<LensProfileManager.CalPoint> points) {
+    // Feeds the view the UI dots AND the math result (now includes coc)
+    public void update(float ratio, float aperture, float focalLength, boolean isCalibrating, List<LensProfileManager.CalPoint> points, float coc) {
         this.currentRatio = ratio;
         this.currentAperture = aperture;
         this.currentFocalLength = focalLength;
         this.isCalibrating = isCalibrating;
         this.calPoints = points;
+        this.currentCoC = coc;
+        
+        // --- Sync the dynamic CoC from MainActivity to LensMath ---
+        LensMath.setCircleOfConfusion(coc);
         
         // --- CRITICAL FIX: DO NOT RUN MATH WHILE CALIBRATING ---
         if (!isCalibrating && points != null && points.size() >= 2) {

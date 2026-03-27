@@ -125,12 +125,24 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private int calibStep = 0; 
     private float minDistanceInput = 0.3f;
     private String detectedLensName = "Manual Lens";
+
+    private String getAppVersion() {
+        try {
+            // Reaches into the OS to grab the versionName from your build.gradle
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "Unknown"; // Failsafe
+        }
+    }
     
     private float detectedFocalLength = 50.0f;
     private float detectedMaxAperture = 2.8f;
     
     private float hardwareFocalLength = 0.0f;
     private boolean isNativeLensAttached = false;
+    private boolean hasPhysicalPasmDial = false;
+    private boolean isFullFrame = false;
+    private BroadcastReceiver hardwareStateReceiver; // <--- ADD THIS LINE
     
     private float virtualAperture = 2.8f;
     private float virtualFocusRatio = 0.5f;
@@ -243,8 +255,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // --- AUTOMATIC HARDWARE SCANNER ---
+        // --- UNIVERSAL FEATURE DETECTION ---
+        // Instead of guessing model names, we ask the Android Kernel if the 
+        // physical keypad matrix has a Mode Dial wired into it.
+        boolean hasDialKey1 = android.view.KeyCharacterMap.deviceHasKey(624);
+        boolean hasDialKey2 = android.view.KeyCharacterMap.deviceHasKey(ScalarInput.ISV_KEY_MODE_DIAL);
         
-        // Force creation of our JPGCAM folder skeleton immediately on boot
+        hasPhysicalPasmDial = hasDialKey1 || hasDialKey2;
+        android.util.Log.e("JPEG.CAM", "Universal Dial Detection: " + hasPhysicalPasmDial);
+        
+        // Force creation of our JPEGCAM folder skeleton immediately on boot
         Filepaths.buildAppStructure();
         
         File thumbsDir = new File(Filepaths.getDcimDir(), ".thumbnails");
@@ -480,11 +502,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     }
 
     private float getCircleOfConfusion() {
-        String model = android.os.Build.MODEL.toUpperCase();
-        if (model.contains("ILCE-7") || model.contains("ILCE-9") || model.contains("ILCE-1") || model.contains("DSC-RX1") || model.contains("ILCA-99")) {
-            return 0.030f; 
-        }
-        return 0.020f; 
+        return isFullFrame ? 0.030f : 0.020f; 
     }
     
     private void requestHudUpdate() {
@@ -784,7 +802,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             }
         } else if (!isPlaybackMode && mDialMode == DIAL_MODE_FOCUS && lensManager != null && lensManager.isCurrentProfileManual()) {
             virtualFocusRatio = Math.max(0.0f, virtualFocusRatio - 0.02f);
-            if (focusMeter != null) focusMeter.update(virtualFocusRatio, virtualAperture, lensManager.getCurrentFocalLength(), false, lensManager.getCurrentPoints());
+            if (focusMeter != null) focusMeter.update(virtualFocusRatio, virtualAperture, lensManager.getCurrentFocalLength(), false, lensManager.getCurrentPoints(), getCircleOfConfusion());
         } else if (isPlaybackMode) {
             showPlaybackImage(playbackIndex - 1);
         } else {
@@ -848,7 +866,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             }
         } else if (!isPlaybackMode && mDialMode == DIAL_MODE_FOCUS && lensManager != null && lensManager.isCurrentProfileManual()) {
             virtualFocusRatio = Math.min(1.0f, virtualFocusRatio + 0.02f);
-            if (focusMeter != null) focusMeter.update(virtualFocusRatio, virtualAperture, lensManager.getCurrentFocalLength(), false, lensManager.getCurrentPoints());
+            if (focusMeter != null) focusMeter.update(virtualFocusRatio, virtualAperture, lensManager.getCurrentFocalLength(), false, lensManager.getCurrentPoints(), getCircleOfConfusion());
         } else if (isPlaybackMode) {
             showPlaybackImage(playbackIndex + 1);
         } else {
@@ -1123,6 +1141,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             try { c.setParameters(p); } catch (Exception e) {}
         }
         else if (mDialMode == DIAL_MODE_PASM) {
+            if (hasPhysicalPasmDial) return; // <-- NEW: Prevent software override on A7II!
+            
             List<String> valid = new ArrayList<String>(); 
             String[] desired = {"program-auto", "aperture-priority", "shutter-priority", "shutter-speed-priority", "manual-exposure"};
             List<String> supported = p.getSupportedSceneModes();
@@ -1196,6 +1216,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         RTLProfile prof = recipeManager.getCurrentProfile(); 
         Camera.Parameters p = c.getParameters();
         
+        // --- USER UX LOCKOUTS ---
+        // Force Single-Shot mode (Burst processing will crash the RAM)
+        if (p.get("drive-mode") != null) {
+            p.set("drive-mode", "single");
+        }
+
         if (p.get("picture-profile") != null) p.set("picture-profile", "off");
         
         String safeProMode = prof.proColorMode != null ? prof.proColorMode.toLowerCase() : "off";
@@ -1747,7 +1773,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     menuRows[i].setVisibility(View.VISIBLE); 
                 }
             }
-        } else if (currentPage == 6) { // <--- MAKE SURE THIS IS 6 (Was 5)
+        } else if (currentPage == 6) { // <--- MAKE SURE THIS IS 6 (Was 5) 
             itemCount = 6;
             String[] qLabels = {"1/4 RES", "HALF RES", "FULL RES"};
             String[] gLabels = {"SW Global Resolution", "Base Scene", "Manual Focus Meter", "Anamorphic Crop", "Rule of Thirds Grid", "SW JPEG Quality"};
@@ -1947,7 +1973,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         tvSupportTitle.setTypeface(Typeface.DEFAULT_BOLD);
         
         TextView tvSupportSub = new TextView(this);
-        tvSupportSub.setText("by JPEG Cookbook");
+        tvSupportSub.setText("by JPEG Cookbook • v" + getAppVersion());
         tvSupportSub.setTextColor(Color.LTGRAY);
         tvSupportSub.setTextSize(12);
         tvSupportSub.setPadding(0, 0, 0, 20);
@@ -2169,6 +2195,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     
     @Override 
     public boolean onKeyDown(int k, KeyEvent e) { 
+        // UNIVERSAL CRASH PROTECTION: Swallow dial events on ALL cameras
+        if (k == 624 || k == ScalarInput.ISV_KEY_MODE_DIAL || 
+           (k >= ScalarInput.ISV_KEY_MODE_INVALID && k <= ScalarInput.ISV_KEY_MODE_CUSTOM3)) {
+            
+            // AUTO-DISCOVERY: If boot detection failed but they turned a physical dial, 
+            // lock out the software wheel permanently for this session!
+            if (!hasPhysicalPasmDial) hasPhysicalPasmDial = true;
+            
+            if (cameraManager != null) onHardwareStateChanged();
+            return true; // Prevents the OS from force-closing the app
+        }
+        
         if (isProcessing && (k == ScalarInput.ISV_KEY_S1_1 || k == ScalarInput.ISV_KEY_S1_2 || k == ScalarInput.ISV_KEY_S2)) return true; 
         if (k == ScalarInput.ISV_KEY_PLAY) {
             if (isPlaybackMode) exitPlayback(); 
@@ -2181,26 +2219,50 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     
     @Override 
     public boolean onKeyUp(int k, KeyEvent e) { 
+        if (k == 624 || k == ScalarInput.ISV_KEY_MODE_DIAL || 
+           (k >= ScalarInput.ISV_KEY_MODE_INVALID && k <= ScalarInput.ISV_KEY_MODE_CUSTOM3)) {
+            return true; 
+        }
+        
         if (isProcessing && (k == ScalarInput.ISV_KEY_S1_1 || k == ScalarInput.ISV_KEY_S1_2 || k == ScalarInput.ISV_KEY_S2)) return true; 
         if (inputManager != null) return inputManager.handleKeyUp(k, e) || super.onKeyUp(k, e); 
         return super.onKeyUp(k, e);
     }
     
-    @Override 
-    protected void onResume() { 
-        super.onResume(); 
-        if (hasSurface && cameraManager != null) cameraManager.open(mSurfaceView.getHolder()); 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // REMOVED: cameraManager.start() which was causing the build error!
         
-        IntentFilter sonyFilter = new IntentFilter("com.sony.scalar.database.avindex.action.AVINDEX_DATABASE_UPDATED");
-        registerReceiver(sonyCameraReceiver, sonyFilter);
-        registerReceiver(batteryReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED)); 
-        uiHandler.post(liveUpdater); 
+        // --- PREVENT PASM DIAL CRASH ON A7II ---
+        // Register a receiver to swallow Sony's internal hardware state broadcasts
+        // This stops ScalarABlackLauncher from force-closing the app.
+        if (hardwareStateReceiver == null) {
+            hardwareStateReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    android.util.Log.e("JPEG.CAM", "Hardware State Broadcast Intercepted!");
+                    if (cameraManager != null) onHardwareStateChanged();
+                }
+            };
+        }
+        IntentFilter filter = new IntentFilter();
+        filter.addAction("com.sony.scalar.hardware.action.MODE_DIAL_CHANGED");
+        filter.addAction("com.android.server.DAConnectionManagerService.HardwareStateChanged");
+        registerReceiver(hardwareStateReceiver, filter);
     }
     
     @Override 
     protected void onPause() { 
         super.onPause(); 
         uiHandler.removeCallbacksAndMessages(null); 
+        
+        // --- NEW: Release the A7II hardware dial lock ---
+        if (hardwareStateReceiver != null) {
+            try {
+                unregisterReceiver(hardwareStateReceiver);
+            } catch (Exception e) {}
+        }
         
         if (cameraManager != null && cameraManager.getCamera() != null) {
             try {
@@ -2244,9 +2306,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             } catch (Exception e) {}
         }
         
-        // (Duplication removed below here!)
         if (cameraManager != null) cameraManager.close(); 
-        try { unregisterReceiver(sonyCameraReceiver); unregisterReceiver(batteryReceiver); } catch (Exception e) {}
+        try { 
+            unregisterReceiver(sonyCameraReceiver); 
+            unregisterReceiver(batteryReceiver); 
+        } catch (Exception e) {}
+        
         if (connectivityManager != null) connectivityManager.stopNetworking(); 
         if (recipeManager != null) recipeManager.savePreferences(); 
         setAutoPowerOffMode(true);
@@ -2331,13 +2396,22 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private void updateMainHUD() {
         if (cameraManager == null || cameraManager.getCamera() == null) return;
         
+        // --- 1. CLEAN DISPLAY CHECK ---
+        // If the user pressed DISP to hide the HUD, we don't need to do any math.
+        // Just hide everything and immediately return to save CPU.
         if (isHudActive) {
             setHUDVisibility(View.GONE);
             if (focusMeter != null) focusMeter.setVisibility(View.GONE);
             if (tvCalibrationPrompt != null) tvCalibrationPrompt.setVisibility(View.GONE);
             return; 
+        } else {
+            // NORMAL STATE: Explicitly force the HUD to reappear after returning from a menu!
+            // (We will selectively hide things again at the bottom if calibrating)
+            setHUDVisibility(View.VISIBLE);
+            if (tvCalibrationPrompt != null) tvCalibrationPrompt.setVisibility(View.GONE);
         }
         
+        // --- 2. GATHER HARDWARE DATA ---
         Camera c = cameraManager.getCamera(); 
         Camera.Parameters p = c.getParameters(); 
         CameraEx.ParametersModifier pm = cameraManager.getCameraEx().createParametersModifier(p);
@@ -2349,6 +2423,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         String customName = prof.profileName != null ? prof.profileName.trim() : ("RECIPE " + (recipeManager.getCurrentSlot() + 1));
         if (customName.isEmpty()) customName = "RECIPE " + (recipeManager.getCurrentSlot() + 1);
         
+        // --- 3. UPDATE TEXT FIELDS ---
         if (!isProcessing && tvTopStatus != null) {
             tvTopStatus.setText(customName + " [" + displayName + "]\n" + (isReady ? "READY" : "LOADING.."));
             
@@ -2412,6 +2487,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             tvFocusMode.setTextColor(mDialMode == DIAL_MODE_FOCUS ? Color.WHITE : Color.rgb(227, 69, 20));
         }
         
+        // --- 4. UPDATE FOCUS METER ---
         if (focusMeter != null) {
             boolean shouldShow = prefShowFocusMeter && cachedIsManualFocus;
             focusMeter.setVisibility(shouldShow ? View.VISIBLE : View.GONE);
@@ -2422,13 +2498,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 float ratioToFeed = (lensManager != null && lensManager.isCurrentProfileManual() && !isCalibrating) ? virtualFocusRatio : cachedFocusRatio;
                 float apToFeed = (lensManager != null && lensManager.isCurrentProfileManual() && !isCalibrating) ? virtualAperture : cachedAperture;
                 
-                focusMeter.update(ratioToFeed, apToFeed, focalToUse, isCalibrating, ptsToUse);
+                focusMeter.update(ratioToFeed, apToFeed, focalToUse, isCalibrating, ptsToUse, getCircleOfConfusion());
             }
         }
         
         if (gridLines != null) gridLines.setVisibility(prefShowGridLines ? View.VISIBLE : View.GONE); 
         if (cinemaMattes != null) cinemaMattes.setVisibility(prefShowCinemaMattes ? View.VISIBLE : View.GONE);
 
+        // --- 5. CALIBRATION OVERRIDES ---
+        // Overrides the "Normal State" visibility if we are currently mapping a lens.
         if (isCalibrating || waitingForProfileChoice) {
             setHUDVisibility(View.GONE);
             if (focusMeter != null) focusMeter.setVisibility(View.VISIBLE);
@@ -2449,61 +2527,58 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     }
     
     @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int h1) {}
+
+    @Override 
+    public void onHardwareStateChanged() {
+        runOnUiThread(new Runnable() {
+            public void run() {
+                requestHudUpdate();
+            }
+        });
+    }
     
     @Override 
-    public void onCameraReady() { 
+    public void onCameraReady() {
         syncHardwareState();
-        
         if (cameraManager != null) {
             hardwareFocalLength = cameraManager.getInitialFocalLength();
-            if (hardwareFocalLength > 0.0f) {
-                isNativeLensAttached = true;
-                Log.d("JPEG.CAM_Lens", "Boot: Native Lens Detected: " + hardwareFocalLength + "mm");
-                
-                autoEquipMatchingLens(hardwareFocalLength);
-            } else {
-                isNativeLensAttached = false;
-                Log.d("JPEG.CAM_Lens", "Boot: Manual Lens Detected");
-            }
+            isNativeLensAttached = (hardwareFocalLength > 0.0f);
+            if (isNativeLensAttached) autoEquipMatchingLens(hardwareFocalLength);
 
-            // --- THE NEW SANDBOX MEMORY INJECTION ---
             if (cameraManager.getCamera() != null) {
                 try {
                     Camera c = cameraManager.getCamera();
                     Camera.Parameters p = c.getParameters();
-                    
-                    // 1. Restore the PASM mode you were using last time
-                    String savedMode = getSharedPreferences("JPEG.CAM_Prefs", MODE_PRIVATE).getString("savedPasmMode", "manual-exposure");
-                    List<String> supportedModes = p.getSupportedSceneModes();
-                    if (supportedModes != null && supportedModes.contains(savedMode)) {
-                        p.setSceneMode(savedMode);
-                    }
-                    
-                    c.setParameters(p);
-                    
-                    // 2. Sync the UI with whatever focus mode the camera is ACTUALLY in,
-                    // without forcing it to switch!
                     cachedIsManualFocus = "manual".equals(p.getFocusMode());
+                    
+                    // UNIVERSAL SENSOR DETECTION: Full frame cameras support APS-C crop mode switching.
+                    isFullFrame = "true".equals(p.get("apsc-mode-supported"));
+                    android.util.Log.e("JPEG.CAM", "Sensor size detected as: " + (isFullFrame ? "FULL FRAME" : "APS-C"));
                 } catch (Exception e) {
-                    Log.e("JPEG.CAM", "Failed to restore camera state on boot: " + e.getMessage());
+                    android.util.Log.e("JPEG.CAM", "Boot sync failed: " + e.getMessage());
                 }
             }
         }
-
-        // --- FORCE HARDWARE TO INGEST THE BOOT RECIPE ---
+        
         applyHardwareRecipe();
         
+        // Do an initial HUD draw
         updateMainHUD();
+        
+        // --- FIRMWARE RACE CONDITION FIX ---
+        // The physical dial takes a moment to report its true position to the OS on boot. 
+        // Force a re-sync 500ms after the app opens to guarantee accuracy.
+        uiHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (cameraManager != null) onHardwareStateChanged();
+            }
+        }, 500);
     }
     
-    @Override 
-    public void onShutterSpeedChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
-    
-    @Override 
-    public void onApertureChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
-    
-    @Override 
-    public void onIsoChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
+    @Override public void onShutterSpeedChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
+    @Override public void onApertureChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
+    @Override public void onIsoChanged() { runOnUiThread(new Runnable() { public void run() { requestHudUpdate(); } }); }
     
     @Override 
     public void onFocusPositionChanged(final float ratio) {
@@ -2515,7 +2590,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     List<LensProfileManager.CalPoint> ptsToUse = isCalibrating ? tempCalPoints : (lensManager != null ? lensManager.getCurrentPoints() : null);
                     float ratioToFeed = (lensManager != null && lensManager.isCurrentProfileManual() && !isCalibrating) ? virtualFocusRatio : cachedFocusRatio;
                     float apToFeed = (lensManager != null && lensManager.isCurrentProfileManual() && !isCalibrating) ? virtualAperture : cachedAperture;
-                    focusMeter.update(ratioToFeed, apToFeed, focalToUse, isCalibrating, ptsToUse);
+                    focusMeter.update(ratioToFeed, apToFeed, focalToUse, isCalibrating, ptsToUse, getCircleOfConfusion());
                 }
             });
         }

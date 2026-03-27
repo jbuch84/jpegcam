@@ -1,30 +1,19 @@
 package com.github.ma1co.pmcademo.app;
 
-import android.os.Build;
 import java.util.List;
 
 public class LensMath {
 
-    // --- NEW: DYNAMIC SENSOR SIZE DETECTOR ---
+    // --- NEW: DYNAMIC SENSOR SIZE VARIABLE ---
+    // This will be updated by the Focus Meter, which gets it from MainActivity's hardware check.
+    private static double currentCoC = 0.020; // Default to APS-C
+
+    public static void setCircleOfConfusion(double coc) {
+        currentCoC = coc;
+    }
+
     public static double getCircleOfConfusion() {
-        String model = Build.MODEL;
-        if (model == null) return 0.020; // Default to APS-C
-        
-        model = model.toUpperCase();
-        
-        // Full Frame cameras: A7 series, A9 series, A1, RX1
-        if (model.contains("ILCE-7") || model.contains("ILCE-9") || 
-            model.contains("ILCE-1") || model.contains("RX1")) {
-            return 0.030;
-        }
-        
-        // 1-Inch sensor cameras: RX100 series, ZV-1
-        if (model.contains("RX100") || model.contains("ZV-1")) {
-            return 0.011;
-        }
-        
-        // Default APS-C cameras: a6000 series, NEX, a5000
-        return 0.020; 
+        return currentCoC;
     }
 
     public static class DiopterModel {
