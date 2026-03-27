@@ -1411,8 +1411,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 
                 values[i] = displayVal == 0 ? "0" : (displayVal > 0 ? "+" + displayVal : String.valueOf(displayVal));
             }
-        } // <--- This was the missing brace!
-
         } else if (currentHudMode == 1) { 
             activeCells = 6;
             labels = new String[]{"RED", "GRN", "BLU", "CYN", "MAG", "YEL"};
