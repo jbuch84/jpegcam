@@ -1411,6 +1411,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 
                 values[i] = displayVal == 0 ? "0" : (displayVal > 0 ? "+" + displayVal : String.valueOf(displayVal));
             }
+        } // <--- This was the missing brace!
+
         } else if (currentHudMode == 1) { 
             activeCells = 6;
             labels = new String[]{"RED", "GRN", "BLU", "CYN", "MAG", "YEL"};
@@ -1535,7 +1537,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             int target = p.advMatrix[hudSelection] + (dir * step);
             
             // Lock the boundaries to -200% and +200%
-            p.advMatrix[hudSelection] = Math.max(-200, Math.min(200, target));
+            p.advMatrix[hudSelection] = Math.max(-200, Math.min(200, target)); 
+        } // <--- This was the other missing brace!
             
         } else if (currentHudMode == 1) { 
             if (hudSelection == 0) p.colorDepthRed = Math.max(-7, Math.min(7, p.colorDepthRed + dir));
