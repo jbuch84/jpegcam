@@ -91,6 +91,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private TextView[] hudLabels = new TextView[9];
     private TextView[] hudValues = new TextView[9];
 
+     // --- RGB MATRIX MATH ---
+     // Converts hardware value (e.g., 1024) to a human percentage (e.g., 100)
+    private int matrixToPercent(int hardwareValue) {
+        return Math.round((hardwareValue / 1024.0f) * 100.0f);
+    }
+
+    // Converts a human percentage (e.g., 100) back to the hardware value (e.g., 1024)
+    private int percentToMatrix(int percentValue) {
+        return Math.round((percentValue / 100.0f) * 1024.0f);
+    }
+
     // --- WB GRID HUD VARIABLES ---
     private FrameLayout wbGridContainer;
     private View wbCursor;
@@ -1314,14 +1325,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             p.set("color-depth-yellow", String.valueOf(prof.colorDepthYellow));
         }
 
-        if (p.get("rgb-matrix-mode") != null) {
-            p.set("rgb-matrix-mode", "true");
-            String mStr = String.format("%d,%d,%d,%d,%d,%d,%d,%d,%d",
-                prof.advMatrix[0], prof.advMatrix[1], prof.advMatrix[2],
-                prof.advMatrix[3], prof.advMatrix[4], prof.advMatrix[5],
-                prof.advMatrix[6], prof.advMatrix[7], prof.advMatrix[8]);
-            p.set("rgb-matrix", mStr);
-        }
+        if (currentHudMode == 0) { 
+            activeCells = 9;
+            labels = new String[]{"R-R", "G-R", "B-R", "R-G", "G-G", "B-G", "R-B", "G-B", "B-B"};
+            for (int i=0; i<9; i++) {
+                int displayVal = p.advMatrix[i];
+                
+                // Subtract 100% from the diagonal so the default identity matrix shows as "0"
+                if (i==0 || i==4 || i==8) displayVal -= 100; 
+                
+                values[i] = displayVal == 0 ? "0" : (displayVal > 0 ? "+" + displayVal : String.valueOf(displayVal));
+            }
 
         if (p.get("lens-correction") != null) p.set("lens-correction", "true");
         if (p.get("lens-correction-shading-color-red") != null) p.set("lens-correction-shading-color-red", String.valueOf(prof.shadingRed));
@@ -1391,7 +1405,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             labels = new String[]{"R-R", "G-R", "B-R", "R-G", "G-G", "B-G", "R-B", "G-B", "B-B"};
             for (int i=0; i<9; i++) {
                 int displayVal = p.advMatrix[i];
-                if (i==0 || i==4 || i==8) displayVal -= 1024; 
+                
+                // Subtract 100% from the diagonal so the default identity matrix shows as "0"
+                if (i==0 || i==4 || i==8) displayVal -= 100; 
+                
                 values[i] = displayVal == 0 ? "0" : (displayVal > 0 ? "+" + displayVal : String.valueOf(displayVal));
             }
         } else if (currentHudMode == 1) { 
@@ -1514,13 +1531,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         RTLProfile p = recipeManager.getCurrentProfile();
         
         if (currentHudMode == 0) { 
-            int step = 25; 
-            boolean isDiagonal = (hudSelection == 0 || hudSelection == 4 || hudSelection == 8);
-            int base = isDiagonal ? 1024 : 0;
-            int offset = p.advMatrix[hudSelection] - base;
-            int target = Math.round((float)(offset + (dir * step)) / step) * step; 
-            int finalVal = base + target;
-            p.advMatrix[hudSelection] = Math.max(-1024, Math.min(isDiagonal ? 2048 : 1024, finalVal));
+            int step = 5; // Move by 5% increments
+            int target = p.advMatrix[hudSelection] + (dir * step);
+            
+            // Lock the boundaries to -200% and +200%
+            p.advMatrix[hudSelection] = Math.max(-200, Math.min(200, target));
             
         } else if (currentHudMode == 1) { 
             if (hudSelection == 0) p.colorDepthRed = Math.max(-7, Math.min(7, p.colorDepthRed + dir));
@@ -1687,7 +1702,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 boolean sixIsStd = p.colorDepthRed==0 && p.colorDepthGreen==0 && p.colorDepthBlue==0 && p.colorDepthCyan==0 && p.colorDepthMagenta==0 && p.colorDepthYellow==0;
                 String sixStr = sixIsStd ? "[ STANDARD ]" : "[ CUSTOM ]";
                 
-                boolean mtxIsStd = p.advMatrix[0]==1024 && p.advMatrix[1]==0 && p.advMatrix[2]==0 && p.advMatrix[3]==0 && p.advMatrix[4]==1024 && p.advMatrix[5]==0 && p.advMatrix[6]==0 && p.advMatrix[7]==0 && p.advMatrix[8]==1024;
+                boolean mtxIsStd = p.advMatrix[0]==100 && p.advMatrix[1]==0 && p.advMatrix[2]==0 && p.advMatrix[3]==0 && p.advMatrix[4]==100 && p.advMatrix[5]==0 && p.advMatrix[6]==0 && p.advMatrix[7]==0 && p.advMatrix[8]==100;
                 String mtxStr = mtxIsStd ? "[ STANDARD ]" : "[ CUSTOM ]";
 
                 String[] rLabels = {"White Balance Shift", "Pro Color Base", "6-Axis Color Depths", "BIONZ RGB Matrix"};
