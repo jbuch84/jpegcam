@@ -1344,6 +1344,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         try { c.setParameters(p); } catch (Exception e) { Log.e("JPEG.CAM", "Stage 2 Reject: " + e.getMessage()); }
     }
 
+    } // <--- ADD THIS MISSING BRACE HERE
+
     private String getWbString(String pref) {
         if ("DAY".equals(pref)) return "daylight";
         if ("SHD".equals(pref)) return "shade";
