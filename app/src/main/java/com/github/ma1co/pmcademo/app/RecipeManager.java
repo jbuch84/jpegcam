@@ -214,4 +214,5 @@ public class RecipeManager {
                 Log.e("JPEG.CAM", "Failed to load RTLBAK fully: " + e.getMessage());
             }
         }
-    }
+    } 
+}
