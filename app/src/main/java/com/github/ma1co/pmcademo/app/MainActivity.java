@@ -1821,19 +1821,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         matrixManager.scanMatrices();
         updateHudUI(); 
     }
-        
-        // 2. Format the new name (e.g., "CUSTOM 01")
-        String newName = String.format("CUSTOM %02d", nextId);
-        
-        // 3. Save to SD Card using our bulletproof MatrixManager
-        matrixManager.saveMatrix(newName, p.advMatrix, "Saved directly from camera UI.");
-        
-        // 4. Reload the SD Card so the new file is immediately available
-        matrixManager.scanMatrices();
-        
-        // 5. Force the UI to refresh and snap to the new file via Reverse Lookup
-        updateHudUI(); 
-    }
 
     private void launchHudMode(int mode, int defaultSelection) {
         isHudActive = true;
