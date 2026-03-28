@@ -730,10 +730,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             int idx = CHARSET.indexOf(currentChar);
             if (idx == -1) idx = 0;
             
-            // dir is -1 for Down, 1 for Up (adjust based on your specific D-Pad math)
-            idx += dir; 
+            idx += 1; // Cycle forward through the alphabet
             if (idx >= CHARSET.length()) idx = 0;
-            if (idx < 0) idx = CHARSET.length() - 1;
             
             matrixNameBuffer[nameCursorPos] = CHARSET.charAt(idx);
             updateHudUI();
@@ -806,9 +804,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             int idx = CHARSET.indexOf(currentChar);
             if (idx == -1) idx = 0;
             
-            // dir is -1 for Down, 1 for Up (adjust based on your specific D-Pad math)
-            idx += dir; 
-            if (idx >= CHARSET.length()) idx = 0;
+            idx -= 1; // Cycle backward through the alphabet
             if (idx < 0) idx = CHARSET.length() - 1;
             
             matrixNameBuffer[nameCursorPos] = CHARSET.charAt(idx);
@@ -881,8 +877,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     @Override
     public void onLeftPressed() {
         if (isHudActive && currentHudMode == 0 && isNamingMode) {
-            // dir is -1 for Left, 1 for Right
-            nameCursorPos += dir; 
+            nameCursorPos -= 1; // Move cursor left
             if (nameCursorPos < 0) nameCursorPos = 0;
             if (nameCursorPos > 11) nameCursorPos = 11;
             updateHudUI();
@@ -961,8 +956,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     @Override
     public void onRightPressed() {
         if (isHudActive && currentHudMode == 0 && isNamingMode) {
-            // dir is -1 for Left, 1 for Right
-            nameCursorPos += dir; 
+            nameCursorPos += 1; // Move cursor right
             if (nameCursorPos < 0) nameCursorPos = 0;
             if (nameCursorPos > 11) nameCursorPos = 11;
             updateHudUI();
