@@ -6,16 +6,24 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
+import android.util.Log;
 
 public class RecipeManager {
+    // --- VARIABLES ---
     private File recipeDir;
     private File activeSlotsFile;
     private List<String> activeFilenames = new ArrayList<String>();
-    private RTLProfile[] loadedProfiles = new RTLProfile[6]; // Cache for the 6 active slots
+    private RTLProfile[] loadedProfiles = new RTLProfile[10]; // RESTORED: 10 Slots
     private int currentSlot = 0;
+    
+    // RESTORED: MainActivity Dependencies
+    private int qualityIndex = 1; 
+    private ArrayList<String> recipePaths = new ArrayList<String>(); 
+    private ArrayList<String> recipeNames = new ArrayList<String>(); 
 
     public RecipeManager() {
         recipeDir = new File(Filepaths.getAppDir(), "RECIPES");
@@ -23,32 +31,87 @@ public class RecipeManager {
         
         activeSlotsFile = new File(recipeDir, "ACTIVE_SLOTS.TXT");
         
+        scanRecipes(); // MUST run before loading profiles so LUT validation works
         loadActiveRoster();
         loadAllActiveProfiles();
     }
 
-    // --- ROSTER MANAGEMENT ---
+    // --- RESTORED MAINACTIVITY GETTERS & SETTERS ---
+    public int getCurrentSlot() { return currentSlot; }
+    public void setCurrentSlot(int slot) { this.currentSlot = (slot + 10) % 10; } // Loop logic restored
+    
+    public int getQualityIndex() { return qualityIndex; }
+    public void setQualityIndex(int index) { this.qualityIndex = (index + 3) % 3; } // Loop logic restored
+    
+    public RTLProfile getCurrentProfile() { return loadedProfiles[currentSlot]; }
+    public RTLProfile getProfile(int index) { return loadedProfiles[index]; }
+    
+    public ArrayList<String> getRecipePaths() { return recipePaths; }
+    public ArrayList<String> getRecipeNames() { return recipeNames; }
+
+    // --- RESTORED SMART LUT SCANNER ---
+    public void scanRecipes() { 
+        recipePaths.clear(); 
+        recipeNames.clear(); 
+        recipePaths.add("NONE"); 
+        recipeNames.add("OFF"); // Safest default for UI
+        
+        for (File root : Filepaths.getStorageRoots()) {
+            File lutDir = new File(root, "JPEGCAM/LUTS");
+            if (lutDir.exists() && lutDir.isDirectory()) {
+                File[] files = lutDir.listFiles();
+                if (files != null) {
+                    java.util.Arrays.sort(files); // Sort alphabetically
+                    for (File f : files) {
+                        String u = f.getName().toUpperCase();
+                        if (!u.startsWith(".") && (u.endsWith(".CUB") || u.endsWith(".CUBE"))) {
+                            if (!recipePaths.contains(f.getAbsolutePath())) {
+                                recipePaths.add(f.getAbsolutePath());
+                                String name = u.replace(".CUBE", "").replace(".CUB", "");
+                                // Read TITLE from inside the CUBE file
+                                try {
+                                    BufferedReader br = new BufferedReader(new FileReader(f));
+                                    String line;
+                                    for(int j=0; j<10; j++) {
+                                        line = br.readLine();
+                                        if (line != null && line.toUpperCase().startsWith("TITLE")) {
+                                            name = line.split("\"")[1].toUpperCase();
+                                            break;
+                                        }
+                                    }
+                                    br.close();
+                                } catch (Exception e) {}
+                                recipeNames.add(name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // --- NEW: ROSTER MANAGEMENT ---
     private void loadActiveRoster() {
         activeFilenames.clear();
         if (activeSlotsFile.exists()) {
             try {
                 BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(activeSlotsFile), "UTF-8"));
                 String line;
-                while ((line = br.readLine()) != null && activeFilenames.size() < 6) {
+                while ((line = br.readLine()) != null && activeFilenames.size() < 10) {
                     activeFilenames.add(line.trim());
                 }
                 br.close();
             } catch (Exception e) {
-                android.util.Log.e("JPEG.CAM", "Failed to read roster.");
+                Log.e("JPEG.CAM", "Failed to read roster.");
             }
         }
         
-        // Failsafe: If roster is missing or incomplete, generate default slot names
-        while (activeFilenames.size() < 6) {
-            String defaultName = String.format("R_SLOT%d.TXT", activeFilenames.size() + 1);
+        // Failsafe: Generate 10 slots if missing
+        while (activeFilenames.size() < 10) {
+            String defaultName = String.format("R_SLOT%02d.TXT", activeFilenames.size() + 1);
             activeFilenames.add(defaultName);
         }
-        saveActiveRoster(); // Lock in the roster
+        saveActiveRoster(); 
     }
 
     private void saveActiveRoster() {
@@ -61,23 +124,22 @@ public class RecipeManager {
             fos.write(sb.toString().getBytes("UTF-8"));
             fos.close();
         } catch (Exception e) {
-            android.util.Log.e("JPEG.CAM", "Failed to save roster.");
+            Log.e("JPEG.CAM", "Failed to save roster.");
         }
     }
 
-    // --- VAULT MANAGEMENT (JSON) ---
+    // --- NEW: VAULT MANAGEMENT (JSON) ---
     private void loadAllActiveProfiles() {
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < 10; i++) {
             loadedProfiles[i] = loadProfileFromFile(activeFilenames.get(i), i + 1);
         }
     }
 
     private RTLProfile loadProfileFromFile(String filename, int slotNumber) {
         File file = new File(recipeDir, filename);
-        RTLProfile p = new RTLProfile();
+        RTLProfile p = new RTLProfile(slotNumber - 1); // Pass internal 0-9 index
         
         if (!file.exists()) {
-            // If the file doesn't exist in the vault, initialize a safe default
             p.profileName = "SLOT " + slotNumber;
             saveProfileToFile(file, p);
             return p;
@@ -93,6 +155,11 @@ public class RecipeManager {
             
             p.profileName = json.optString("profileName", "RECIPE");
             p.lutName = json.optString("lutName", "OFF");
+            
+            // Bridge JSON Name to UI Index
+            p.lutIndex = recipeNames.indexOf(p.lutName);
+            if (p.lutIndex == -1) p.lutIndex = 0; // Fallback to OFF
+
             p.lutOpacity = json.optInt("lutOpacity", 100);
             p.shadowToe = json.optInt("shadowToe", 0);
             p.rollOff = json.optInt("rollOff", 0);
@@ -131,24 +198,14 @@ public class RecipeManager {
                 p.advMatrix = new int[]{100, 0, 0, 0, 100, 0, 0, 0, 100};
             }
 
-            // --- THE LUT VALIDATION FALLBACK ---
-            // Verify that the specified LUT actually exists on the SD card
-            if (p.lutName != null && !p.lutName.equalsIgnoreCase("OFF") && !p.lutName.isEmpty()) {
-                File lutDir = new File(Filepaths.getAppDir(), "LUTS");
-                // Note: Adjust the ".cube" extension here if your app uses .png or something else for LUTs!
-                File expectedLut = new File(lutDir, p.lutName + ".cube"); 
-                
-                if (!expectedLut.exists()) {
-                    android.util.Log.w("JPEG.CAM", "Missing LUT: " + p.lutName + ". Falling back to OFF.");
-                    p.lutName = "OFF"; 
-                    
-                    // Optional: Append a warning to the profile name so the user sees it in the menu
-                    p.profileName = p.profileName + " (NO LUT)";
-                }
+            // LUT Validation Fallback
+            if (p.lutName != null && !p.lutName.equalsIgnoreCase("OFF") && p.lutIndex == 0) {
+                Log.w("JPEG.CAM", "Missing LUT data for: " + p.lutName);
+                p.lutName = "OFF"; 
             }
 
         } catch (Exception e) {
-            android.util.Log.e("JPEG.CAM", "Failed to parse JSON: " + filename);
+            Log.e("JPEG.CAM", "Failed to parse JSON: " + filename);
             p.profileName = "ERROR";
         }
         return p;
@@ -156,12 +213,18 @@ public class RecipeManager {
 
     private void saveProfileToFile(File file, RTLProfile p) {
         try {
-            // Manual StringBuilder to bypass Sony JSON limitations and make it highly readable
+            // Translate D-Pad Index back to String Name for JSON
+            if (p.lutIndex >= 0 && p.lutIndex < recipeNames.size()) {
+                p.lutName = recipeNames.get(p.lutIndex);
+            } else {
+                p.lutName = "OFF";
+            }
+
             StringBuilder sb = new StringBuilder();
             sb.append("{\n");
             sb.append("  \"profileName\": \"").append(p.profileName.replace("\"", "\\\"")).append("\",\n");
             sb.append("  \"lutName\": \"").append(p.lutName.replace("\"", "\\\"")).append("\",\n");
-            sb.append("  \"lutOpacity\": ").append(p.lutOpacity).append(",\n");
+            sb.append("  \"lutOpacity\": ").append(p.opacity).append(",\n"); // Using p.opacity from your old code
             sb.append("  \"shadowToe\": ").append(p.shadowToe).append(",\n");
             sb.append("  \"rollOff\": ").append(p.rollOff).append(",\n");
             sb.append("  \"colorChrome\": ").append(p.colorChrome).append(",\n");
@@ -205,26 +268,8 @@ public class RecipeManager {
             fos.write(sb.toString().getBytes("UTF-8"));
             fos.close();
         } catch (Exception e) {
-            android.util.Log.e("JPEG.CAM", "Failed to save profile.");
+            Log.e("JPEG.CAM", "Failed to save profile.");
         }
-    }
-
-    // --- PUBLIC API FOR MAINACTIVITY ---
-    public void setCurrentSlot(int slot) {
-        if (slot >= 0 && slot < 6) currentSlot = slot;
-    }
-
-    public int getCurrentSlot() {
-        return currentSlot;
-    }
-
-    public RTLProfile getCurrentProfile() {
-        return loadedProfiles[currentSlot];
-    }
-
-    public RTLProfile getProfile(int slot) {
-        if (slot >= 0 && slot < 6) return loadedProfiles[slot];
-        return null;
     }
 
     public void savePreferences() {
@@ -232,13 +277,5 @@ public class RecipeManager {
         String currentFilename = activeFilenames.get(currentSlot);
         File file = new File(recipeDir, currentFilename);
         saveProfileToFile(file, loadedProfiles[currentSlot]);
-    }
-
-    // --- HOT SWAP HELPER (For Future Use) ---
-    // Use this later when we build the "Load from SD Card" menu
-    public void assignFileToCurrentSlot(String newFilename) {
-        activeFilenames.set(currentSlot, newFilename);
-        saveActiveRoster();
-        loadedProfiles[currentSlot] = loadProfileFromFile(newFilename, currentSlot + 1);
     }
 }
