@@ -41,10 +41,14 @@ import java.util.List;
 public class MainActivity extends Activity implements SurfaceHolder.Callback, 
     SonyCameraManager.CameraEventListener, InputManager.InputListener, ConnectivityManager.StatusUpdateListener {
 
+    private boolean isScrollingMatrices = false;
     private SonyCameraManager cameraManager;
     private InputManager inputManager;
     private RecipeManager recipeManager;
+    private MatrixManager matrixManager; // <-- NEW
     private ConnectivityManager connectivityManager;
+    
+    private int activeMatrixIndex = 0; // <-- NEW: Tracks which JSON file we are viewing
     
     private Typeface digitalFont; 
     
@@ -170,6 +174,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private int currentItemCount = 0;
     private String savedFocusMode = null;
 
+    private char[] matrixNameBuffer = "CUSTOM      ".toCharArray();
+    
     private boolean isNamingMode = false;
     private int nameCursorPos = 0;
     private final String CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_";
@@ -283,6 +289,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         }
     };
 
+    // --- FACTORY BURN SYSTEM ---
+    private void factoryBurnMatrices() {
+        if (matrixManager != null && matrixManager.getCount() == 0) {
+            matrixManager.saveMatrix("STANDARD", new int[]{100, 0, 0, 0, 100, 0, 0, 0, 100}, "Identity Matrix. Zero color shift.");
+            matrixManager.saveMatrix("GOLDEN HOUR", new int[]{115, 5, 0, 5, 105, 0, 0, 0, 95}, "Broadens yellow spectrum. Drop R-G to 5% if too yellow.");
+            matrixManager.saveMatrix("PAC. NW GREEN", new int[]{95, 0, 0, 0, 110, 5, 0, 15, 105}, "Vintage teals. Pairs best with Amber (A2) shift.");
+            matrixManager.saveMatrix("CINEMATIC", new int[]{110, -10, 0, -5, 100, 10, 0, 5, 115}, "Teal/Orange separation. Uses negative values to clean Reds.");
+            matrixManager.saveMatrix("BLEACH BYPASS", new int[]{130, 0, 0, 0, 130, 0, 0, 0, 130}, "High density. WARNING: May clip highlights. Use -0.7 EV.");
+            matrixManager.saveMatrix("AEROCHROME", new int[]{0, 140, 0, 100, 0, 0, 0, 0, 100}, "False-color Infrared swap. Turns Green foliage Red.");
+            matrixManager.scanMatrices(); // Reload list after saving
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -312,6 +331,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         cameraManager = new SonyCameraManager(this);
         inputManager = new InputManager(this);
         recipeManager = new RecipeManager();
+        matrixManager = new MatrixManager(); // <-- NEW
+        matrixManager.scanMatrices();        // <-- NEW
+        factoryBurnMatrices();               // <-- NEW: Generate defaults if empty!
         connectivityManager = new ConnectivityManager(this, this);
 
         lensManager = new LensProfileManager(this);
@@ -549,6 +571,44 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         if (isProcessing) return;
 
         if (isHudActive) {
+            if (currentHudMode == 0 && hudSelection == -1) {
+                RTLProfile p = recipeManager.getCurrentProfile();
+                
+                // --- NEW: DUPLICATE MATH CHECK ---
+                // Before we start naming a new file, check if these numbers already exist
+                if (!isNamingMode) {
+                    for (int i = 0; i < matrixManager.getCount(); i++) {
+                        int[] existing = matrixManager.getValues(i);
+                        boolean isMatch = true;
+                        for (int j = 0; j < 9; j++) {
+                            if (p.advMatrix[j] != existing[j]) { isMatch = false; break; }
+                        }
+                        
+                        if (isMatch) {
+                            // Found it! Tell the user and stop.
+                            String existingName = matrixManager.getNames().get(i);
+                            tvTopStatus.setText("ALREADY SAVED: " + existingName);
+                            tvTopStatus.setTextColor(Color.GREEN);
+                            return; // Exit without opening Naming Mode
+                        }
+                    }
+                }
+
+                // --- PROCEED TO NAMING IF UNIQUE ---
+                isNamingMode = !isNamingMode;
+                if (isNamingMode) {
+                    matrixNameBuffer = "CUSTOM      ".toCharArray();
+                    nameCursorPos = 0; // Start at the beginning for total control
+                    updateHudUI(); 
+                } else {
+                    String finalName = new String(matrixNameBuffer).trim();
+                    if (finalName.isEmpty()) finalName = "CUSTOM";
+                    saveCurrentCustomMatrix(finalName);
+                }
+                return;
+            }
+            
+            // --- STANDARD HUD EXIT ---
             isHudActive = false;
             hudOverlayContainer.setVisibility(View.GONE);
             if (hudTooltipText != null) hudTooltipText.setVisibility(View.GONE);
@@ -685,6 +745,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public void onUpPressed() {
+        if (isHudActive && currentHudMode == 0 && isNamingMode) {
+            char currentChar = matrixNameBuffer[nameCursorPos];
+            int idx = CHARSET.indexOf(currentChar);
+            if (idx == -1) idx = 0;
+            
+            idx += 1; // Cycle forward through the alphabet
+            if (idx >= CHARSET.length()) idx = 0;
+            
+            matrixNameBuffer[nameCursorPos] = CHARSET.charAt(idx);
+            updateHudUI();
+            return;
+        }
+        
         if (isHudActive) {
             if (currentHudMode == 2) {
                 handleWbAdjustment(0, 1); 
@@ -746,6 +819,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public void onDownPressed() {
+        if (isHudActive && currentHudMode == 0 && isNamingMode) {
+            char currentChar = matrixNameBuffer[nameCursorPos];
+            int idx = CHARSET.indexOf(currentChar);
+            if (idx == -1) idx = 0;
+            
+            idx -= 1; // Cycle backward through the alphabet
+            if (idx < 0) idx = CHARSET.length() - 1;
+            
+            matrixNameBuffer[nameCursorPos] = CHARSET.charAt(idx);
+            updateHudUI();
+            return;
+        }
+        
         if (isHudActive) {
             if (currentHudMode == 2) {
                 handleWbAdjustment(0, -1); 
@@ -810,6 +896,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public void onLeftPressed() {
+        if (isHudActive && currentHudMode == 0 && isNamingMode) {
+            nameCursorPos -= 1; // Move cursor left
+            if (nameCursorPos < 0) nameCursorPos = 0;
+            if (nameCursorPos > 11) nameCursorPos = 11;
+            updateHudUI();
+            return;
+        }
+        
         if (isHudActive) {
             if (currentHudMode == 2) handleWbAdjustment(-1, 0); 
             else {
@@ -881,6 +975,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public void onRightPressed() {
+        if (isHudActive && currentHudMode == 0 && isNamingMode) {
+            nameCursorPos += 1; // Move cursor right
+            if (nameCursorPos < 0) nameCursorPos = 0;
+            if (nameCursorPos > 11) nameCursorPos = 11;
+            updateHudUI();
+            return;
+        }
+        
         if (isHudActive) {
             if (currentHudMode == 2) handleWbAdjustment(1, 0); 
             else {
@@ -1465,45 +1567,80 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             activeCells = 9;
             labels = new String[]{"R-R", "G-R", "B-R", "R-G", "G-G", "B-G", "R-B", "G-B", "B-B"};
             
-            // 1. Calculate Live Row Balance (Smart Update Data)
+            // 1. Calculate Live Row Balance
             int rBal = p.advMatrix[0] + p.advMatrix[1] + p.advMatrix[2];
             int gBal = p.advMatrix[3] + p.advMatrix[4] + p.advMatrix[5];
             int bBal = p.advMatrix[6] + p.advMatrix[7] + p.advMatrix[8];
             String balText = String.format(" [ R:%d%% | G:%d%% | B:%d%% ]", rBal, gBal, bBal);
 
-            // 2. Identify current preset
-            int currentPresetIdx = 6; // Default to CUSTOM
-            for (int i = 0; i < MATRIX_PRESET_VALUES.length; i++) {
-                if (java.util.Arrays.equals(p.advMatrix, MATRIX_PRESET_VALUES[i])) {
-                    currentPresetIdx = i;
-                    break;
+            // 2. Smart Lookup: Prevent "Teleportation Trap"
+            String currentName = "CUSTOM (UNSAVED)";
+            String matrixNote = "Use D-Pad to cycle SD Card matrices.";
+            
+            if (matrixManager != null && matrixManager.getCount() > 0) {
+                if (isScrollingMatrices) {
+                    // TRUST THE DIAL: Use the index the user actually scrolled to
+                    currentName = matrixManager.getNames().get(activeMatrixIndex);
+                    matrixNote = matrixManager.getNote(activeMatrixIndex);
+                } else {
+                    // REVERSE LOOKUP: Only search if the user manually tweaked values
+                    for (int f = 0; f < matrixManager.getCount(); f++) {
+                        int[] loaded = matrixManager.getValues(f);
+                        boolean matches = true;
+                        for (int i=0; i<9; i++) { if (p.advMatrix[i] != loaded[i]) matches = false; }
+                        
+                        if (matches) {
+                            activeMatrixIndex = f; 
+                            currentName = matrixManager.getNames().get(f);
+                            matrixNote = matrixManager.getNote(f);
+                            break; 
+                        }
+                    }
                 }
             }
 
-            // 3. Update top status (Orange if Preset Bar is selected)
+            // 3. Update top status header
             if (tvTopStatus != null) {
-                tvTopStatus.setText("MATRIX: " + MATRIX_PRESET_NAMES[currentPresetIdx]);
-                tvTopStatus.setTextColor(hudSelection == -1 ? Color.rgb(227, 69, 20) : Color.WHITE);
+                if (isNamingMode) {
+                    // Draw the naming interface with brackets around the active cursor letter
+                    StringBuilder nameDisplay = new StringBuilder("NAME: ");
+                    for (int i = 0; i < matrixNameBuffer.length; i++) {
+                        if (i == nameCursorPos) {
+                            nameDisplay.append("[").append(matrixNameBuffer[i]).append("]");
+                        } else {
+                            nameDisplay.append(matrixNameBuffer[i]);
+                        }
+                    }
+                    tvTopStatus.setText(nameDisplay.toString());
+                    tvTopStatus.setTextColor(Color.YELLOW); 
+                } else {
+                    // Standard display
+                    tvTopStatus.setText("MATRIX: " + currentName);
+                    tvTopStatus.setTextColor(hudSelection == -1 ? Color.rgb(227, 69, 20) : Color.WHITE);
+                }
+                tvTopStatus.setVisibility(View.VISIBLE); 
             }
-
-            // 4. Construct Tooltip (Channel description if cell selected, else Preset Note)
+            
+            // 4. Update Description Tooltip based on selection
             if (hudSelection == -1) {
-                tooltip = MATRIX_PRESET_NOTES[currentPresetIdx] + "\n" + balText;
+                tooltip = "FILE: " + matrixNote + "\n" + balText;
             } else {
                 String[] t = {
                     "Red sensitivity to real-world Red light (Primary - baseline is 100)", "Pushes Green light into Red channel (baseline is 0)", "Pushes Blue light into Red channel (baseline is 0)",
                     "Pushes Red light into Green channel (baseline is 0)", "Green sensitivity to real-world Green light (Primary - baseline is 100)", "Pushes Blue light into Green channel (baseline is 0)",
                     "Pushes Red light into Blue channel (baseline is 0)", "Pushes Green light into Blue channel (baseline is 0)", "Blue sensitivity to real-world Blue light (Primary - baseline is 100)."
                 };
-                tooltip = t[hudSelection] + "\n" + balText;
+                if (hudSelection >= 0 && hudSelection < t.length) {
+                    tooltip = t[hudSelection] + "\n" + balText;
+                }
             }
 
             for (int i=0; i<9; i++) {
                 values[i] = p.advMatrix[i] + "%";
             }
-
+            
         // --- ALL OTHER MODES (1, 3-9) ---
-        } else if (currentHudMode == 1) { 
+        } else if (currentHudMode == 1) {
             activeCells = 6;
             labels = new String[]{"RED", "GRN", "BLU", "CYN", "MAG", "YEL"};
             int[] depths = {p.colorDepthRed, p.colorDepthGreen, p.colorDepthBlue, p.colorDepthCyan, p.colorDepthMagenta, p.colorDepthYellow};
@@ -1602,25 +1739,32 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         
         if (currentHudMode == 0) { 
             if (hudSelection == -1) {
-                // CYCLE PRESETS
-                int currentIdx = 6; // Default CUSTOM
-                for (int i = 0; i < MATRIX_PRESET_VALUES.length; i++) {
-                    if (java.util.Arrays.equals(p.advMatrix, MATRIX_PRESET_VALUES[i])) {
-                        currentIdx = i; break;
+                // --- CYCLE SD CARD MATRICES ---
+                if (matrixManager != null && matrixManager.getCount() > 0) {
+                    // LOCK: Tells the UI to trust the index while the dial is spinning
+                    isScrollingMatrices = true; 
+                    
+                    activeMatrixIndex += dir;
+                    
+                    // Keep your bulletproof wrapping exactly as it was
+                    while (activeMatrixIndex < 0) activeMatrixIndex += matrixManager.getCount();
+                    activeMatrixIndex = activeMatrixIndex % matrixManager.getCount();
+                    
+                    int[] loadedVals = matrixManager.getValues(activeMatrixIndex);
+                    for(int i = 0; i < 9; i++) {
+                        p.advMatrix[i] = loadedVals[i];
                     }
                 }
-                
-                // Move index (wrap around 0-5, skipping 6/Custom when toggling)
-                int nextIdx = (currentIdx + dir + 6) % 6; 
-                System.arraycopy(MATRIX_PRESET_VALUES[nextIdx], 0, p.advMatrix, 0, 9);
-                
             } else {
-                // MANUAL ADJUSTMENT (The 9 cells)
+                // --- MANUAL MATH ADJUSTMENT ---
+                // UNLOCK: User is tweaking numbers, so we allow Reverse Lookup again
+                isScrollingMatrices = false; 
+
                 int step = 5; 
                 int target = p.advMatrix[hudSelection] + (dir * step);
                 p.advMatrix[hudSelection] = Math.max(-200, Math.min(200, target)); 
             }
-        } else if (currentHudMode == 1) { 
+        } else if (currentHudMode == 1) {
             if (hudSelection == 0) p.colorDepthRed = Math.max(-7, Math.min(7, p.colorDepthRed + dir));
             else if (hudSelection == 1) p.colorDepthGreen = Math.max(-7, Math.min(7, p.colorDepthGreen + dir));
             else if (hudSelection == 2) p.colorDepthBlue = Math.max(-7, Math.min(7, p.colorDepthBlue + dir));
@@ -1689,6 +1833,47 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         updateHudUI();
         uiHandler.removeCallbacks(applySettingsRunnable); 
         uiHandler.postDelayed(applySettingsRunnable, 150);
+    }
+
+    // --- ON-CAMERA CUSTOM MATRIX SAVER ---
+    private void saveCurrentCustomMatrix(String customName) {
+        if (matrixManager == null) return;
+        
+        // --- NAME COLLISION CHECK ---
+        String finalName = customName;
+        for (String existing : matrixManager.getNames()) {
+            if (existing.equalsIgnoreCase(finalName)) {
+                finalName = finalName + "+"; // Quick "versioning" for collisions
+            }
+        }
+        
+        RTLProfile p = recipeManager.getCurrentProfile();
+        matrixManager.saveMatrix(finalName, p.advMatrix, "Saved directly from camera UI.");
+        matrixManager.scanMatrices();
+        
+        // Reset scrolling lock so the UI finds our brand new file immediately
+        isScrollingMatrices = false; 
+        updateHudUI(); 
+    }
+
+    // --- QUICK MATRIX NAME LOOKUP FOR MENU ---
+    private String getActiveMatrixName() {
+        if (matrixManager == null || matrixManager.getCount() == 0) return "CUSTOM";
+        
+        RTLProfile p = recipeManager.getCurrentProfile();
+        
+        for (int f = 0; f < matrixManager.getCount(); f++) {
+            int[] loaded = matrixManager.getValues(f);
+            boolean matches = true;
+            for (int i = 0; i < 9; i++) { 
+                if (p.advMatrix[i] != loaded[i]) {
+                    matches = false; 
+                    break;
+                }
+            }
+            if (matches) return matrixManager.getNames().get(f);
+        }
+        return "CUSTOM"; // Fallback if it doesn't match any saved file
     }
 
     private void launchHudMode(int mode, int defaultSelection) {
@@ -1791,7 +1976,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 String sixStr = sixIsStd ? "[ STANDARD ]" : "[ CUSTOM ]";
                 
                 boolean mtxIsStd = p.advMatrix[0]==100 && p.advMatrix[1]==0 && p.advMatrix[2]==0 && p.advMatrix[3]==0 && p.advMatrix[4]==100 && p.advMatrix[5]==0 && p.advMatrix[6]==0 && p.advMatrix[7]==0 && p.advMatrix[8]==100;
-                String mtxStr = mtxIsStd ? "[ STANDARD ]" : "[ CUSTOM ]";
+                
+                // FIX: Inject the active SD card Matrix name into the UI!
+                String mtxStr = mtxIsStd ? "[ STANDARD ]" : "[ " + getActiveMatrixName() + " ]";
 
                 String[] rLabels = {"White Balance Shift", "Pro Color Base", "6-Axis Color Depths", "BIONZ RGB Matrix"};
                 String[] rValues = { combinedWb, (p.proColorMode != null ? p.proColorMode : "OFF").toUpperCase(), sixStr, mtxStr };
