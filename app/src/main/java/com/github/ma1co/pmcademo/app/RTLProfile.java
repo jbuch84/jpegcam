@@ -31,7 +31,7 @@ public class RTLProfile {
 
 
     // -- ADVANCED MATRIX TOGGLE --
-    public int[] advMatrix = {1024, 0, 0,  0, 1024, 0,  0, 0, 1024};
+    public int[] advMatrix = {100, 0, 0,  0, 100, 0,  0, 0, 100};
 
     // PHASE 5: EFFECTS & HACKS
     public String proColorMode = "off";

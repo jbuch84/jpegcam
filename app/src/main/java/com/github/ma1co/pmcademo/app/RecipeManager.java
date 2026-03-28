@@ -7,7 +7,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileReader;
-import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 import android.util.Log;
@@ -15,12 +14,10 @@ import android.util.Log;
 public class RecipeManager {
     // --- VARIABLES ---
     private File recipeDir;
-    private File activeSlotsFile;
-    private List<String> activeFilenames = new ArrayList<String>();
-    private RTLProfile[] loadedProfiles = new RTLProfile[10]; // RESTORED: 10 Slots
+    private RTLProfile[] loadedProfiles = new RTLProfile[10]; 
     private int currentSlot = 0;
     
-    // RESTORED: MainActivity Dependencies
+    // MainActivity Dependencies
     private int qualityIndex = 1; 
     private ArrayList<String> recipePaths = new ArrayList<String>(); 
     private ArrayList<String> recipeNames = new ArrayList<String>(); 
@@ -29,19 +26,17 @@ public class RecipeManager {
         recipeDir = new File(Filepaths.getAppDir(), "RECIPES");
         if (!recipeDir.exists()) recipeDir.mkdirs();
         
-        activeSlotsFile = new File(recipeDir, "ACTIVE_SLOTS.TXT");
-        
         scanRecipes(); // MUST run before loading profiles so LUT validation works
-        loadActiveRoster();
-        loadAllActiveProfiles();
+        loadPreferences(); // Grabs the last used slot and quality
+        loadAllWorkspaces(); // Loads R_SLOT01 through R_SLOT10
     }
 
-    // --- RESTORED MAINACTIVITY GETTERS & SETTERS ---
+    // --- MAINACTIVITY GETTERS & SETTERS ---
     public int getCurrentSlot() { return currentSlot; }
-    public void setCurrentSlot(int slot) { this.currentSlot = (slot + 10) % 10; } // Loop logic restored
+    public void setCurrentSlot(int slot) { this.currentSlot = (slot + 10) % 10; } 
     
     public int getQualityIndex() { return qualityIndex; }
-    public void setQualityIndex(int index) { this.qualityIndex = (index + 3) % 3; } // Loop logic restored
+    public void setQualityIndex(int index) { this.qualityIndex = (index + 3) % 3; } 
     
     public RTLProfile getCurrentProfile() { return loadedProfiles[currentSlot]; }
     public RTLProfile getProfile(int index) { return loadedProfiles[index]; }
@@ -49,26 +44,25 @@ public class RecipeManager {
     public ArrayList<String> getRecipePaths() { return recipePaths; }
     public ArrayList<String> getRecipeNames() { return recipeNames; }
 
-    // --- RESTORED SMART LUT SCANNER ---
+    // --- SMART LUT SCANNER ---
     public void scanRecipes() { 
         recipePaths.clear(); 
         recipeNames.clear(); 
         recipePaths.add("NONE"); 
-        recipeNames.add("OFF"); // Safest default for UI
+        recipeNames.add("OFF"); 
         
         for (File root : Filepaths.getStorageRoots()) {
             File lutDir = new File(root, "JPEGCAM/LUTS");
             if (lutDir.exists() && lutDir.isDirectory()) {
                 File[] files = lutDir.listFiles();
                 if (files != null) {
-                    java.util.Arrays.sort(files); // Sort alphabetically
+                    java.util.Arrays.sort(files); 
                     for (File f : files) {
                         String u = f.getName().toUpperCase();
                         if (!u.startsWith(".") && (u.endsWith(".CUB") || u.endsWith(".CUBE"))) {
                             if (!recipePaths.contains(f.getAbsolutePath())) {
                                 recipePaths.add(f.getAbsolutePath());
                                 String name = u.replace(".CUBE", "").replace(".CUB", "");
-                                // Read TITLE from inside the CUBE file
                                 try {
                                     BufferedReader br = new BufferedReader(new FileReader(f));
                                     String line;
@@ -90,57 +84,22 @@ public class RecipeManager {
         }
     }
 
-    // --- NEW: ROSTER MANAGEMENT ---
-    private void loadActiveRoster() {
-        activeFilenames.clear();
-        if (activeSlotsFile.exists()) {
-            try {
-                BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(activeSlotsFile), "UTF-8"));
-                String line;
-                while ((line = br.readLine()) != null && activeFilenames.size() < 10) {
-                    activeFilenames.add(line.trim());
-                }
-                br.close();
-            } catch (Exception e) {
-                Log.e("JPEG.CAM", "Failed to read roster.");
-            }
-        }
-        
-        // Failsafe: Generate 10 slots if missing
-        while (activeFilenames.size() < 10) {
-            String defaultName = String.format("R_SLOT%02d.TXT", activeFilenames.size() + 1);
-            activeFilenames.add(defaultName);
-        }
-        saveActiveRoster(); 
-    }
-
-    private void saveActiveRoster() {
-        try {
-            StringBuilder sb = new StringBuilder();
-            for (String filename : activeFilenames) {
-                sb.append(filename).append("\n");
-            }
-            FileOutputStream fos = new FileOutputStream(activeSlotsFile);
-            fos.write(sb.toString().getBytes("UTF-8"));
-            fos.close();
-        } catch (Exception e) {
-            Log.e("JPEG.CAM", "Failed to save roster.");
-        }
-    }
-
-    // --- NEW: VAULT MANAGEMENT (JSON) ---
-    private void loadAllActiveProfiles() {
+    // --- WORKSPACE MANAGEMENT (THE 10 SLOTS) ---
+    private void loadAllWorkspaces() {
         for (int i = 0; i < 10; i++) {
-            loadedProfiles[i] = loadProfileFromFile(activeFilenames.get(i), i + 1);
+            String filename = String.format("R_SLOT%02d.TXT", i + 1);
+            loadedProfiles[i] = loadProfileFromFile(filename, i);
         }
     }
 
-    private RTLProfile loadProfileFromFile(String filename, int slotNumber) {
+    private RTLProfile loadProfileFromFile(String filename, int arrayIndex) {
         File file = new File(recipeDir, filename);
-        RTLProfile p = new RTLProfile(slotNumber - 1); 
+        RTLProfile p = new RTLProfile(arrayIndex); 
         
         if (!file.exists()) {
-            p.profileName = "SLOT " + slotNumber;
+            // Fresh Workspace Setup!
+            p.profileName = "SLOT " + (arrayIndex + 1);
+            p.advMatrix = new int[]{100, 0, 0, 0, 100, 0, 0, 0, 100}; // Safety baseline
             saveProfileToFile(file, p);
             return p;
         }
@@ -155,12 +114,11 @@ public class RecipeManager {
             
             p.profileName = json.optString("profileName", "RECIPE");
             
-            // Bridge JSON Name to UI Index using a local string
             String loadedLutName = json.optString("lutName", "OFF");
             p.lutIndex = recipeNames.indexOf(loadedLutName);
-            if (p.lutIndex == -1) p.lutIndex = 0; // Fallback to OFF
+            if (p.lutIndex == -1) p.lutIndex = 0; 
 
-            p.opacity = json.optInt("lutOpacity", 100); // Fixed variable name
+            p.opacity = json.optInt("lutOpacity", 100);
             p.shadowToe = json.optInt("shadowToe", 0);
             p.rollOff = json.optInt("rollOff", 0);
             p.colorChrome = json.optInt("colorChrome", 0);
@@ -193,16 +151,18 @@ public class RecipeManager {
 
             JSONArray arr = json.optJSONArray("advMatrix");
             if (arr != null && arr.length() == 9) {
-                for (int i = 0; i < 9; i++) p.advMatrix[i] = arr.getInt(i);
+                boolean isAllZero = true;
+                for (int i = 0; i < 9; i++) {
+                    p.advMatrix[i] = arr.getInt(i);
+                    if (p.advMatrix[i] != 0) isAllZero = false;
+                }
+                if (isAllZero) p.advMatrix = new int[]{100, 0, 0, 0, 100, 0, 0, 0, 100};
             } else {
                 p.advMatrix = new int[]{100, 0, 0, 0, 100, 0, 0, 0, 100};
             }
 
-            // LUT Validation Fallback
             if (!loadedLutName.equalsIgnoreCase("OFF") && p.lutIndex == 0) {
                 Log.w("JPEG.CAM", "Missing LUT data for: " + loadedLutName);
-                // We don't need to overwrite p.lutName since it doesn't exist.
-                // The index safely defaults to 0 (OFF).
             }
 
         } catch (Exception e) {
@@ -214,7 +174,6 @@ public class RecipeManager {
 
     private void saveProfileToFile(File file, RTLProfile p) {
         try {
-            // Translate D-Pad Index back to String Name for JSON locally
             String lutNameToSave = "OFF";
             if (p.lutIndex >= 0 && p.lutIndex < recipeNames.size()) {
                 lutNameToSave = recipeNames.get(p.lutIndex);
@@ -272,6 +231,7 @@ public class RecipeManager {
         }
     }
 
+    // --- GLOBAL PREFERENCES ---
     public void loadPreferences() {
         File prefsFile = new File(recipeDir, "GLOBAL_PREFS.TXT");
         if (prefsFile.exists()) {
@@ -288,7 +248,6 @@ public class RecipeManager {
     }
 
     public void savePreferences() {
-        // Save the global slot and quality settings
         try {
             File prefsFile = new File(recipeDir, "GLOBAL_PREFS.TXT");
             FileOutputStream fos = new FileOutputStream(prefsFile);
@@ -298,9 +257,70 @@ public class RecipeManager {
             Log.e("JPEG.CAM", "Failed to save global prefs.");
         }
 
-        // Save the current live profile directly into its assigned Vault file
-        String currentFilename = activeFilenames.get(currentSlot);
+        // Always auto-save the current workspace so the user never loses tweaks
+        String currentFilename = String.format("R_SLOT%02d.TXT", currentSlot + 1);
         File file = new File(recipeDir, currentFilename);
         saveProfileToFile(file, loadedProfiles[currentSlot]);
+    }
+
+    // ==========================================================
+    // --- THE VAULT ENGINE (NEW) ---
+    // ==========================================================
+
+    public List<String> getVaultFiles() {
+        List<String> availableFiles = new ArrayList<String>();
+        if (recipeDir.exists() && recipeDir.isDirectory()) {
+            File[] files = recipeDir.listFiles();
+            if (files != null) {
+                java.util.Arrays.sort(files);
+                for (File f : files) {
+                    String name = f.getName().toUpperCase();
+                    // Ignore our volatile workspaces and system files
+                    if (name.endsWith(".TXT") && !name.startsWith("R_SLOT") && !name.equals("GLOBAL_PREFS.TXT") && !name.equals("ACTIVE_SLOTS.TXT")) {
+                        availableFiles.add(f.getName());
+                    }
+                }
+            }
+        }
+        if (availableFiles.isEmpty()) availableFiles.add("NO VAULT RECIPES");
+        return availableFiles;
+    }
+
+    // Action 1: The User hits "Load" on a Vault File. We pour it into the current Workspace.
+    public void copyVaultToSlot(String vaultFilename) {
+        if (vaultFilename.equals("NO VAULT RECIPES")) return;
+        
+        // 1. Read the Vault file into our memory array
+        loadedProfiles[currentSlot] = loadProfileFromFile(vaultFilename, currentSlot);
+        
+        // 2. Immediately overwrite the physical R_SLOTxx.TXT file so it persists
+        String currentFilename = String.format("R_SLOT%02d.TXT", currentSlot + 1);
+        File workspaceFile = new File(recipeDir, currentFilename);
+        saveProfileToFile(workspaceFile, loadedProfiles[currentSlot]);
+    }
+
+    // Action 2: The User hits "Save" and names their Sandbox. We drop a new file into the Vault.
+    public void saveSlotToVault(String customName) {
+        String safeName = customName.trim().replaceAll("[^A-Za-z0-9_\\- ]", "").toUpperCase();
+        if (safeName.isEmpty()) safeName = "CUSTOM";
+        
+        String filename = "R_" + safeName.replace(" ", "_") + ".TXT";
+        
+        File newFile = new File(recipeDir, filename);
+        int counter = 1;
+        while (newFile.exists()) {
+            filename = "R_" + safeName.replace(" ", "_") + "_" + counter + ".TXT";
+            newFile = new File(recipeDir, filename);
+            counter++;
+        }
+        
+        // Update the internal profile name so the UI reflects the new name instantly
+        loadedProfiles[currentSlot].profileName = safeName;
+        
+        // Save the current math to the new Vault file
+        saveProfileToFile(newFile, loadedProfiles[currentSlot]);
+        
+        // Save the updated name to the current Workspace file too
+        savePreferences();
     }
 }
