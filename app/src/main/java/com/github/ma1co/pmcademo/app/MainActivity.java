@@ -1188,22 +1188,33 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         RTLProfile p = recipeManager.getCurrentProfile(); 
         int sel = menuSelection; 
         
-        // --- NOTICE: NO MORE 'currentMainTab' WRAPPER! ---
-
         if (currentPage == 1) { 
+            // Row 1: Recipe Slot
             if (sel == 0) {
                 if (!isNamingMode) {
                     recipeManager.savePreferences();
                     recipeManager.setCurrentSlot(Math.max(0, Math.min(9, recipeManager.getCurrentSlot() + dir)));
-                    triggerLutPreload();
+                    // Note: Ensure triggerLutPreload() is defined or remove if not used
+                    // triggerLutPreload(); 
                 }
             }
+            // ROW 3: LOAD FROM VAULT (NEW INDEX 2)
             else if (sel == 2) {
+                if (!vaultFiles.isEmpty() && !vaultFiles.get(0).equals("NO VAULT RECIPES")) {
+                    vaultIndex += dir;
+                    // Wrap-around logic for the list
+                    while (vaultIndex < 0) vaultIndex += vaultFiles.size();
+                    vaultIndex = vaultIndex % vaultFiles.size();
+                }
+            }
+            // ROW 4: FOUNDATION BASE (SHIFTED FROM 2 TO 3)
+            else if (sel == 3) {
                 String[] styles = {"Standard", "Vivid", "Neutral", "Clear", "Deep", "Light", "Portrait", "Landscape", "Sunset", "Night Scene", "Autumn Leaves", "Black & White", "Sepia"};
                 int idx = 0; for(int i=0; i<styles.length; i++) if(styles[i].equalsIgnoreCase(p.colorMode)) idx = i;
                 p.colorMode = styles[(idx + dir + styles.length) % styles.length];
             }
-            else if (sel == 4) {
+            // ROW 6: DRO (SHIFTED FROM 4 TO 5)
+            else if (sel == 5) {
                 String[] droModes = {"OFF", "AUTO", "LVL 1", "LVL 2", "LVL 3", "LVL 4", "LVL 5"};
                 int idx = 0; 
                 for(int i=0; i < droModes.length; i++) {
