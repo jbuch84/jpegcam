@@ -626,14 +626,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         
         RTLProfile p = recipeManager.getCurrentProfile();
         
-        if (isMenuOpen && currentMainTab == 0 && currentPage == 1 && menuSelection == 2) {
-            launchHudMode(6); return;
-        }
+        // --- FIXED: Shifted down by +1 to accommodate "Load from Vault" at index 2 ---
         if (isMenuOpen && currentMainTab == 0 && currentPage == 1 && menuSelection == 3) {
-            launchHudMode(3); return;
+            launchHudMode(6); return; // Foundation Base
         }
         if (isMenuOpen && currentMainTab == 0 && currentPage == 1 && menuSelection == 4) {
-            launchHudMode(9); return;
+            launchHudMode(3); return; // Tone & Style
+        }
+        if (isMenuOpen && currentMainTab == 0 && currentPage == 1 && menuSelection == 5) {
+            launchHudMode(9); return; // DRO
         }
         if (isMenuOpen && currentMainTab == 0 && currentPage == 2 && menuSelection == 0) {
             launchHudMode(2); return;
