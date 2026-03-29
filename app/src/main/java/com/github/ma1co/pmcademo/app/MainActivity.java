@@ -2613,6 +2613,40 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         return tv; 
     }
     
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        int keyCode = event.getKeyCode();
+        int action = event.getAction();
+
+        // --- 1. THE PASM DIAL SHIELD ---
+        if (keyCode == 624 || keyCode == com.github.ma1co.pmcademo.app.ScalarInput.ISV_KEY_MODE_DIAL || 
+           (keyCode >= com.github.ma1co.pmcademo.app.ScalarInput.ISV_KEY_MODE_INVALID && keyCode <= com.github.ma1co.pmcademo.app.ScalarInput.ISV_KEY_MODE_CUSTOM3)) {
+            
+            if (action == android.view.KeyEvent.ACTION_DOWN) {
+                if (!hasPhysicalPasmDial) hasPhysicalPasmDial = true;
+                if (cameraManager != null) onHardwareStateChanged();
+            }
+            return true; // Bouncer defeated: Sony OS never sees the dial turn
+        }
+
+        // --- 2. THE PLAYBACK BUTTON HIJACK ---
+        if (keyCode == com.github.ma1co.pmcademo.app.ScalarInput.ISV_KEY_PLAY || keyCode == android.view.KeyEvent.KEYCODE_MEDIA_PLAY) {
+            
+            // We only trigger our logic when the user RELEASES the button (ACTION_UP)
+            // But we return 'true' for BOTH press and release to swallow it entirely.
+            if (action == android.view.KeyEvent.ACTION_UP) {
+                if (!isProcessing) {
+                    if (isPlaybackMode) exitPlayback(); 
+                    else if (!isMenuOpen) enterPlayback();
+                }
+            }
+            return true; // Bouncer defeated: Native gallery will not open
+        }
+
+        // Pass all other normal buttons (D-Pad, Center button, etc.) down to your normal listeners
+        return super.dispatchKeyEvent(event);
+    }
+    
     @Override 
     public boolean onKeyDown(int k, android.view.KeyEvent e) { 
         // UNIVERSAL CRASH PROTECTION: Swallow dial events on ALL cameras
