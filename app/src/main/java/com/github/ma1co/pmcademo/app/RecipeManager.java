@@ -44,7 +44,7 @@ public class RecipeManager {
     public ArrayList<String> getRecipePaths() { return recipePaths; }
     public ArrayList<String> getRecipeNames() { return recipeNames; }
 
-    // --- SMART LUT SCANNER ---
+    // --- SMART LUT SCANNER (Universal Version) ---
     public void scanRecipes() { 
         recipePaths.clear(); 
         recipeNames.clear(); 
@@ -59,22 +59,33 @@ public class RecipeManager {
                     java.util.Arrays.sort(files); 
                     for (File f : files) {
                         String u = f.getName().toUpperCase();
-                        if (!u.startsWith(".") && (u.endsWith(".CUB") || u.endsWith(".CUBE"))) {
+                        
+                        // 1. ADDED .PNG TO THE VIP LIST:
+                        if (!u.startsWith(".") && (u.endsWith(".CUB") || u.endsWith(".CUBE") || u.endsWith(".PNG"))) {
                             if (!recipePaths.contains(f.getAbsolutePath())) {
                                 recipePaths.add(f.getAbsolutePath());
-                                String name = u.replace(".CUBE", "").replace(".CUB", "");
-                                try {
-                                    BufferedReader br = new BufferedReader(new FileReader(f));
-                                    String line;
-                                    for(int j=0; j<10; j++) {
-                                        line = br.readLine();
-                                        if (line != null && line.toUpperCase().startsWith("TITLE")) {
-                                            name = line.split("\"")[1].toUpperCase();
-                                            break;
+                                
+                                // 2. CLEAN NAME (Removes the extension for the menu display)
+                                String name = u.replace(".CUBE", "").replace(".CUB", "").replace(".PNG", "");
+                                
+                                // 3. ONLY READ TITLE METADATA FOR .CUBE FILES
+                                // (Trying to read text lines from a binary PNG would just get us gibberish)
+                                if (u.endsWith(".CUBE") || u.endsWith(".CUB")) {
+                                    try {
+                                        BufferedReader br = new BufferedReader(new FileReader(f));
+                                        String line;
+                                        for(int j=0; j<10; j++) {
+                                            line = br.readLine();
+                                            if (line != null && line.toUpperCase().startsWith("TITLE")) {
+                                                String[] parts = line.split("\"");
+                                                if (parts.length > 1) name = parts[1].toUpperCase();
+                                                break;
+                                            }
                                         }
-                                    }
-                                    br.close();
-                                } catch (Exception e) {}
+                                        br.close();
+                                    } catch (Exception e) {}
+                                }
+                                
                                 recipeNames.add(name);
                             }
                         }
