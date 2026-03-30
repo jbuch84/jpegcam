@@ -39,57 +39,56 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_loadLutNative(JNIEnv* env, jobject 
     nativeLutSize = 0;
 
     const char *file_path = env->GetStringUTFChars(path, NULL);
-    std::string p_str(file_path);
+    std::string path_str(file_path);
     
-    // Convert extension to lowercase for the check
+    // Extract extension and convert to lowercase for the check
     std::string ext = "";
-    if (p_str.length() >= 4) {
-        ext = p_str.substr(p_str.length() - 4);
+    if (path_str.length() >= 4) {
+        ext = path_str.substr(path_str.length() - 4);
         for(int i = 0; i < ext.length(); i++) ext[i] = tolower(ext[i]);
     }
 
     // --- ROUTE A: PNG (The HaldCLUT Route) ---
     if (ext == ".png") {
         int w, h, c;
-        unsigned char *data = stbi_load(file_path, &w, &h, &c, 3);
-        if (data) {
-            nativeLutSize = round(cbrt(w * h));
+        unsigned char *img_data = stbi_load(file_path, &w, &h, &c, 3);
+        if (img_data) {
+            nativeLutSize = round(cbrt(w * h)); 
             int total_bytes = nativeLutSize * nativeLutSize * nativeLutSize * 3;
             nativeLut.resize(total_bytes);
-            memcpy(nativeLut.data(), data, total_bytes);
-            stbi_image_free(data);
-            LOGD("SUCCESS: Loaded PNG HaldCLUT. Size: %d", nativeLutSize);
-        } else {
-            LOGD("ERROR: stbi_load failed for path: %s", file_path);
+            memcpy(nativeLut.data(), img_data, total_bytes);
+            stbi_image_free(img_data);
+            LOGD("SUCCESS: Loaded PNG HaldCLUT size %d", nativeLutSize);
         }
-    } 
+    }
     // --- ROUTE B: .CUBE (The Text Route) ---
     else {
-        FILE *f = fopen(file_path, "r");
-        if (f) {
+        FILE *file = fopen(file_path, "r");
+        if (file) {
             char line[256];
-            int count = 0;
-            while(fgets(line, sizeof(line), f)) {
+            size_t count = 0; // Standardized to 'count'
+            while(fgets(line, sizeof(line), file)) {
                 if (strncmp(line, "LUT_3D_SIZE", 11) == 0) {
                     sscanf(line, "LUT_3D_SIZE %d", &nativeLutSize);
                     nativeLut.resize(nativeLutSize * nativeLutSize * nativeLutSize * 3);
+                    continue;
                 }
                 float r, g, b;
                 if (nativeLutSize > 0 && sscanf(line, "%f %f %f", &r, &g, &b) == 3) {
                     if (count + 2 < nativeLut.size()) {
                         nativeLut[count++] = (uint8_t)(r * 255.0f); 
                         nativeLut[count++] = (uint8_t)(g * 255.0f); 
-                        nativeLut[write_ptr++] = (uint8_t)(b * 255.0f);
+                        nativeLut[count++] = (uint8_t)(b * 255.0f); // Fixed: count instead of write_ptr
                     }
                 }
             }
-            fclose(f);
-            LOGD("SUCCESS: Loaded .cube file. Size: %d", nativeLutSize);
+            fclose(file);
+            LOGD("SUCCESS: Loaded .cube file size %d", nativeLutSize);
         }
     }
 
     env->ReleaseStringUTFChars(path, file_path);
-    return (nativeLutSize > 0) ? JNI_TRUE : JNI_FALSE;
+    return nativeLutSize > 0 ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL

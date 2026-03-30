@@ -261,7 +261,7 @@ inline void process_row_yuv(
             }
 
             int mask = (outY < 128) ? outY : 255 - outY; 
-            if (outY < 64) mask = (mask * outY) >> 6;
+            if (outY < 64) mask = (mask * outY) >> 6; // MUST BE outY
             outY += (noise * mask * s_grain) >> 15; 
         }
         

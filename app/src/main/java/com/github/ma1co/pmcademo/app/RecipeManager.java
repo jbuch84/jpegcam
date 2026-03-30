@@ -57,24 +57,17 @@ public class RecipeManager {
                 File[] files = lutDir.listFiles();
                 if (files != null) {
                     java.util.Arrays.sort(files); 
-                    
-                    // RE-ADDED THE MISSING LOOP START
                     for (File f : files) {
                         String u = f.getName().toUpperCase();
-                        
-                        // THE FIX: Filter out dots, underscores (Mac junk), and tildes (backup files)
-                        if (!u.startsWith(".") && 
-                            !u.startsWith("_") && 
-                            !u.contains("~") && 
+                        // Filter out macOS hidden files (_), dots (.), and temp files (~)
+                        if (!u.startsWith(".") && !u.startsWith("_") && !u.contains("~") && 
                             (u.endsWith(".CUB") || u.endsWith(".CUBE") || u.endsWith(".PNG"))) {
                             
                             if (!recipePaths.contains(f.getAbsolutePath())) {
                                 recipePaths.add(f.getAbsolutePath());
-                                
-                                // Remove extension for clean menu name
                                 String name = u.replace(".CUBE", "").replace(".CUB", "").replace(".PNG", "");
                                 
-                                // Only read title metadata if it's a text-based .cube file
+                                // Only try to read "TITLE" from text-based .cube files
                                 if (u.endsWith(".CUBE") || u.endsWith(".CUB")) {
                                     try {
                                         BufferedReader br = new BufferedReader(new FileReader(f));
@@ -82,8 +75,8 @@ public class RecipeManager {
                                         for(int j=0; j<10; j++) {
                                             line = br.readLine();
                                             if (line != null && line.toUpperCase().startsWith("TITLE")) {
-                                                String[] parts = line.split("\"");
-                                                if (parts.length > 1) name = parts[1].toUpperCase();
+                                                String[] pts = line.split("\"");
+                                                if (pts.length > 1) name = pts[1].toUpperCase();
                                                 break;
                                             }
                                         }
@@ -93,7 +86,7 @@ public class RecipeManager {
                                 recipeNames.add(name);
                             }
                         }
-                    } // END for loop
+                    }
                 }
             }
         }
