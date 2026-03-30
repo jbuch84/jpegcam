@@ -106,7 +106,8 @@ public class RecipeManager {
     // --- WORKSPACE MANAGEMENT ---
     private void loadAllWorkspaces() {
         for (int i = 0; i < 10; i++) {
-            String filename = String.format("R_SLOT%02d.TXT", i + 1);
+            // FIX: 8.3 Compliance (SLOT01 is 6 chars)
+            String filename = String.format("SLOT%02d.TXT", i + 1);
             loadedProfiles[i] = loadProfileFromFile(filename, i);
         }
     }
@@ -221,7 +222,8 @@ public class RecipeManager {
     }
 
     public void loadPreferences() {
-        File prefsFile = new File(recipeDir, "GLOBAL_PREFS.TXT");
+        // FIX: 8.3 Compliance (PREFS is 5 chars)
+        File prefsFile = new File(recipeDir, "PREFS.TXT");
         if (prefsFile.exists()) {
             try {
                 BufferedReader br = new BufferedReader(new FileReader(prefsFile));
@@ -237,13 +239,14 @@ public class RecipeManager {
 
     public void savePreferences() {
         try {
-            File prefsFile = new File(recipeDir, "GLOBAL_PREFS.TXT");
+            File prefsFile = new File(recipeDir, "PREFS.TXT");
             FileOutputStream fos = new FileOutputStream(prefsFile);
             fos.write(("quality=" + qualityIndex + "\nslot=" + currentSlot + "\n").getBytes());
             fos.close();
 
             if (loadedProfiles[currentSlot] != null) {
-                String filename = String.format("R_SLOT%02d.TXT", currentSlot + 1);
+                // FIX: Match the new SLOT01.TXT format
+                String filename = String.format("SLOT%02d.TXT", currentSlot + 1);
                 File file = new File(recipeDir, filename);
                 saveProfileToFile(file, loadedProfiles[currentSlot]);
             }
@@ -256,7 +259,8 @@ public class RecipeManager {
         if (all != null) {
             for (File f : all) {
                 String n = f.getName().toUpperCase();
-                if (n.endsWith(".TXT") && !n.startsWith("R_SLOT") && !n.equals("GLOBAL_PREFS.TXT")) files.add(f.getName());
+                // FIX: Update filters to match our new short names
+                if (n.endsWith(".TXT") && !n.startsWith("SLOT") && !n.equals("PREFS.TXT")) files.add(f.getName());
             }
         }
         if (files.isEmpty()) files.add("NO VAULT RECIPES");
@@ -272,8 +276,15 @@ public class RecipeManager {
     public void saveSlotToVault(String customName) {
         String safe = customName.trim().replaceAll("[^A-Za-z0-9_\\- ]", "").toUpperCase();
         if (safe.isEmpty()) safe = "CUSTOM";
-        File newFile = new File(recipeDir, "R_" + safe.replace(" ", "_") + ".TXT");
-        loadedProfiles[currentSlot].profileName = safe;
+        
+        // --- FIX: Strict 8-character limit for the physical filename ---
+        String baseName = safe.replace(" ", "_");
+        if (baseName.length() > 8) {
+            baseName = baseName.substring(0, 8);
+        }
+        
+        File newFile = new File(recipeDir, baseName + ".TXT");
+        loadedProfiles[currentSlot].profileName = safe; // Keeps the full UI name in JSON!
         saveProfileToFile(newFile, loadedProfiles[currentSlot]);
         savePreferences();
     }
