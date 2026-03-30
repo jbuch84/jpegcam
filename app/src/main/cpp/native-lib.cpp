@@ -41,24 +41,65 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_loadLutNative(JNIEnv* env, jobject 
     const char *file_path = env->GetStringUTFChars(path, NULL);
     std::string path_str(file_path);
     
-    // Extract extension safely and convert to lowercase
+    // --- FIX: Safely find the actual extension using the last dot ---
     std::string ext = "";
-    if (path_str.length() >= 4) {
-        ext = path_str.substr(path_str.length() - 4);
-        for(int i = 0; i < ext.length(); i++) ext[i] = tolower(ext[i]);
+    size_t dot_pos = path_str.find_last_of('.');
+    if (dot_pos != std::string::npos) {
+        ext = path_str.substr(dot_pos);
+        for(size_t i = 0; i < ext.length(); i++) ext[i] = tolower(ext[i]);
     }
 
-    // --- ROUTE A: PNG (HaldCLUT) ---
+    // --- ROUTE A: PNG (HaldCLUT or DaVinci Strip) ---
     if (ext == ".png") {
         int w, h, c;
         unsigned char *img_data = stbi_load(file_path, &w, &h, &c, 3);
         if (img_data) {
-            nativeLutSize = round(cbrt(w * h)); 
-            int total_bytes = nativeLutSize * nativeLutSize * nativeLutSize * 3;
-            nativeLut.resize(total_bytes);
-            memcpy(nativeLut.data(), img_data, total_bytes);
+            bool valid_format = false;
+            int tiles_per_row = 1;
+
+            if (w == h) {
+                // Format 1: Square HaldCLUT (e.g., 512x512)
+                int level = round(cbrt(w));
+                if (level * level * level == w) {
+                    nativeLutSize = level * level;
+                    tiles_per_row = level;
+                    valid_format = true;
+                }
+            } else if (w == h * h) {
+                // Format 2: Horizontal Strip (e.g., 1089x33)
+                nativeLutSize = h;
+                tiles_per_row = nativeLutSize;
+                valid_format = true;
+            }
+
+            if (valid_format && nativeLutSize > 0) {
+                int total_bytes = nativeLutSize * nativeLutSize * nativeLutSize * 3;
+                nativeLut.resize(total_bytes);
+                
+                // Smart parser dynamically maps based on the detected layout
+                for (int b = 0; b < nativeLutSize; b++) {
+                    int cell_x = b % tiles_per_row;
+                    int cell_y = b / tiles_per_row;
+                    for (int g = 0; g < nativeLutSize; g++) {
+                        int img_y = cell_y * nativeLutSize + g;
+                        for (int r = 0; r < nativeLutSize; r++) {
+                            int img_x = cell_x * nativeLutSize + r;
+                            
+                            int src_idx = (img_y * w + img_x) * 3;
+                            int dst_idx = (r + g * nativeLutSize + b * nativeLutSize * nativeLutSize) * 3;
+                            
+                            nativeLut[dst_idx]     = img_data[src_idx];
+                            nativeLut[dst_idx + 1] = img_data[src_idx + 1];
+                            nativeLut[dst_idx + 2] = img_data[src_idx + 2];
+                        }
+                    }
+                }
+                LOGD("SUCCESS: Loaded PNG LUT size %d", nativeLutSize);
+            } else {
+                LOGD("ERROR: Invalid PNG LUT dimensions %dx%d. Safe reject.", w, h);
+                nativeLutSize = 0; // Prevent crash, fail gracefully
+            }
             stbi_image_free(img_data);
-            LOGD("SUCCESS: Loaded PNG HaldCLUT size %d", nativeLutSize);
         }
     }
     // --- ROUTE B: .CUBE (Text) ---

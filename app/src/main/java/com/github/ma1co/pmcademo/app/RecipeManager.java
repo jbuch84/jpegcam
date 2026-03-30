@@ -241,6 +241,12 @@ public class RecipeManager {
             FileOutputStream fos = new FileOutputStream(prefsFile);
             fos.write(("quality=" + qualityIndex + "\nslot=" + currentSlot + "\n").getBytes());
             fos.close();
+
+            if (loadedProfiles[currentSlot] != null) {
+                String filename = String.format("R_SLOT%02d.TXT", currentSlot + 1);
+                File file = new File(recipeDir, filename);
+                saveProfileToFile(file, loadedProfiles[currentSlot]);
+            }
         } catch (Exception e) {}
     }
 

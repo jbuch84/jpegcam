@@ -68,6 +68,37 @@ public class CameraUtil
             new int[]{30, 1},
     };
 
+    
+    public static String beautifyFilenameForUI(String rawFilename) {
+        if (rawFilename == null) return "";
+        
+        String clean = rawFilename;
+        
+        // 1. Strip the extension
+        int dotIndex = clean.lastIndexOf('.');
+        if (dotIndex > 0) {
+            clean = clean.substring(0, dotIndex);
+        }
+        
+        // 2. Replace ugly computer characters with spaces
+        clean = clean.replace("_", " ").replace("-", " ");
+        
+        // 3. Force Title Case for the Sony UI
+        StringBuilder titleCase = new StringBuilder();
+        boolean nextTitleCase = true;
+        for (char c : clean.toLowerCase().toCharArray()) {
+            if (Character.isSpaceChar(c)) {
+                nextTitleCase = true;
+            } else if (nextTitleCase) {
+                c = Character.toTitleCase(c);
+                nextTitleCase = false;
+            }
+            titleCase.append(c);
+        }
+        
+        return titleCase.toString();
+    }
+    
     public static int getShutterValueIndex(final Pair<Integer,Integer> speed)
     {
         return getShutterValueIndex(speed.first, speed.second);

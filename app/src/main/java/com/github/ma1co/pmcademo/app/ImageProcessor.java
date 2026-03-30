@@ -84,18 +84,20 @@ public class ImageProcessor {
                 // 0=1/4 RES (4), 1=HALF RES (2), 2=FULL RES (1)
                 int scale = (qualityIdx == 0) ? 4 : (qualityIdx == 2 ? 1 : 2);
 
-                // Dynamically set JPEG encode quality
-                int jpegQuality = 95; // FULL RES
+                // --- FIX: Stop shadowing the class-level jpegQuality variable! ---
+                int finalJpegQuality = this.jpegQuality; 
+                
+                // Still enforce safe limits for downscaled proxies to save RAM
                 if (scale == 4) {
-                    jpegQuality = 85; // 1/4 RES
+                    finalJpegQuality = Math.min(85, this.jpegQuality); 
                 } else if (scale == 2) {
-                    jpegQuality = 90; // HALF RES
+                    finalJpegQuality = Math.min(90, this.jpegQuality); 
                 }
 
-                // --- FIXED: Passing the 2 new variables (p.colorChrome and p.chromeBlue) ---
-                if (mEngine.applyLutToJpeg(original.getAbsolutePath(), outFile.getAbsolutePath(), scale, p.opacity, p.grain, p.grainSize, p.vignette, p.rollOff, p.colorChrome, p.chromeBlue, p.shadowToe, p.subtractiveSat, p.halation, jpegQuality)) {
-        return "SAVED";
-    }
+                // --- FIXED: Using finalJpegQuality instead of the hardcoded 95 ---
+                if (mEngine.applyLutToJpeg(original.getAbsolutePath(), outFile.getAbsolutePath(), scale, p.opacity, p.grain, p.grainSize, p.vignette, p.rollOff, p.colorChrome, p.chromeBlue, p.shadowToe, p.subtractiveSat, p.halation, finalJpegQuality)) {
+                    return "SAVED";
+                }
             } catch (Exception e) { Log.e("COOKBOOK", "Java error: " + e.getMessage()); }
             return "FAILED";
         }
