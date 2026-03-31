@@ -2696,13 +2696,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         // --- NEW: THE SNIPER TRIGGER ---
         // If they fully pressed the shutter, wake up the scanner!
         if (k == ScalarInput.ISV_KEY_S1_2 || k == ScalarInput.ISV_KEY_S2 || k == android.view.KeyEvent.KEYCODE_CAMERA) {
-            if (fileScanner != null && !fileScanner.isPolling) {
-                fileScanner.isPolling = true;
-                fileScanner.scheduleNextPoll();
+            
+            // REPLACE 'yourScannerVariableName' with your actual variable name (e.g., mScanner)
+            if (mScanner != null) {
+                mScanner.start(); 
                 android.util.Log.d("JPEG.CAM", "Sniper Trigger: Shutter pressed, watching SD card...");
             }
-            // Notice: We DO NOT "return true" here. We must let the code continue down 
-            // so the underlying Sony OS actually captures the photo!
+            
         }
         
         // --- FIXED: Added standard Android keycode ---
