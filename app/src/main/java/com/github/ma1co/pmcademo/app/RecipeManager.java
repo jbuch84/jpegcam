@@ -106,8 +106,8 @@ public class RecipeManager {
     // --- WORKSPACE MANAGEMENT ---
     private void loadAllWorkspaces() {
         for (int i = 0; i < 10; i++) {
-            // FIX: 8.3 Compliance (SLOT01 is 6 chars)
-            String filename = String.format("SLOT%02d.TXT", i + 1);
+            // RESTORED: R_ prefix for web server routing (exactly 8 chars!)
+            String filename = String.format("R_SLOT%02d.TXT", i + 1);
             loadedProfiles[i] = loadProfileFromFile(filename, i);
         }
     }
@@ -245,8 +245,8 @@ public class RecipeManager {
             fos.close();
 
             if (loadedProfiles[currentSlot] != null) {
-                // FIX: Match the new SLOT01.TXT format
-                String filename = String.format("SLOT%02d.TXT", currentSlot + 1);
+                // RESTORED: R_ prefix
+                String filename = String.format("R_SLOT%02d.TXT", currentSlot + 1);
                 File file = new File(recipeDir, filename);
                 saveProfileToFile(file, loadedProfiles[currentSlot]);
             }
@@ -259,8 +259,8 @@ public class RecipeManager {
         if (all != null) {
             for (File f : all) {
                 String n = f.getName().toUpperCase();
-                // FIX: Update filters to match our new short names
-                if (n.endsWith(".TXT") && !n.startsWith("SLOT") && !n.equals("PREFS.TXT")) files.add(f.getName());
+                // RESTORED: Hide R_SLOT files and PREFS.TXT from the Vault menu
+                if (n.endsWith(".TXT") && !n.startsWith("R_SLOT") && !n.equals("PREFS.TXT")) files.add(f.getName());
             }
         }
         if (files.isEmpty()) files.add("NO VAULT RECIPES");

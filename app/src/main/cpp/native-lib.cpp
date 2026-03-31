@@ -57,16 +57,19 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_loadLutNative(JNIEnv* env, jobject 
             bool valid_format = false;
             int tiles_per_row = 1;
 
+            // --- FIX: Safe integer math replaces cbrt() for API 10 compatibility ---
             if (w == h) {
                 // Format 1: Square HaldCLUT (e.g., 512x512)
-                int level = round(cbrt(w));
+                int level = 1;
+                while (level * level * level < w && level < 128) level++;
+                
                 if (level * level * level == w) {
                     nativeLutSize = level * level;
                     tiles_per_row = level;
                     valid_format = true;
                 }
             } else if (w == h * h) {
-                // Format 2: Horizontal Strip (e.g., 1089x33)
+                // Format 2: Horizontal Strip (e.g., 1024x32)
                 nativeLutSize = h;
                 tiles_per_row = nativeLutSize;
                 valid_format = true;
@@ -76,7 +79,7 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_loadLutNative(JNIEnv* env, jobject 
                 int total_bytes = nativeLutSize * nativeLutSize * nativeLutSize * 3;
                 nativeLut.resize(total_bytes);
                 
-                // --- THE SPATIAL 3D TRANSLATOR ---
+                // Unified spatial translator for both Squares and Strips
                 for (int b = 0; b < nativeLutSize; b++) {
                     int cell_x = b % tiles_per_row;
                     int cell_y = b / tiles_per_row;
@@ -94,8 +97,7 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_loadLutNative(JNIEnv* env, jobject 
                         }
                     }
                 }
-                // PROOF OF LIFE LOG: If you don't see this in Logcat, the APK didn't update!
-                LOGD("SUCCESS: JPEGCAM NEW 3D MATH APPLIED! LUT Size: %d", nativeLutSize);
+                LOGD("SUCCESS: JPEGCAM UNIVERSAL PNG MATH APPLIED! LUT Size: %d", nativeLutSize);
             } else {
                 LOGD("ERROR: Invalid PNG LUT dimensions %dx%d. Safe reject.", w, h);
                 nativeLutSize = 0; 
