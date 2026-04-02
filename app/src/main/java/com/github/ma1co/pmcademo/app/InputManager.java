@@ -19,7 +19,11 @@ public class InputManager {
         void onDownPressed();
         void onLeftPressed();
         void onRightPressed();
-        void onDialRotated(int direction);
+        
+        // --- 3-DIAL SETUP RESTORED ---
+        void onFrontDialRotated(int direction);
+        void onRearDialRotated(int direction);
+        void onControlWheelRotated(int direction);
     }
 
     private InputListener listener;
@@ -72,21 +76,27 @@ public class InputManager {
             return true;
         }
 
-        // --- DIAL ROTATION (Catches Front, Rear, Kuru/Wheel, and Lens Rings) ---
-        if (sc == ScalarInput.ISV_DIAL_1_CLOCKWISE || 
-            sc == ScalarInput.ISV_DIAL_2_CLOCKWISE || 
-            sc == ScalarInput.ISV_DIAL_3_CLOCKWISE || 
+        // --- FRONT DIAL (INDEX FINGER) ---
+        if (sc == ScalarInput.ISV_DIAL_1_CLOCKWISE) { listener.onFrontDialRotated(1); return true; }
+        if (sc == ScalarInput.ISV_DIAL_1_COUNTERCW) { listener.onFrontDialRotated(-1); return true; }
+
+        // --- REAR DIAL (THUMB) ---
+        if (sc == ScalarInput.ISV_DIAL_2_CLOCKWISE) { listener.onRearDialRotated(1); return true; }
+        if (sc == ScalarInput.ISV_DIAL_2_COUNTERCW) { listener.onRearDialRotated(-1); return true; }
+
+        // --- REAR CONTROL WHEEL & LENS RINGS (WITH a6500 HACKS) ---
+        if (sc == ScalarInput.ISV_DIAL_3_CLOCKWISE || 
             sc == ScalarInput.ISV_DIAL_KURU_CLOCKWISE || 
-            sc == ScalarInput.ISV_RING_CLOCKWISE) {
-            listener.onDialRotated(1);
+            sc == ScalarInput.ISV_RING_CLOCKWISE ||
+            keyCode == 212 /* KEY_WPS_BUTTON (a6500 Hack) */) {
+            listener.onControlWheelRotated(1);
             return true;
         }
-        if (sc == ScalarInput.ISV_DIAL_1_COUNTERCW || 
-            sc == ScalarInput.ISV_DIAL_2_COUNTERCW || 
-            sc == ScalarInput.ISV_DIAL_3_COUNTERCW || 
+        if (sc == ScalarInput.ISV_DIAL_3_COUNTERCW || 
             sc == ScalarInput.ISV_DIAL_KURU_COUNTERCW || 
-            sc == ScalarInput.ISV_RING_COUNTERCW) {
-            listener.onDialRotated(-1);
+            sc == ScalarInput.ISV_RING_COUNTERCW ||
+            keyCode == 80 /* KEY_CAMERA_FOCUS (a6500 Hack) */) {
+            listener.onControlWheelRotated(-1);
             return true;
         }
 
@@ -119,6 +129,11 @@ public class InputManager {
         if (sc == ScalarInput.ISV_KEY_MODE_DIAL || 
            (sc >= ScalarInput.ISV_KEY_MODE_INVALID && sc <= ScalarInput.ISV_KEY_MODE_CUSTOM3) || 
             sc == 624) {
+            return true;
+        }
+
+        // Swallow the fake a6500 Key Up events so they don't trigger native OS functions
+        if (keyCode == 80 || keyCode == 212) {
             return true;
         }
         

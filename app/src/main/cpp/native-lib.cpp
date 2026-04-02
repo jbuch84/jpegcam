@@ -1,5 +1,6 @@
 #include <jni.h>
 #include <vector>
+#include <string>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,6 +10,9 @@
 #include "jpeglib.h"
 #include <android/log.h>
 #include "process_kernel.h" // <-- YOUR NEW SHARED KERNEL
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 
 #define LOG_TAG "COOKBOOK_NATIVE"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
@@ -35,22 +39,107 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_loadLutNative(JNIEnv* env, jobject 
     nativeLutSize = 0;
 
     const char *file_path = env->GetStringUTFChars(path, NULL);
-    FILE *file = fopen(file_path, "r");
-    if (!file) { env->ReleaseStringUTFChars(path, file_path); return JNI_FALSE; }
-    char line[256];
-    while(fgets(line, sizeof(line), file)) {
-        if (strncmp(line, "LUT_3D_SIZE", 11) == 0) {
-            sscanf(line, "LUT_3D_SIZE %d", &nativeLutSize);
-            nativeLut.reserve(nativeLutSize * nativeLutSize * nativeLutSize * 3);
-        }
-        float r, g, b;
-        if (sscanf(line, "%f %f %f", &r, &g, &b) == 3) {
-            nativeLut.push_back((uint8_t)(r * 255.0f)); 
-            nativeLut.push_back((uint8_t)(g * 255.0f)); 
-            nativeLut.push_back((uint8_t)(b * 255.0f));
+    std::string path_str(file_path);
+    
+    // --- FIX: Safely find the actual extension using the last dot ---
+    std::string ext = "";
+    size_t dot_pos = path_str.find_last_of('.');
+    if (dot_pos != std::string::npos) {
+        ext = path_str.substr(dot_pos);
+        for(size_t i = 0; i < ext.length(); i++) ext[i] = tolower(ext[i]);
+    }
+
+    // --- ROUTE A: PNG (Standard Square HaldCLUT or Horizontal Strip) ---
+    if (ext == ".png") {
+        int w, h, c;
+        unsigned char *img_data = stbi_load(file_path, &w, &h, &c, 3);
+        if (img_data) {
+            int total_pixels = w * h;
+            
+            // OOM Protection: Raised to 4,000,000 to safely allow 1728x1728 (Level 144) LUTs
+            if (total_pixels > 4000000) {
+                nativeLutSize = 0;
+                LOGD("ERROR: PNG file is dangerously large (>4M pixels). Rejecting.");
+            } else {
+                // Find the closest perfect cube size 
+                int best_level = 1;
+                int min_diff = total_pixels;
+                
+                // Raised loop ceiling to 150 to catch your Level 144 files!
+                for (int l = 1; l <= 150; l++) {
+                    int diff = (l * l * l) - total_pixels;
+                    if (diff < 0) diff = -diff; // absolute value
+                    if (diff < min_diff) {
+                        min_diff = diff;
+                        best_level = l;
+                    }
+                }
+                
+                nativeLutSize = best_level;
+                int total_bytes = nativeLutSize * nativeLutSize * nativeLutSize * 3;
+                nativeLut.resize(total_bytes);
+                
+                // Determine layout. Integer division natively ignores minor border padding.
+                int tiles_per_row = w / nativeLutSize; 
+                if (tiles_per_row == 0) tiles_per_row = 1; // Failsafe
+                
+                // UNWRAPPER: Translates the 2D PNG into the linear .cube format
+                for (int b = 0; b < nativeLutSize; b++) {
+                    int cell_x = b % tiles_per_row;
+                    int cell_y = b / tiles_per_row;
+                    for (int g = 0; g < nativeLutSize; g++) {
+                        int img_y = cell_y * nativeLutSize + g; 
+                        for (int r = 0; r < nativeLutSize; r++) {
+                            int img_x = cell_x * nativeLutSize + r;
+                            
+                            // Bounds checking to safely ignore padding/borders
+                            if (img_x >= w) img_x = w - 1;
+                            if (img_y >= h) img_y = h - 1;
+                            
+                            int src_idx = (img_y * w + img_x) * 3;
+                            int dst_idx = (r + g * nativeLutSize + b * nativeLutSize * nativeLutSize) * 3;
+                            
+                            nativeLut[dst_idx]     = img_data[src_idx];
+                            nativeLut[dst_idx + 1] = img_data[src_idx + 1];
+                            nativeLut[dst_idx + 2] = img_data[src_idx + 2];
+                        }
+                    }
+                }
+                LOGD("SUCCESS: Loaded and Normalized PNG HaldCLUT size %d", nativeLutSize);
+            }
+            stbi_image_free(img_data);
+        } else {
+            nativeLutSize = 0; 
+            LOGD("ERROR: stbi_load failed to read the PNG file");
         }
     }
-    fclose(file); env->ReleaseStringUTFChars(path, file_path);
+    // --- ROUTE B: .CUBE (Text) ---
+    else if (ext == ".cube" || ext == ".cub") {
+        FILE *file = fopen(file_path, "r");
+        if (file) {
+            char line[256];
+            size_t count = 0;
+            while(fgets(line, sizeof(line), file)) {
+                if (strncmp(line, "LUT_3D_SIZE", 11) == 0) {
+                    sscanf(line, "LUT_3D_SIZE %d", &nativeLutSize);
+                    nativeLut.resize(nativeLutSize * nativeLutSize * nativeLutSize * 3);
+                    continue;
+                }
+                float r, g, b;
+                if (nativeLutSize > 0 && sscanf(line, "%f %f %f", &r, &g, &b) == 3) {
+                    if (count + 2 < nativeLut.size()) {
+                        nativeLut[count++] = (uint8_t)(r * 255.0f); 
+                        nativeLut[count++] = (uint8_t)(g * 255.0f); 
+                        nativeLut[count++] = (uint8_t)(b * 255.0f); // Fixed count here
+                    }
+                }
+            }
+            fclose(file);
+            LOGD("SUCCESS: Loaded .cube file size %d", nativeLutSize);
+        }
+    }
+
+    env->ReleaseStringUTFChars(path, file_path);
     return nativeLutSize > 0 ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -188,30 +277,24 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
 
         if (use_rgb_path) {
             // ==========================================
-            // PATH A: ROUTE TO SHARED KERNEL
+            // PATH A: ROUTE ENTIRE ROW TO SHARED KERNEL
             // ==========================================
-            for (int x = 0, px = 0; x < row_stride; x += 3, ++px) {
-                process_pixel_rgb(
-                    row_buf[x], row_buf[x+1], row_buf[x+2],
-                    px, abs_y, cx, cy_center, vig_coef,
-                    shadowToe, rollOff, colorChrome, chromeBlue, subtractiveSat, halation, vignette,
-                    grain, grainSize, seed, prev_noise,
-                    opac_mapped, map, nativeLut.data(), nativeLutSize, lutMax, lutSize2
-                );
-            }
+            process_row_rgb(
+                row_buf, cinfo_d.output_width, abs_y, cx, cy_center, vig_coef,
+                shadowToe, rollOff, colorChrome, chromeBlue, subtractiveSat, halation, vignette,
+                grain, grainSize, seed,
+                opac_mapped, map, nativeLut.data(), nativeLutSize, lutMax, lutSize2
+            );
         } else {
             // ==========================================
-            // PATH B: ROUTE TO SHARED KERNEL
+            // PATH B: ROUTE ENTIRE ROW TO SHARED KERNEL
             // ==========================================
-            for (int x = 0, px = 0; x < row_stride; x += 3, ++px) {
-                process_pixel_yuv(
-                    row_buf[x], row_buf[x+1], row_buf[x+2],
-                    px, abs_y, cx, cy_center, vig_coef,
-                    shadowToe, rollOff, colorChrome, chromeBlue, subtractiveSat, halation, vignette,
-                    grain, grainSize, seed, prev_noise,
-                    rolloff_lut
-                );
-            }
+            process_row_yuv(
+                row_buf, cinfo_d.output_width, abs_y, cx, cy_center, vig_coef,
+                shadowToe, rollOff, colorChrome, chromeBlue, subtractiveSat, halation, vignette,
+                grain, grainSize, seed,
+                rolloff_lut
+            );
         }
         jpeg_write_scanlines(&cinfo_c, row_pointer, 1);
     }

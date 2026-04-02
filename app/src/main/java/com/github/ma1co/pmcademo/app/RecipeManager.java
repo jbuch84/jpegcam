@@ -15,9 +15,8 @@ public class RecipeManager {
     // --- VARIABLES ---
     private File recipeDir;
     private RTLProfile[] loadedProfiles = new RTLProfile[10]; 
-    private int currentSlot = 0;
+    private int currentSlot = 0; // This is just the default value on boot
     
-    // MainActivity Dependencies
     private int qualityIndex = 1; 
     private ArrayList<String> recipePaths = new ArrayList<String>(); 
     private ArrayList<String> recipeNames = new ArrayList<String>(); 
@@ -26,17 +25,25 @@ public class RecipeManager {
         recipeDir = new File(Filepaths.getAppDir(), "RECIPES");
         if (!recipeDir.exists()) recipeDir.mkdirs();
         
-        scanRecipes(); // MUST run before loading profiles so LUT validation works
-        loadPreferences(); // Grabs the last used slot and quality
-        loadAllWorkspaces(); // Loads R_SLOT01 through R_SLOT10
+        scanRecipes(); 
+        loadPreferences(); // <--- This overwrites the '0' with your saved slot
+        loadAllWorkspaces(); 
     }
 
     // --- MAINACTIVITY GETTERS & SETTERS ---
     public int getCurrentSlot() { return currentSlot; }
-    public void setCurrentSlot(int slot) { this.currentSlot = (slot + 10) % 10; } 
+
+    // FIX 2: Added savePreferences() so it remembers the slot immediately when changed
+    public void setCurrentSlot(int slot) { 
+        this.currentSlot = (slot + 10) % 10; 
+        savePreferences(); 
+    } 
     
     public int getQualityIndex() { return qualityIndex; }
-    public void setQualityIndex(int index) { this.qualityIndex = (index + 3) % 3; } 
+    public void setQualityIndex(int index) { 
+        this.qualityIndex = (index + 3) % 3; 
+        savePreferences();
+    } 
     
     public RTLProfile getCurrentProfile() { return loadedProfiles[currentSlot]; }
     public RTLProfile getProfile(int index) { return loadedProfiles[index]; }
@@ -44,7 +51,7 @@ public class RecipeManager {
     public ArrayList<String> getRecipePaths() { return recipePaths; }
     public ArrayList<String> getRecipeNames() { return recipeNames; }
 
-    // --- SMART LUT SCANNER ---
+    // --- SMART LUT SCANNER (Pretty Names + Long Filename Support) ---
     public void scanRecipes() { 
         recipePaths.clear(); 
         recipeNames.clear(); 
@@ -58,24 +65,36 @@ public class RecipeManager {
                 if (files != null) {
                     java.util.Arrays.sort(files); 
                     for (File f : files) {
-                        String u = f.getName().toUpperCase();
-                        if (!u.startsWith(".") && (u.endsWith(".CUB") || u.endsWith(".CUBE"))) {
+                        String name = f.getName(); // Original: "Kodak_Portra_400.png"
+                        String u = name.toUpperCase();
+                        
+                        // Filter out dots and Mac hidden files, but ALLOW tildes (~) for long names
+                        if (!u.startsWith(".") && !u.startsWith("_") && 
+                            (u.endsWith(".CUB") || u.endsWith(".CUBE") || u.endsWith(".PNG"))) {
+                            
                             if (!recipePaths.contains(f.getAbsolutePath())) {
                                 recipePaths.add(f.getAbsolutePath());
-                                String name = u.replace(".CUBE", "").replace(".CUB", "");
-                                try {
-                                    BufferedReader br = new BufferedReader(new FileReader(f));
-                                    String line;
-                                    for(int j=0; j<10; j++) {
-                                        line = br.readLine();
-                                        if (line != null && line.toUpperCase().startsWith("TITLE")) {
-                                            name = line.split("\"")[1].toUpperCase();
-                                            break;
+                                
+                                // FIX 1: Strip extension case-insensitively but keep original name casing
+                                String prettyName = name.replaceAll("(?i)\\.(cube|cub|png)$", "");
+                                
+                                // If it's a cube, check for an internal TITLE override
+                                if (u.endsWith(".CUBE") || u.endsWith(".CUB")) {
+                                    try {
+                                        BufferedReader br = new BufferedReader(new FileReader(f));
+                                        String line;
+                                        for(int j=0; j<10; j++) {
+                                            line = br.readLine();
+                                            if (line != null && line.toUpperCase().startsWith("TITLE")) {
+                                                String[] pts = line.split("\"");
+                                                if (pts.length > 1) prettyName = pts[1]; 
+                                                break;
+                                            }
                                         }
-                                    }
-                                    br.close();
-                                } catch (Exception e) {}
-                                recipeNames.add(name);
+                                        br.close();
+                                    } catch (Exception e) {}
+                                }
+                                recipeNames.add(prettyName);
                             }
                         }
                     }
@@ -84,9 +103,10 @@ public class RecipeManager {
         }
     }
 
-    // --- WORKSPACE MANAGEMENT (THE 10 SLOTS) ---
+    // --- WORKSPACE MANAGEMENT ---
     private void loadAllWorkspaces() {
         for (int i = 0; i < 10; i++) {
+            // RESTORED: R_ prefix for web server routing (exactly 8 chars!)
             String filename = String.format("R_SLOT%02d.TXT", i + 1);
             loadedProfiles[i] = loadProfileFromFile(filename, i);
         }
@@ -94,12 +114,12 @@ public class RecipeManager {
 
     private RTLProfile loadProfileFromFile(String filename, int arrayIndex) {
         File file = new File(recipeDir, filename);
-        RTLProfile p = new RTLProfile(arrayIndex); 
+        if (file.getParentFile() == null) file = new File(recipeDir, filename);
         
+        RTLProfile p = new RTLProfile(arrayIndex); 
         if (!file.exists()) {
-            // Fresh Workspace Setup!
             p.profileName = "SLOT " + (arrayIndex + 1);
-            p.advMatrix = new int[]{100, 0, 0, 0, 100, 0, 0, 0, 100}; // Safety baseline
+            p.advMatrix = new int[]{100, 0, 0, 0, 100, 0, 0, 0, 100};
             saveProfileToFile(file, p);
             return p;
         }
@@ -109,15 +129,11 @@ public class RecipeManager {
             byte[] data = new byte[(int) file.length()];
             fis.read(data);
             fis.close();
-
             JSONObject json = new JSONObject(new String(data, "UTF-8"));
-            
             p.profileName = json.optString("profileName", "RECIPE");
-            
             String loadedLutName = json.optString("lutName", "OFF");
             p.lutIndex = recipeNames.indexOf(loadedLutName);
             if (p.lutIndex == -1) p.lutIndex = 0; 
-
             p.opacity = json.optInt("lutOpacity", 100);
             p.shadowToe = json.optInt("shadowToe", 0);
             p.rollOff = json.optInt("rollOff", 0);
@@ -148,25 +164,11 @@ public class RecipeManager {
             p.sharpness = json.optInt("sharpness", 0);
             p.sharpnessGain = json.optInt("sharpnessGain", 0);
             p.vignetteHardware = json.optInt("vignetteHardware", 0);
-
             JSONArray arr = json.optJSONArray("advMatrix");
             if (arr != null && arr.length() == 9) {
-                boolean isAllZero = true;
-                for (int i = 0; i < 9; i++) {
-                    p.advMatrix[i] = arr.getInt(i);
-                    if (p.advMatrix[i] != 0) isAllZero = false;
-                }
-                if (isAllZero) p.advMatrix = new int[]{100, 0, 0, 0, 100, 0, 0, 0, 100};
-            } else {
-                p.advMatrix = new int[]{100, 0, 0, 0, 100, 0, 0, 0, 100};
+                for (int i = 0; i < 9; i++) p.advMatrix[i] = arr.getInt(i);
             }
-
-            if (!loadedLutName.equalsIgnoreCase("OFF") && p.lutIndex == 0) {
-                Log.w("JPEG.CAM", "Missing LUT data for: " + loadedLutName);
-            }
-
         } catch (Exception e) {
-            Log.e("JPEG.CAM", "Failed to parse JSON: " + filename);
             p.profileName = "ERROR";
         }
         return p;
@@ -174,11 +176,7 @@ public class RecipeManager {
 
     private void saveProfileToFile(File file, RTLProfile p) {
         try {
-            String lutNameToSave = "OFF";
-            if (p.lutIndex >= 0 && p.lutIndex < recipeNames.size()) {
-                lutNameToSave = recipeNames.get(p.lutIndex);
-            }
-
+            String lutNameToSave = (p.lutIndex >= 0 && p.lutIndex < recipeNames.size()) ? recipeNames.get(p.lutIndex) : "OFF";
             StringBuilder sb = new StringBuilder();
             sb.append("{\n");
             sb.append("  \"profileName\": \"").append(p.profileName.replace("\"", "\\\"")).append("\",\n");
@@ -207,14 +205,9 @@ public class RecipeManager {
             sb.append("  \"colorDepthCyan\": ").append(p.colorDepthCyan).append(",\n");
             sb.append("  \"colorDepthMagenta\": ").append(p.colorDepthMagenta).append(",\n");
             sb.append("  \"colorDepthYellow\": ").append(p.colorDepthYellow).append(",\n");
-            
-            sb.append("  \"advMatrix\": [\n    ");
-            for (int i = 0; i < 9; i++) {
-                sb.append(p.advMatrix[i]);
-                if (i < 8) sb.append(",\n    ");
-                else sb.append("\n  ],\n");
-            }
-            
+            sb.append("  \"advMatrix\": [");
+            for (int i = 0; i < 9; i++) sb.append(p.advMatrix[i]).append(i < 8 ? "," : "");
+            sb.append("],\n");
             sb.append("  \"dro\": \"").append(p.dro).append("\",\n");
             sb.append("  \"pictureEffect\": \"").append(p.pictureEffect).append("\",\n");
             sb.append("  \"proColorMode\": \"").append(p.proColorMode).append("\",\n");
@@ -222,18 +215,15 @@ public class RecipeManager {
             sb.append("  \"sharpnessGain\": ").append(p.sharpnessGain).append(",\n");
             sb.append("  \"vignetteHardware\": ").append(p.vignetteHardware).append("\n");
             sb.append("}");
-
             FileOutputStream fos = new FileOutputStream(file);
             fos.write(sb.toString().getBytes("UTF-8"));
             fos.close();
-        } catch (Exception e) {
-            Log.e("JPEG.CAM", "Failed to save profile.");
-        }
+        } catch (Exception e) {}
     }
 
-    // --- GLOBAL PREFERENCES ---
     public void loadPreferences() {
-        File prefsFile = new File(recipeDir, "GLOBAL_PREFS.TXT");
+        // FIX: 8.3 Compliance (PREFS is 5 chars)
+        File prefsFile = new File(recipeDir, "PREFS.TXT");
         if (prefsFile.exists()) {
             try {
                 BufferedReader br = new BufferedReader(new FileReader(prefsFile));
@@ -249,78 +239,53 @@ public class RecipeManager {
 
     public void savePreferences() {
         try {
-            File prefsFile = new File(recipeDir, "GLOBAL_PREFS.TXT");
+            File prefsFile = new File(recipeDir, "PREFS.TXT");
             FileOutputStream fos = new FileOutputStream(prefsFile);
             fos.write(("quality=" + qualityIndex + "\nslot=" + currentSlot + "\n").getBytes());
             fos.close();
-        } catch (Exception e) {
-            Log.e("JPEG.CAM", "Failed to save global prefs.");
-        }
 
-        // Always auto-save the current workspace so the user never loses tweaks
-        String currentFilename = String.format("R_SLOT%02d.TXT", currentSlot + 1);
-        File file = new File(recipeDir, currentFilename);
-        saveProfileToFile(file, loadedProfiles[currentSlot]);
+            if (loadedProfiles[currentSlot] != null) {
+                // RESTORED: R_ prefix
+                String filename = String.format("R_SLOT%02d.TXT", currentSlot + 1);
+                File file = new File(recipeDir, filename);
+                saveProfileToFile(file, loadedProfiles[currentSlot]);
+            }
+        } catch (Exception e) {}
     }
-
-    // ==========================================================
-    // --- THE VAULT ENGINE (NEW) ---
-    // ==========================================================
 
     public List<String> getVaultFiles() {
-        List<String> availableFiles = new ArrayList<String>();
-        if (recipeDir.exists() && recipeDir.isDirectory()) {
-            File[] files = recipeDir.listFiles();
-            if (files != null) {
-                java.util.Arrays.sort(files);
-                for (File f : files) {
-                    String name = f.getName().toUpperCase();
-                    // Ignore our volatile workspaces and system files
-                    if (name.endsWith(".TXT") && !name.startsWith("R_SLOT") && !name.equals("GLOBAL_PREFS.TXT") && !name.equals("ACTIVE_SLOTS.TXT")) {
-                        availableFiles.add(f.getName());
-                    }
-                }
+        List<String> files = new ArrayList<String>();
+        File[] all = recipeDir.listFiles();
+        if (all != null) {
+            for (File f : all) {
+                String n = f.getName().toUpperCase();
+                // RESTORED: Hide R_SLOT files and PREFS.TXT from the Vault menu
+                if (n.endsWith(".TXT") && !n.startsWith("R_SLOT") && !n.equals("PREFS.TXT")) files.add(f.getName());
             }
         }
-        if (availableFiles.isEmpty()) availableFiles.add("NO VAULT RECIPES");
-        return availableFiles;
+        if (files.isEmpty()) files.add("NO VAULT RECIPES");
+        return files;
     }
 
-    // Action 1: The User hits "Load" on a Vault File. We pour it into the current Workspace.
     public void copyVaultToSlot(String vaultFilename) {
         if (vaultFilename.equals("NO VAULT RECIPES")) return;
-        
-        // 1. Read the Vault file into our memory array
         loadedProfiles[currentSlot] = loadProfileFromFile(vaultFilename, currentSlot);
-        
-        // 2. Immediately overwrite the physical R_SLOTxx.TXT file so it persists
-        String currentFilename = String.format("R_SLOT%02d.TXT", currentSlot + 1);
-        File workspaceFile = new File(recipeDir, currentFilename);
-        saveProfileToFile(workspaceFile, loadedProfiles[currentSlot]);
+        savePreferences();
     }
 
-    // Action 2: The User hits "Save" and names their Sandbox. We drop a new file into the Vault.
     public void saveSlotToVault(String customName) {
-        String safeName = customName.trim().replaceAll("[^A-Za-z0-9_\\- ]", "").toUpperCase();
-        if (safeName.isEmpty()) safeName = "CUSTOM";
+        String safe = customName.trim().replaceAll("[^A-Za-z0-9_\\- ]", "").toUpperCase();
+        if (safe.isEmpty()) safe = "CUSTOM";
         
-        String filename = "R_" + safeName.replace(" ", "_") + ".TXT";
-        
-        File newFile = new File(recipeDir, filename);
-        int counter = 1;
-        while (newFile.exists()) {
-            filename = "R_" + safeName.replace(" ", "_") + "_" + counter + ".TXT";
-            newFile = new File(recipeDir, filename);
-            counter++;
+        // --- FIX: Strict 8-character limit for the physical filename ---
+        String baseName = safe.replace(" ", "_");
+        if (baseName.length() > 8) {
+            baseName = baseName.substring(0, 8);
         }
         
-        // Update the internal profile name so the UI reflects the new name instantly
-        loadedProfiles[currentSlot].profileName = safeName;
-        
-        // Save the current math to the new Vault file
+        File newFile = new File(recipeDir, baseName + ".TXT");
+        loadedProfiles[currentSlot].profileName = safe; // Keeps the full UI name in JSON!
         saveProfileToFile(newFile, loadedProfiles[currentSlot]);
-        
-        // Save the updated name to the current Workspace file too
         savePreferences();
     }
 }

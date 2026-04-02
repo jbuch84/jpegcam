@@ -17,6 +17,9 @@ jobs:
         wget -q https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/2.1.5.1.tar.gz
         tar -xzf 2.1.5.1.tar.gz
         mv libjpeg-turbo-2.1.5.1 libjpeg-turbo
+        # Download stb_image.h header
+        wget -q https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
+
 
     - name: Create Clean Room SDK & NDK 16.1
       run: |

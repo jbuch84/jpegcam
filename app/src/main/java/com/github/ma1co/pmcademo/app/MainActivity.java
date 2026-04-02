@@ -483,11 +483,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         }
     }
 
-    @Override 
+    @Override
     public void onShutterHalfReleased() {
         if (displayState == 0 && !isMenuOpen && !isPlaybackMode) setHUDVisibility(View.VISIBLE);
         if (afOverlay != null && cameraManager != null && cameraManager.getCamera() != null) {
             afOverlay.stopFocus(cameraManager.getCamera());
+        }
+        if (mScanner != null) {
+            mScanner.start();
         }
     }
 
@@ -1146,7 +1149,38 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     }
     
     @Override 
-    public void onDialRotated(int direction) { 
+    public void onFrontDialRotated(int direction) { 
+        // If UI is open, act like a normal scroll wheel
+        if (isHudActive || isPlaybackMode || isMenuOpen) { onControlWheelRotated(direction); return; }
+        
+        // If shooting, forcefully change Shutter Speed
+        if (!isProcessing && cameraManager != null && cameraManager.getCameraEx() != null) {
+            if (direction > 0) cameraManager.getCameraEx().incrementShutterSpeed();
+            else cameraManager.getCameraEx().decrementShutterSpeed();
+            updateMainHUD();
+        }
+    }
+
+    @Override 
+    public void onRearDialRotated(int direction) { 
+        // If UI is open, act like a normal scroll wheel
+        if (isHudActive || isPlaybackMode || isMenuOpen) { onControlWheelRotated(direction); return; }
+        
+        // If shooting, forcefully change Aperture
+        if (!isProcessing && cameraManager != null && cameraManager.getCameraEx() != null) {
+            if (cachedIsManualFocus && lensManager != null && lensManager.isCurrentProfileManual()) {
+                adjustVirtualAperture(direction);
+            } else {
+                if (direction > 0) cameraManager.getCameraEx().incrementAperture();
+                else cameraManager.getCameraEx().decrementAperture();
+            }
+            updateMainHUD();
+        }
+    }
+
+    @Override 
+    public void onControlWheelRotated(int direction) { 
+        // The original logic for the back wheel remains unchanged!
         if (isHudActive) {
             if (currentHudMode == 2) handleWbAdjustment(direction, 0); 
             else handleHudAdjustment(direction);
@@ -1159,7 +1193,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             if (isNamingMode) { 
                 handleNamingChange(direction); 
             } else if (isMenuEditing) { 
-                // --- NEW: VAULT SCROLLING (DIAL) ---
                 if (currentMainTab == 0 && currentPage == 1 && menuSelection == 2) {
                     if (!vaultFiles.isEmpty() && !vaultFiles.get(0).equals("NO VAULT RECIPES")) {
                         if (direction > 0) {
@@ -1174,7 +1207,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                     handleMenuChange(direction); 
                 }
             } else { 
-                // This perfectly inherits the Native loops we built earlier!
                 if (direction > 0) onDownPressed(); 
                 else onUpPressed(); 
             }
@@ -2408,7 +2440,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         qrView.setLayoutParams(qrParams);
 
         TextView tvUrl = new TextView(this);
-        tvUrl.setText("jpegcookbook.com/hub");
+        tvUrl.setText(" "); // removed URL here
         tvUrl.setTextColor(Color.rgb(227, 69, 20));
         tvUrl.setTextSize(18);
         tvUrl.setTypeface(Typeface.DEFAULT_BOLD);
@@ -2647,30 +2679,34 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         return super.dispatchKeyEvent(event);
     }
     
-    @Override 
-    public boolean onKeyDown(int k, android.view.KeyEvent e) { 
+    @Override
+
+    public boolean onKeyDown(int k, android.view.KeyEvent e) {
+
         // UNIVERSAL CRASH PROTECTION: Swallow dial events on ALL cameras
-        if (k == 624 || k == ScalarInput.ISV_KEY_MODE_DIAL || 
+
+        if (k == 624 || k == ScalarInput.ISV_KEY_MODE_DIAL ||
            (k >= ScalarInput.ISV_KEY_MODE_INVALID && k <= ScalarInput.ISV_KEY_MODE_CUSTOM3)) {
-            
-            // AUTO-DISCOVERY: If boot detection failed but they turned a physical dial, 
+           
+            // AUTO-DISCOVERY: If boot detection failed but they turned a physical dial,
             // lock out the software wheel permanently for this session!
             if (!hasPhysicalPasmDial) hasPhysicalPasmDial = true;
-            
+           
             if (cameraManager != null) onHardwareStateChanged();
             return true; // Prevents the OS from force-closing the app
         }
-        
-        if (isProcessing && (k == ScalarInput.ISV_KEY_S1_1 || k == ScalarInput.ISV_KEY_S1_2 || k == ScalarInput.ISV_KEY_S2)) return true; 
-        
+       
+        if (isProcessing && (k == ScalarInput.ISV_KEY_S1_1 || k == ScalarInput.ISV_KEY_S1_2 || k == ScalarInput.ISV_KEY_S2)) return true;
+
         // --- FIXED: Added standard Android keycode ---
+
         if (k == ScalarInput.ISV_KEY_PLAY || k == android.view.KeyEvent.KEYCODE_MEDIA_PLAY) {
-            if (isPlaybackMode) exitPlayback(); 
+            if (isPlaybackMode) exitPlayback();
             else if (!isMenuOpen && !isProcessing) enterPlayback();
             return true; // Swallow the press
         }
-        
-        if (inputManager != null) return inputManager.handleKeyDown(k, e) || super.onKeyDown(k, e); 
+
+        if (inputManager != null) return inputManager.handleKeyDown(k, e) || super.onKeyDown(k, e);
         return super.onKeyDown(k, e);
     }
 
@@ -3143,13 +3179,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         File file = playbackFiles.get(idx);
         
         try {
+            // 1. FREE MEMORY FIRST
             if (playbackImageView != null) playbackImageView.setImageBitmap(null);
             if (currentPlaybackBitmap != null && !currentPlaybackBitmap.isRecycled()) { 
                 currentPlaybackBitmap.recycle(); 
                 currentPlaybackBitmap = null; 
             }
-            
-            System.gc();
+            System.gc(); // Force sweep before we do anything heavy
 
             if (file.length() == 0) {
                 if (tvPlaybackInfo != null) tvPlaybackInfo.setText((idx + 1) + "/" + playbackFiles.size() + "\n[ERROR: 0-BYTE FILE]");
@@ -3177,31 +3213,26 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             String metaText = (idx + 1) + " / " + playbackFiles.size() + "\n" + file.getName() + "\n" + apStr + " | " + speedStr + " | " + isoStr;
             if (tvPlaybackInfo != null) tvPlaybackInfo.setText(metaText);
 
-            
             // --- HIGH-QUALITY / MEMORY-SAFE DECODE ---
-            // 1. Read just the dimensions of the file (uses 0 RAM)
             BitmapFactory.Options opts = new BitmapFactory.Options();
             opts.inJustDecodeBounds = true;
             BitmapFactory.decodeFile(path, opts);
             
-            // 2. Target a crisp screen resolution
-            final int reqWidth = 1024;
-            final int reqHeight = 768;
+            // SHIFTED DOWN TO 800x600: 
+            // The physical LCD is roughly 640x480. 800x600 looks identical but uses 40% less RAM than 1024x768!
+            final int reqWidth = 800;
+            final int reqHeight = 600;
             int inSampleSize = 1;
 
-            // 3. Aggressively calculate the shrink factor 
-            // (Using || ensures we shrink until BOTH sides fit safely)
             if (opts.outHeight > reqHeight || opts.outWidth > reqWidth) {
                 while ((opts.outHeight / inSampleSize) > reqHeight || (opts.outWidth / inSampleSize) > reqWidth) {
                     inSampleSize *= 2;
                 }
             }
 
-            // 4. Decode the actual image at the safe resolution
             opts.inJustDecodeBounds = false;
             opts.inSampleSize = inSampleSize;
-            // Force 16-bit color (2 bytes per pixel). This instantly halves the RAM usage!
-            opts.inPreferredConfig = Bitmap.Config.RGB_565; 
+            opts.inPreferredConfig = Bitmap.Config.RGB_565; // Halves RAM usage
             opts.inPurgeable = true;
             opts.inInputShareable = true;
 
@@ -3212,12 +3243,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 return;
             }
 
-            if (raw == null) {
-                if (tvPlaybackInfo != null) tvPlaybackInfo.setText((idx + 1) + " / " + playbackFiles.size() + "\n[DECODE ERROR]");
-                return;
-            }
-
-            // 3. Handle Rotation & Anamorphic Squeeze
+            // --- MATRIX TRANSFORMATION ---
             int orient = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
             int rot = 0; 
             if (orient == ExifInterface.ORIENTATION_ROTATE_90) rot = 90; 
@@ -3228,6 +3254,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             if (rot != 0) m.postRotate(rot); 
             m.postScale(0.8888f, 1.0f); 
             
+            // This is the danger zone, but the smaller 800x600 footprint makes it safe
             Bitmap bmp = Bitmap.createBitmap(raw, 0, 0, raw.getWidth(), raw.getHeight(), m, true);
             
             if (raw != bmp) {
@@ -3244,7 +3271,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         } catch (OutOfMemoryError oom) {
             android.util.Log.e("JPEG.CAM", "OOM Memory limit hit during playback. Recovering...");
             if (tvPlaybackInfo != null) tvPlaybackInfo.setText((idx + 1) + " / " + playbackFiles.size() + "\n[MEMORY ERROR - SKIPPED]");
-            if (currentPlaybackBitmap != null) { 
+            if (currentPlaybackBitmap != null && !currentPlaybackBitmap.isRecycled()) { 
                 currentPlaybackBitmap.recycle(); 
                 currentPlaybackBitmap = null; 
             }

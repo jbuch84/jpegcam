@@ -11,8 +11,8 @@ android {
         targetSdkVersion 25
         
         // Bumped versioning for the JPEG.CAM era
-        versionCode 9
-        versionName "1.6"
+        versionCode 11
+        versionName "1.65"
         
         externalNativeBuild {
             cmake {
@@ -52,7 +52,7 @@ android {
     // Dynamically rename the final output file based on versionName
     applicationVariants.all { variant ->
         variant.outputs.all {
-            outputFileName = "JPEGCAM-LANG-v${variant.versionName}.apk"
+            outputFileName = "JPEGCAM-v${variant.versionName}.apk"
         }
     }
 }
