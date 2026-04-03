@@ -39,6 +39,9 @@ public class InputManager {
      */
     public boolean handleKeyDown(int keyCode, KeyEvent event) {
         int sc = event.getScanCode();
+
+        // --- TEMPORARY DEBUG TRACKER filter with adb logcat -s JPEG.CAM ---
+        android.util.Log.d("JPEG.CAM", "Hardware Button Pressed! KeyCode: " + keyCode + " | ScanCode: " + sc);
         
         // --- S1 SHUTTER (HALF-PRESS) ---
         if (sc == ScalarInput.ISV_KEY_S1_1 && event.getRepeatCount() == 0) {
