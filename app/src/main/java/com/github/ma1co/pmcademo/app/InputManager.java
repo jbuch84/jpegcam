@@ -40,7 +40,7 @@ public class InputManager {
     public boolean handleKeyDown(int keyCode, KeyEvent event) {
         int sc = event.getScanCode();
 
-        // --- TEMPORARY DEBUG TRACKER filter with adb logcat -s JPEG.CAM ---
+        // --- TEMPORARY DEBUG TRACKER ---
         android.util.Log.d("JPEG.CAM", "Hardware Button Pressed! KeyCode: " + keyCode + " | ScanCode: " + sc);
         
         // --- S1 SHUTTER (HALF-PRESS) ---
@@ -50,7 +50,6 @@ public class InputManager {
         }
 
         // --- CORE NAVIGATION ---
-        // A7II sometimes passes Android keycodes instead of Sony scan codes
         if (sc == ScalarInput.ISV_KEY_DELETE || keyCode == KeyEvent.KEYCODE_DEL) {
             listener.onDeletePressed();
             return true;
@@ -80,16 +79,24 @@ public class InputManager {
             return true;
         }
 
+        // --- UNIFIED CUSTOM BUTTON (The "Omni-Button") ---
+        // Catches C1, C2, and AEL explicitly using raw hardware ScanCodes (622, 623, 638)
+        // as well as the standard Sony Framework constants.
+        if (sc == 622 || sc == 623 || sc == 638 || 
+            sc == ScalarInput.ISV_KEY_CUSTOM1 || sc == ScalarInput.ISV_KEY_CUSTOM2 || 
+            sc == ScalarInput.ISV_KEY_CUSTOM3 || sc == ScalarInput.ISV_KEY_AEL) {
+            
+            listener.onCustomButtonPressed();
+            return true;
+        }
+
         // --- UNIFIED DIAL TRANSLATOR (Front, Rear, Control Wheel & a6500 Hacks) ---
-        // The a5100 maps its single wheel to DIAL_1 (027a/027b). 
-        // By unifying all rotational inputs here, they will correctly route to onControlWheelRotated
-        // and safely respect your HUD navigation state (mDialMode).
         if (sc == ScalarInput.ISV_DIAL_1_CLOCKWISE || 
             sc == ScalarInput.ISV_DIAL_2_CLOCKWISE || 
             sc == ScalarInput.ISV_DIAL_3_CLOCKWISE || 
             sc == ScalarInput.ISV_DIAL_KURU_CLOCKWISE || 
             sc == ScalarInput.ISV_RING_CLOCKWISE ||
-            keyCode == 212 || sc == 212 /* a6500 Hack */) {
+            keyCode == 212 || sc == 212) {
             
             listener.onControlWheelRotated(1);
             return true;
@@ -100,21 +107,16 @@ public class InputManager {
             sc == ScalarInput.ISV_DIAL_3_COUNTERCW || 
             sc == ScalarInput.ISV_DIAL_KURU_COUNTERCW || 
             sc == ScalarInput.ISV_RING_COUNTERCW ||
-            keyCode == 80 || sc == 80 /* a6500 Hack */) {
+            keyCode == 80 || sc == 80) {
             
             listener.onControlWheelRotated(-1);
             return true;
         }
 
         // --- PREVENT OS CRASHES FROM MODE DIAL ---
-        // A7 series cameras fire these hardware events when the PASM dial is turned.
-        // If we don't consume them, the native OS tries to draw the Mode UI over our app and crashes.
         if (sc == ScalarInput.ISV_KEY_MODE_DIAL || 
            (sc >= ScalarInput.ISV_KEY_MODE_INVALID && sc <= ScalarInput.ISV_KEY_MODE_CUSTOM3) || 
-            sc == 624 /* ISV_KEY_MODE_CHANGE */) {
-            
-            // We successfully caught the physical turn! 
-            // We just swallow the event so the OS leaves us alone.
+            sc == 624) {
             return true;
         }
 
@@ -130,6 +132,13 @@ public class InputManager {
             listener.onShutterHalfReleased();
             return true;
         }
+
+        // Swallow custom button releases so native OS features don't trigger
+        if (sc == 622 || sc == 623 || sc == 638 || 
+            sc == ScalarInput.ISV_KEY_CUSTOM1 || sc == ScalarInput.ISV_KEY_CUSTOM2 || 
+            sc == ScalarInput.ISV_KEY_CUSTOM3 || sc == ScalarInput.ISV_KEY_AEL) {
+            return true;
+        }
         
         // Ensure Mode Dial releases are also swallowed safely
         if (sc == ScalarInput.ISV_KEY_MODE_DIAL || 
@@ -138,7 +147,7 @@ public class InputManager {
             return true;
         }
 
-        // Swallow the fake a6500 Key Up events so they don't trigger native OS functions
+        // Swallow the fake a6500 Key Up events
         if (keyCode == 80 || keyCode == 212) {
             return true;
         }
