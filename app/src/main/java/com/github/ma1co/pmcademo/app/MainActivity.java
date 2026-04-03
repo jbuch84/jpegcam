@@ -2559,8 +2559,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             hudOverlayContainer.addView(hudCells[i], new LinearLayout.LayoutParams(0, -2, 1.0f));
         }
         
+        // --- PINNED HUD MENU (MOVED TO BOTTOM) ---
         FrameLayout.LayoutParams overlayParams = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM); 
-        overlayParams.setMargins(0, 0, 0, 130); 
+        overlayParams.setMargins(0, 0, 0, 25); // Lowered from 130 to sit neatly at the bottom
         mainUIContainer.addView(hudOverlayContainer, overlayParams);
 
         hudTooltipText = new TextView(this);
@@ -2571,8 +2572,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         hudTooltipText.setBackgroundColor(Color.argb(200, 15, 15, 15));
         hudTooltipText.setVisibility(View.GONE);
         
+        // --- LOWERED HUD TOOLTIP ---
         FrameLayout.LayoutParams ttParams = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM); 
-        ttParams.setMargins(0, 0, 0, 205); 
+        ttParams.setMargins(0, 0, 0, 100); // Lowered from 205 to hover directly above the pinned HUD
         mainUIContainer.addView(hudTooltipText, ttParams);
         
         wbGridContainer = new FrameLayout(this);
