@@ -19,6 +19,7 @@ public class InputManager {
         void onDownPressed();
         void onLeftPressed();
         void onRightPressed();
+        void onCustomButtonPressed();
         
         // --- 3-DIAL SETUP RESTORED ---
         void onFrontDialRotated(int direction);
