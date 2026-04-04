@@ -1351,12 +1351,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             
         } else if (currentPage == 2) { 
             if (sel == 1) {
-                String[] modes = {"off", "pro-standard", "pro-vivid", "pro-portrait", "pro-cinema"};
-                int idx = 0; for(int i=0; i<modes.length; i++) if(modes[i].equals(p.proColorMode)) idx = i;
-                p.proColorMode = modes[(idx + dir + modes.length) % modes.length];
+                p.whiteBalance = cycleKelvin(p.whiteBalance, dir);
             }
 
-        } else if (currentPage == 3) { 
+        } else if (currentPage == 3) {
             if (sel == 0) {
                 String[] eff = {"off", "toy-camera", "pop-color", "posterization", "retro-photo", "soft-high-key", "partial-color", "high-contrast-mono", "soft-focus", "hdr-painting", "rich-tone-mono", "miniature", "watercolor", "illustration"};
                 int idx = 0; for(int i=0; i<eff.length; i++) if(eff[i].equals(p.pictureEffect)) idx = i;
@@ -1565,6 +1563,28 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         updateMainHUD(); 
     }
     
+    // --- NEW: KELVIN CYCLE HELPER ---
+    private String cycleKelvin(String current, int dir) {
+        if (current == null) current = "Auto";
+        
+        List<String> list = new ArrayList<String>();
+        list.add("Auto");
+        for (int i = 2500; i <= 9900; i += 100) {
+            list.add(i + "K");
+        }
+        
+        int idx = 0;
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i).equalsIgnoreCase(current)) {
+                idx = i;
+                break;
+            }
+        }
+        
+        int newIdx = (idx + dir + list.size()) % list.size();
+        return list.get(newIdx);
+    }
+
     private void applyHardwareRecipe() {
         if (cameraManager == null || cameraManager.getCamera() == null) return;
         Camera c = cameraManager.getCamera(); 
@@ -1627,12 +1647,24 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
         p = c.getParameters(); 
 
+        p = c.getParameters(); 
+
+        // --- NEW: KELVIN WHITE BALANCE APPLICATION ---
         String wb = "auto";
-        if ("DAY".equals(prof.whiteBalance)) wb = "daylight"; 
-        else if ("SHD".equals(prof.whiteBalance)) wb = "shade"; 
-        else if ("CLD".equals(prof.whiteBalance)) wb = "cloudy-daylight"; 
-        else if ("INC".equals(prof.whiteBalance)) wb = "incandescent"; 
-        else if ("FLR".equals(prof.whiteBalance)) wb = "fluorescent";
+        String profWb = prof.whiteBalance != null ? prof.whiteBalance : "Auto";
+        
+        // Legacy support for older saved files
+        if ("DAY".equals(profWb)) wb = "daylight"; 
+        else if ("SHD".equals(profWb)) wb = "shade"; 
+        else if ("CLD".equals(profWb)) wb = "cloudy-daylight"; 
+        else if ("INC".equals(profWb)) wb = "incandescent"; 
+        else if ("FLR".equals(profWb)) wb = "fluorescent";
+        else if (profWb.endsWith("K")) {
+            wb = "color-temperature";
+            if (p.get("color-temperature") != null) {
+                p.set("color-temperature", profWb.replace("K", ""));
+            }
+        }
         p.setWhiteBalance(wb);
         
         if (p.get("white-balance-shift-mode") != null) p.set("white-balance-shift-mode", (prof.wbShift != 0 || prof.wbShiftGM != 0) ? "true" : "false");
@@ -1871,11 +1903,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             if (hudSelection == 1) tooltip = "Aggressive frequency enhancement (Affects film grain texture)";
 
         } else if (currentHudMode == 7) { 
-            activeCells = 1; labels = new String[]{"PRO BASE"};
-            values[0] = p.proColorMode != null ? p.proColorMode.toUpperCase() : "OFF";
-            tooltip = "Under-the-hood color science starting points (Overwrites Standard Styles)";
+            activeCells = 1; labels = new String[]{"WHITE BALANCE"};
+            values[0] = p.whiteBalance != null ? p.whiteBalance.toUpperCase() : "AUTO";
+            tooltip = "Adjust White Balance: Auto or specific Kelvin temperature";
 
-        } else if (currentHudMode == 8) { 
+        } else if (currentHudMode == 8) {
             activeCells = 1; labels = new String[]{"EFFECT"};
             values[0] = p.pictureEffect != null ? p.pictureEffect.toUpperCase() : "OFF";
 
@@ -1995,11 +2027,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             }
             
         } else if (currentHudMode == 7) { 
-            String[] modes = {"off", "pro-standard", "pro-vivid", "pro-portrait"};
-            int idx = 0; for(int i=0; i<modes.length; i++) if(modes[i].equals(p.proColorMode)) idx = i;
-            p.proColorMode = modes[(idx + dir + modes.length) % modes.length];
+            p.whiteBalance = cycleKelvin(p.whiteBalance, dir);
             
-        } else if (currentHudMode == 8) { 
+        } else if (currentHudMode == 8) {
             if (hudSelection == 0) {
                 String[] eff = {"off", "toy-camera", "pop-color", "posterization", "retro-photo", "soft-high-key", "part-color", "rough-mono", "soft-focus", "hdr-art", "richtone-mono", "miniature", "watercolor", "illust"};
                 int idx = 0; for(int i=0; i<eff.length; i++) if(eff[i].equals(p.pictureEffect)) idx = i;
@@ -2169,8 +2199,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 boolean mtxIsStd = p.advMatrix[0]==100 && p.advMatrix[1]==0 && p.advMatrix[2]==0 && p.advMatrix[3]==0 && p.advMatrix[4]==100 && p.advMatrix[5]==0 && p.advMatrix[6]==0 && p.advMatrix[7]==0 && p.advMatrix[8]==100;
                 String mtxStr = mtxIsStd ? "[ STANDARD ]" : "[ " + getActiveMatrixName() + " ]";
 
-                String[] rLabels = {"White Balance Shift", "Pro Color Base", "6-Axis Color Depths", "BIONZ RGB Matrix"};
-                String[] rValues = { combinedWb, (p.proColorMode != null ? p.proColorMode : "OFF").toUpperCase(), sixStr, mtxStr };
+                String[] rLabels = {"White Balance Shift", "White Balance", "6-Axis Color Depths", "BIONZ RGB Matrix"};
+                String[] rValues = { combinedWb, (p.whiteBalance != null ? p.whiteBalance : "Auto").toUpperCase(), sixStr, mtxStr };
                 for (int i = 0; i < 4; i++) { menuLabels[i].setText(rLabels[i]); menuValues[i].setText(rValues[i]); menuRows[i].setVisibility(View.VISIBLE); }
                 
             } else if (currentPage == 3) {
@@ -2265,11 +2295,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
         for (int i = 0; i < itemCount; i++) {
             boolean isActive = true;
-            
-            if (currentMainTab == 0 && currentPage == 2 && i == 1) {
-                isActive = false; 
-                p.proColorMode = "off";
-            }
             
             if (currentMainTab == 0 && currentPage == 3 && i == 1) {
                 String eff = p.pictureEffect != null ? p.pictureEffect : "off";
