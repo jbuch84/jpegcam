@@ -1029,7 +1029,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 if (currentMainTab == 0 && currentPage == 1 && menuSelection == 2) {
                     if (!vaultItems.isEmpty() && !vaultItems.get(0).filename.equals("NONE")) {
                         vaultIndex -= 1;
-                        if (vaultIndex < 0) vaultIndex += vaultFiles.size();
+                        if (vaultIndex < 0) vaultIndex += vaultItems.size();
                         renderMenu();
                     }
                 } else {
@@ -1119,7 +1119,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 // --- VAULT SCROLLING (RIGHT) ---
                 if (currentMainTab == 0 && currentPage == 1 && menuSelection == 2) {
                     if (!vaultItems.isEmpty() && !vaultItems.get(0).filename.equals("NONE")) {
-                        vaultIndex = (vaultIndex + 1) % vaultFiles.size();
+                        vaultIndex = (vaultIndex + 1) % vaultItems.size();
                         renderMenu();
                     }
                 } else {
@@ -1220,10 +1220,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 if (currentMainTab == 0 && currentPage == 1 && menuSelection == 2) {
                     if (!vaultItems.isEmpty() && !vaultItems.get(0).filename.equals("NONE")) {
                         if (direction > 0) {
-                            vaultIndex = (vaultIndex + 1) % vaultFiles.size();
+                            vaultIndex = (vaultIndex + 1) % vaultItems.size();
                         } else {
                             vaultIndex -= 1;
-                            if (vaultIndex < 0) vaultIndex += vaultFiles.size();
+                            if (vaultIndex < 0) vaultIndex += vaultItems.size();
                         }
                         renderMenu();
                     }
@@ -1329,8 +1329,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 if (!vaultItems.isEmpty() && !vaultItems.get(0).filename.equals("NONE")) {
                     vaultIndex += dir;
                     // Wrap-around logic for the list
-                    while (vaultIndex < 0) vaultIndex += vaultFiles.size();
-                    vaultIndex = vaultIndex % vaultFiles.size();
+                    while (vaultIndex < 0) vaultIndex += vaultItems.size();
+                    vaultIndex = vaultIndex % vaultItems.size();
                 }
             }
             // ROW 4: FOUNDATION BASE (SHIFTED FROM 2 TO 3)
@@ -2177,7 +2177,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 }
 
                 // --- NEW: 6-ROW LAYOUT ---
-                // Updated labels to make the Sandbox vs Vault relationship clearer
                 String[] rLabels = {"Workspace (1-10)", "Save to Vault (Rename)", "Load from Vault", "Foundation Base", "Tone & Style", "DRO (Dynamic Range)"};
                 String[] rValues = { String.valueOf(recipeManager.getCurrentSlot() + 1), displayHtmlName, vaultDisplay, fndStr, tsStr, p.dro != null ? p.dro.toUpperCase() : "OFF" };
                 
