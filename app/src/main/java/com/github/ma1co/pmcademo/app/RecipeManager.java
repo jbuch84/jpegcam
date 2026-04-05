@@ -264,18 +264,13 @@ public class RecipeManager {
     public void scanVault() {
         vaultItems.clear();
         File[] all = recipeDir.listFiles();
-        // Identify the current slot's scratchpad (e.g., R_SLOT01.TXT)
-        String currentSlotFilename = String.format("R_SLOT%02d.TXT", currentSlot + 1);
-
         if (all != null) {
             for (File f : all) {
                 String n = f.getName().toUpperCase();
-                if (!n.endsWith(".TXT") || n.equals("PREFS.TXT")) continue;
-                
-                // HIDE other slots' scratchpads, but SHOW the current one and all saved recipes
-                if (n.startsWith("R_SLOT") && !n.equals(currentSlotFilename)) continue;
+                // HIDE all scratchpads (R_SLOT) and system files from the Vault
+                if (!n.endsWith(".TXT") || n.startsWith("R_SLOT") || n.equals("PREFS.TXT")) continue;
 
-                String pName = n.replace(".TXT", ""); // Fallback
+                String pName = n.replace(".TXT", ""); 
                 try {
                     BufferedReader br = new BufferedReader(new FileReader(f));
                     String line;
@@ -299,10 +294,11 @@ public class RecipeManager {
         return vaultItems;
     }
 
-    public void copyVaultToSlot(String vaultFilename) {
+    // --- NEW: PREVIEW MODE (MEMORY ONLY) ---
+    public void previewVaultToSlot(String vaultFilename) {
         if (vaultFilename.equals("NONE") || vaultFilename.equals("NO VAULT RECIPES")) return;
+        // This updates the live view memory but DOES NOT write to disk
         loadedProfiles[currentSlot] = loadProfileFromFile(vaultFilename, currentSlot);
-        savePreferences();
     }
 
     public void resetCurrentSlot() {
@@ -314,14 +310,12 @@ public class RecipeManager {
 
     public void saveSlotToVault(String newPrettyName) {
         String targetFile = null;
-        // 1. Overwrite check: does a saved recipe already have this pretty name?
         for (VaultItem item : getVaultItems()) {
-            if (item.profileName.equalsIgnoreCase(newPrettyName) && !item.filename.startsWith("R_SLOT")) {
+            if (item.profileName.equalsIgnoreCase(newPrettyName)) {
                 targetFile = item.filename;
                 break;
             }
         }
-        // 2. If new, generate a safe 8.3 filename (e.g., VINTAG01.TXT)
         if (targetFile == null) {
             String base = newPrettyName.replaceAll("[^A-Z0-9]", "").toUpperCase();
             if (base.length() > 6) base = base.substring(0, 6);
@@ -332,10 +326,10 @@ public class RecipeManager {
             } while (new File(recipeDir, targetFile).exists() && count < 100);
         }
         
-        // 3. Update memory and save to SD
         RTLProfile p = loadedProfiles[currentSlot];
         p.profileName = newPrettyName;
+        // FIXED: Build error - File argument must come first
         saveProfileToFile(new File(recipeDir, targetFile), p); 
-        scanVault(); // Refresh list so it shows up in the HUD immediately
+        scanVault();
     }
 }

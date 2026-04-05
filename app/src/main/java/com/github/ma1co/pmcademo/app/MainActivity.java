@@ -592,34 +592,28 @@ public void onEnterPressed() {
         if (currentHudMode == 10) {
             if (isNamingMode) {
                 isNamingMode = false;
-                String finalName = new String(matrixNameBuffer).trim();
-                // Engine handles the save, the name update, and the scan
-                recipeManager.saveSlotToVault(finalName);
+                recipeManager.saveSlotToVault(new String(matrixNameBuffer).trim());
                 isHudActive = false; 
             } else {
                 if (hudSelection == 0) { 
-                    // Confirm Load: The wheel already loaded the recipe for preview
+                    // Commit the loaded preview to the Slot's permanent file
+                    recipeManager.savePreferences(); 
                     isHudActive = false; 
                 } else if (hudSelection == 1) { 
-                    // Start Naming: Switch to letter-scrolling mode
                     isNamingMode = true;
                     matrixNameBuffer = "CUSTOM      ".toCharArray();
                     nameCursorPos = 0;
                     updateHudUI();
                     return; 
                 } else if (hudSelection == 2) { 
-                    // Reset: Wipe slot to defaults
                     recipeManager.resetCurrentSlot();
                     isHudActive = false; 
                 }
             }
-
-            // Cleanup: If we are exiting the HUD, restore the Main Menu
             if (!isHudActive) { 
                 hudOverlayContainer.setVisibility(View.GONE);
                 mainUIContainer.setVisibility(View.GONE);
                 menuContainer.setVisibility(View.VISIBLE); 
-                recipeManager.savePreferences(); 
                 renderMenu(); 
             }
             return;
@@ -1903,7 +1897,7 @@ public void onEnterPressed() {
             tooltip = "Dynamic Range Optimizer: Recovers shadow detail in high-contrast scenes";
         } else if (currentHudMode == 10) {
             activeCells = 3;
-            labels = new String[]{"BROWSE VAULT", "SAVE / SAVE AS", "RESET SLOT"};
+            labels = new String[]{"BROWSE VAULT", "SAVE TO VAULT", "RESET SLOT"};
             
             vaultItems = recipeManager.getVaultItems();
             if (vaultIndex >= vaultItems.size() || vaultIndex < 0) vaultIndex = 0;
@@ -1919,7 +1913,7 @@ public void onEnterPressed() {
             else if (hudSelection == 1) tooltip = "Enter to Name. Same name = OVERWRITE. New name = NEW FILE.";
             else tooltip = "Enter to wipe this Slot back to default settings.";
 
-            // --- TOP BAR NAMING UI ---
+            // --- YELLOW TOP BAR NAMING UI ---
             if (tvTopStatus != null) {
                 if (isNamingMode) {
                     StringBuilder sb = new StringBuilder("NAME: ");
@@ -2066,8 +2060,8 @@ public void onEnterPressed() {
             if (hudSelection == 0 && !vaultItems.isEmpty() && !vaultItems.get(0).filename.equals("NONE")) {
                 vaultIndex = (vaultIndex + dir + vaultItems.size()) % vaultItems.size();
                 
-                // --- REACTIVE PREVIEW ---
-                recipeManager.copyVaultToSlot(vaultItems.get(vaultIndex).filename);
+                // --- REACTIVE PREVIEW (NO DISK WRITE) ---
+                recipeManager.previewVaultToSlot(vaultItems.get(vaultIndex).filename);
                 triggerLutPreload(); 
             }
         }
