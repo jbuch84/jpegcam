@@ -598,6 +598,11 @@ public void onEnterPressed() {
                 
                 recipeManager.saveSlotToVault(finalName);
                 recipeManager.getCurrentProfile().profileName = finalName; // Update active memory!
+                
+                // --- FIXED: FORCE SD CARD RESCAN ---
+                // Tell the engine to read the SD card right now so the new file appears in the HUD instantly
+                recipeManager.scanVault(); 
+                
                 isHudActive = false; 
             } else {
                 if (hudSelection == 0) {
@@ -1909,7 +1914,7 @@ public void onEnterPressed() {
             tooltip = "Dynamic Range Optimizer: Recovers shadow detail in high-contrast scenes";
         } else if (currentHudMode == 10) {
             activeCells = 3;
-            labels = new String[]{"BROWSE VAULT", "SAVE TO VAULT", "RESET SLOT"};
+            labels = new String[]{"BROWSE VAULT", "SAVE / SAVE AS", "RESET SLOT"};
             
             vaultItems = recipeManager.getVaultItems();
             if (vaultIndex >= vaultItems.size() || vaultIndex < 0) vaultIndex = 0;
@@ -1918,25 +1923,25 @@ public void onEnterPressed() {
                            ? "[ EMPTY ]" : vaultItems.get(vaultIndex).profileName;
             
             values[0] = "< " + vName + " >";
-            values[1] = "[ RENAME & SAVE ]";
+            values[1] = "[ NAME & EXPORT ]";
             values[2] = "[ RESTORE DEFAULTS ]";
             
-            if (hudSelection == 0) tooltip = "Scroll wheel to browse. Press ENTER to LOAD.";
-            else if (hudSelection == 1) tooltip = "Press ENTER to RENAME and SAVE to Vault.";
+            if (hudSelection == 0) tooltip = "Scroll wheel to browse. LIVE VIEW will update automatically.";
+            else if (hudSelection == 1) tooltip = "Press ENTER. Same name = OVERWRITE. New name = NEW FILE.";
             else tooltip = "Press ENTER to wipe this Slot back to default settings.";
 
-            // --- NEW: TOP BAR NAMING UI FOR MODE 10 ---
+            // --- TOP BAR NAMING UI ---
             if (tvTopStatus != null) {
                 if (isNamingMode) {
-                    StringBuilder nameDisplay = new StringBuilder("NAME: ");
+                    StringBuilder sb = new StringBuilder("NAME: ");
                     for (int i = 0; i < matrixNameBuffer.length; i++) {
-                        if (i == nameCursorPos) nameDisplay.append("[").append(matrixNameBuffer[i]).append("]");
-                        else nameDisplay.append(matrixNameBuffer[i]);
+                        if (i == nameCursorPos) sb.append("[").append(matrixNameBuffer[i]).append("]");
+                        else sb.append(matrixNameBuffer[i]);
                     }
-                    tvTopStatus.setText(nameDisplay.toString());
-                    tvTopStatus.setTextColor(Color.YELLOW); 
+                    tvTopStatus.setText(sb.toString());
+                    tvTopStatus.setTextColor(Color.YELLOW);
                 } else {
-                    tvTopStatus.setText("VAULT MANAGER");
+                    tvTopStatus.setText("VAULT MANAGER - SLOT " + (recipeManager.getCurrentSlot() + 1));
                     tvTopStatus.setTextColor(Color.WHITE);
                 }
                 tvTopStatus.setVisibility(View.VISIBLE);
@@ -2069,12 +2074,11 @@ public void onEnterPressed() {
                 p.dro = droModes[(idx + dir + droModes.length) % droModes.length];
             }
         } else if (currentHudMode == 10) {
-            // Cycle through recipes in the vault
             if (hudSelection == 0 && !vaultItems.isEmpty() && !vaultItems.get(0).filename.equals("NONE")) {
                 vaultIndex = (vaultIndex + dir + vaultItems.size()) % vaultItems.size();
                 
-                // --- FIXED: FLUID LIVE PREVIEW ---
-                // Instantly copy the hovered recipe to the workspace so they see the live-view change
+                // --- REACTIVE LIVE PREVIEW ---
+                // Load it immediately so the user sees the look change while browsing
                 recipeManager.copyVaultToSlot(vaultItems.get(vaultIndex).filename);
                 triggerLutPreload(); 
             }
@@ -2206,12 +2210,12 @@ public void onEnterPressed() {
                 String fndStr = "[ " + (p.colorMode != null ? p.colorMode : "STD").toUpperCase() + " | M-CON " + String.format("%+d", p.sharpnessGain) + " ]";
                 String tsStr = String.format("[ %+d,  %+d,  %+d ]", p.contrast, p.saturation, p.sharpness);
 
-                // --- NEW: 5-ROW LAYOUT (VAULT HUD UPDATE) ---
+                // --- SHOW ACTIVE PROFILE NAME IN MENU ---
                 String activeName = (p.profileName != null && !p.profileName.isEmpty()) ? p.profileName : "UNNAMED";
-                String vaultLabel = "< " + activeName + " >";
+                String vaultValue = "< " + activeName + " >";
 
                 String[] rLabels = {"Recipe Slot (1-10)", "Vault Manager", "Foundation Base", "Tone & Style", "DRO (Dynamic Range)"};
-                String[] rValues = { String.valueOf(recipeManager.getCurrentSlot() + 1), vaultLabel, fndStr, tsStr, p.dro != null ? p.dro.toUpperCase() : "OFF" };
+                String[] rValues = { String.valueOf(recipeManager.getCurrentSlot() + 1), vaultValue, fndStr, tsStr, p.dro != null ? p.dro.toUpperCase() : "OFF" };
                 
                 for (int i = 0; i < 5; i++) {
                     menuLabels[i].setText(rLabels[i]);
@@ -3012,7 +3016,7 @@ public void onEnterPressed() {
         if (!isProcessing && tvTopStatus != null) {
             // --- FIXED: Clearer Identity ---
             int slotNum = recipeManager.getCurrentSlot() + 1;
-            tvTopStatus.setText("WORKSPACE " + slotNum + ": " + customName + "\n" + (isReady ? "READY" : "LOADING.."));
+            tvTopStatus.setText("SLOT " + slotNum + ": " + customName + "\n" + (isReady ? "READY" : "LOADING.."));
             
             if (mDialMode == DIAL_MODE_RTL) {
                 tvTopStatus.setTextColor(Color.WHITE); 

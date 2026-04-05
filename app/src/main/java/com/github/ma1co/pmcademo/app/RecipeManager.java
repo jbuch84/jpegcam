@@ -264,21 +264,16 @@ public class RecipeManager {
     public void scanVault() {
         vaultItems.clear();
         File[] all = recipeDir.listFiles();
-        
-        // Determine what the current slot's raw filename is (e.g., R_SLOT01.TXT)
         String currentSlotFilename = String.format("R_SLOT%02d.TXT", currentSlot + 1);
 
         if (all != null) {
             for (File f : all) {
                 String n = f.getName().toUpperCase();
-                
-                // Skip system prefs
                 if (!n.endsWith(".TXT") || n.equals("PREFS.TXT")) continue;
-                
-                // Skip scratchpads EXCEPT for the one we are currently in
+                // Hide other scratchpads; only show current slot's sandbox and saved recipes
                 if (n.startsWith("R_SLOT") && !n.equals(currentSlotFilename)) continue;
 
-                String pName = n.replace(".TXT", ""); // Fallback name
+                String pName = n.replace(".TXT", ""); 
                 try {
                     BufferedReader br = new BufferedReader(new FileReader(f));
                     String line;
@@ -294,9 +289,7 @@ public class RecipeManager {
                 vaultItems.add(new VaultItem(f.getName(), pName));
             }
         }
-        if (vaultItems.isEmpty()) {
-            vaultItems.add(new VaultItem("NONE", "NO VAULT RECIPES"));
-        }
+        if (vaultItems.isEmpty()) vaultItems.add(new VaultItem("NONE", "NO VAULT RECIPES"));
     }
 
     public List<VaultItem> getVaultItems() {
@@ -320,19 +313,27 @@ public class RecipeManager {
         savePreferences();
     }
 
-    public void saveSlotToVault(String customName) {
-        String safe = customName.trim().replaceAll("[^A-Za-z0-9_\\- ]", "").toUpperCase();
-        if (safe.isEmpty()) safe = "CUSTOM";
-        
-        // --- FIX: Strict 8-character limit for the physical filename ---
-        String baseName = safe.replace(" ", "_");
-        if (baseName.length() > 8) {
-            baseName = baseName.substring(0, 8);
+    public void saveSlotToVault(String newPrettyName) {
+        String targetFile = null;
+        // Check for overwrite
+        for (VaultItem item : getVaultItems()) {
+            if (item.profileName.equalsIgnoreCase(newPrettyName) && !item.filename.startsWith("R_SLOT")) {
+                targetFile = item.filename;
+                break;
+            }
         }
-        
-        File newFile = new File(recipeDir, baseName + ".TXT");
-        loadedProfiles[currentSlot].profileName = safe; // Keeps the full UI name in JSON!
-        saveProfileToFile(newFile, loadedProfiles[currentSlot]);
-        savePreferences();
+        // Generate new 8.3 filename if not found
+        if (targetFile == null) {
+            String base = newPrettyName.replaceAll("[^a-zA-Z0-9]", "").toUpperCase();
+            if (base.length() > 6) base = base.substring(0, 6);
+            int count = 1;
+            do {
+                targetFile = base + String.format("%02d", count++) + ".TXT";
+            } while (new File(recipeDir, targetFile).exists() && count < 100);
+        }
+        RTLProfile p = loadedProfiles[currentSlot];
+        p.profileName = newPrettyName;
+        saveProfileToFile(p, targetFile); 
+        scanVault(); // Refresh list immediately
     }
 }
