@@ -42,20 +42,19 @@ import java.util.List;
 public class MainActivity extends Activity implements SurfaceHolder.Callback,
     SonyCameraManager.CameraEventListener, InputManager.InputListener,
     ConnectivityManager.StatusUpdateListener, PlaybackController.HostCallback,
-    LensCalibrationController.HostCallback, MenuController.HostCallback {
+    LensCalibrationController.HostCallback, MenuController.HostCallback,
+    HudController.HostCallback {
 
     // --- GLOBAL DEBUG FLAG ---
     // Set to true to see diagnostic Toasts, false for clean public release
     public static final boolean DEBUG_MODE = false;
 
-    private boolean isScrollingMatrices = false;
     private SonyCameraManager cameraManager;
     private InputManager inputManager;
     private RecipeManager recipeManager;
     private MatrixManager matrixManager;
     private ConnectivityManager connectivityManager;
     
-    private int activeMatrixIndex = 0; // <-- NEW: Tracks which JSON file we are viewing
     
     private Typeface digitalFont; 
     
@@ -79,17 +78,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private TextView tvReview;
     
     // --- UNIVERSAL HUD VARIABLES ---
-    private boolean isHudActive = false;
-    private int hudSelection = 0;
-    private int currentHudMode = 0; 
-    private LinearLayout hudOverlayContainer;
-    private LinearLayout[] hudCells = new LinearLayout[9];
-    private TextView[] hudLabels = new TextView[9];
-    private TextView[] hudValues = new TextView[9];
+    private HudController hudController;
 
-    // --- VAULT UI VARIABLES ---
-    private List<RecipeManager.VaultItem> vaultItems = new ArrayList<RecipeManager.VaultItem>();
-    private int vaultIndex = 0;
 
      // --- RGB MATRIX MATH ---
      // Converts hardware value (e.g., 1024) to a human percentage (e.g., 100)
@@ -101,12 +91,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         return Math.round((percentValue / 100.0f) * 1024.0f);
     }
 
-    // --- WB GRID HUD VARIABLES ---
-    private FrameLayout wbGridContainer;
-    private View wbCursor;
-    private TextView wbValueText;
-
-    private TextView hudTooltipText;
     
     private BatteryView batteryIcon;
     private PlaybackController playbackController;
@@ -151,8 +135,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     
     private Handler uiHandler = new Handler();
     
-    private boolean isHudUpdatePending = false;
-
     public static final int DIAL_MODE_SHUTTER = 0;
     public static final int DIAL_MODE_APERTURE = 1;
     public static final int DIAL_MODE_ISO = 2;
@@ -200,14 +182,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         public void run() { applyHardwareRecipe(); }
     };
     
-    private Runnable hudUpdateRunnable = new Runnable() {
-        @Override
-        public void run() {
-            isHudUpdatePending = false;
-            updateMainHUD();
-        }
-    };
-
     private Runnable liveUpdater = new Runnable() {
         @Override
         public void run() {
@@ -460,10 +434,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     }
 
     private void requestHudUpdate() {
-        if (!isHudUpdatePending) {
-            isHudUpdatePending = true;
-            uiHandler.postDelayed(hudUpdateRunnable, 100); 
-        }
+        hudController.requestUpdate();
     }
 
     @Override 
@@ -471,48 +442,48 @@ public void onEnterPressed() {
     if (playbackController.isActive()) { playbackController.exit(); return; }
     if (isProcessing) return;
 
-    if (isHudActive) {
+    if (hudController.isActive()) {
         // --- VAULT HUD (MODE 10) ---
         // --- VAULT HUD (MODE 10) ---
-        if (currentHudMode == 10) {
+        if (hudController.getMode() == 10) {
             if (menuController.isNamingMode()) {
                 menuController.setNamingMode(false);
                 String finalName = new String(menuController.getNameBuffer()).trim();
                 recipeManager.saveSlotToVault(finalName);
-                vaultItems = recipeManager.getVaultItems();
-                for (int i = 0; i < vaultItems.size(); i++) {
-                    if (vaultItems.get(i).profileName.equalsIgnoreCase(finalName)) { vaultIndex = i; break; }
+                hudController.refreshVaultItems();
+                for (int i = 0; i < hudController.getVaultItems().size(); i++) {
+                    if (hudController.getVaultItems().get(i).profileName.equalsIgnoreCase(finalName)) { hudController.setVaultIndex(i); break; }
                 }
-                updateHudUI(); return;
+                hudController.update(); return;
             } else if (menuController.isConfirmingDelete()) {
-                if (hudSelection == 0) {
-                    recipeManager.deleteVaultItem(vaultIndex); vaultIndex = 0;
-                    vaultItems = recipeManager.getVaultItems();
-                    if (!vaultItems.isEmpty() && !vaultItems.get(0).filename.equals("NONE")) recipeManager.previewVaultToSlot(vaultItems.get(0).filename);
+                if (hudController.setSelection(0) {
+                    recipeManager.deleteVaultItem(hudController.getVaultIndex())); hudController.setVaultIndex(0);
+                    hudController.refreshVaultItems();
+                    if (!hudController.getVaultItems().isEmpty() && !hudController.getVaultItems().get(0).filename.equals("NONE")) recipeManager.previewVaultToSlot(hudController.getVaultItems().get(0).filename);
                     else recipeManager.resetCurrentSlot();
                     triggerLutPreload(); applyHardwareRecipe();
-                    menuController.setConfirmingDelete(false); hudSelection = 1; updateHudUI(); return;
-                } else if (hudSelection == 1) {
-                    menuController.setConfirmingDelete(false); hudSelection = 0; updateHudUI(); return;
+                    menuController.setConfirmingDelete(false); hudController.setSelection(1); hudController.update(); return;
+                } else if (hudController.setSelection(1) {
+                    menuController.setConfirmingDelete(false)); hudController.setSelection(0); hudController.update(); return;
                 }
             } else {
-                if (hudSelection == 0) {
-                    menuController.setNamingMode(true);
+                if (hudController.setSelection(0) {
+                    menuController.setNamingMode(true));
                     RTLProfile activeProfile = recipeManager.getCurrentProfile();
                     String currentName = (activeProfile != null) ? activeProfile.profileName : "";
                     if (currentName != null && !currentName.isEmpty() && !currentName.startsWith("SLOT ")) menuController.fillNameBuffer(currentName);
                     else menuController.resetNameBuffer();
-                    menuController.resetNameCursor(); updateHudUI(); return;
-                } else if (hudSelection == 1) { recipeManager.savePreferences(); isHudActive = false;
-                } else if (hudSelection == 2) { recipeManager.resetCurrentSlot(); triggerLutPreload(); applyHardwareRecipe(); updateHudUI(); return;
-                } else if (hudSelection == 3) {
-                    if (!vaultItems.isEmpty() && !vaultItems.get(vaultIndex).filename.equals("NONE")) {
-                        menuController.setConfirmingDelete(true); hudSelection = 1; updateHudUI(); return;
+                    menuController.resetNameCursor(); hudController.update(); return;
+                } else if (hudController.setSelection(1) { recipeManager.savePreferences()); // hudController marks itself inactive via close()
+                } else if (hudController.setSelection(2) { recipeManager.resetCurrentSlot()); triggerLutPreload(); applyHardwareRecipe(); hudController.update(); return;
+                } else if (hudController.setSelection(3) {
+                    if (!hudController.getVaultItems().isEmpty() && !hudController.getVaultItems().get(hudController.getVaultIndex()).filename.equals("NONE")) {
+                        menuController.setConfirmingDelete(true)); hudController.setSelection(1); hudController.update(); return;
                     }
                 }
             }
-            if (!isHudActive) {
-                hudOverlayContainer.setVisibility(View.GONE);
+            if (!hudController.isActive()) {
+                hudController.getOverlay().setVisibility(View.GONE);
                 mainUIContainer.setVisibility(View.GONE);
                 menuController.getContainer().setVisibility(View.VISIBLE);
                 menuController.refreshDisplay();
@@ -520,8 +491,8 @@ public void onEnterPressed() {
             return;
         }
 
-        if (currentHudMode == 0 && hudSelection == -1) {
-            RTLProfile p = recipeManager.getCurrentProfile();
+        if (hudController.getMode() == 0 && hudController.setSelection(-1) {
+            RTLProfile p = recipeManager.getCurrentProfile());
             if (!menuController.isNamingMode()) {
                 for (int i = 0; i < matrixManager.getCount(); i++) {
                     int[] existing = matrixManager.getValues(i); boolean isMatch = true;
@@ -530,15 +501,15 @@ public void onEnterPressed() {
                 }
             }
             menuController.setNamingMode(!menuController.isNamingMode());
-            if (menuController.isNamingMode()) { menuController.resetNameBuffer(); menuController.resetNameCursor(); updateHudUI();
-            } else { String finalName = new String(menuController.getNameBuffer()).trim(); if (finalName.isEmpty()) finalName = "CUSTOM"; saveCurrentCustomMatrix(finalName); }
+            if (menuController.isNamingMode()) { menuController.resetNameBuffer(); menuController.resetNameCursor(); hudController.update();
+            } else { String finalName = new String(menuController.getNameBuffer()).trim(); if (finalName.isEmpty()) finalName = "CUSTOM"; hudController.saveCustomMatrix(finalName); }
             return;
         }
 
-        isHudActive = false;
-        hudOverlayContainer.setVisibility(View.GONE);
-        if (hudTooltipText != null) hudTooltipText.setVisibility(View.GONE);
-        if (wbGridContainer != null) wbGridContainer.setVisibility(View.GONE);
+        // hudController marks itself inactive via close()
+        hudController.getOverlay().setVisibility(View.GONE);
+        if (hudController.getTooltip() != null) hudController.getTooltip().setVisibility(View.GONE);
+        if (hudController.getWbGrid() != null) hudController.getWbGrid().setVisibility(View.GONE);
         mainUIContainer.setVisibility(View.GONE);
         menuController.getContainer().setVisibility(View.VISIBLE);
         recipeManager.savePreferences();
@@ -568,7 +539,7 @@ public void onEnterPressed() {
 
     @Override
     public void onUpPressed() {
-        if (isHudActive && (currentHudMode == 0 || currentHudMode == 10) && menuController.isNamingMode()) {
+        if (hudController.isActive() && (hudController.getMode() == 0 || hudController.getMode() == 10) && menuController.isNamingMode()) {
             char[] buf = menuController.getNameBuffer();
             int pos = menuController.getNameCursorPos();
             int idx = MenuController.CHARSET.indexOf(buf[pos]);
@@ -576,33 +547,11 @@ public void onEnterPressed() {
             idx += 1;
             if (idx >= MenuController.CHARSET.length()) idx = 0;
             buf[pos] = MenuController.CHARSET.charAt(idx);
-            updateHudUI();
+            hudController.update();
             return;
         }
         
-        if (isHudActive) {
-            if (currentHudMode == 2) {
-                handleWbAdjustment(0, 1); 
-            } else {
-                hudSelection--;
-                
-                // --- NAVIGATION WRAP LOGIC ---
-                // --- NAVIGATION WRAP LOGIC ---
-                int minIdx = (currentHudMode == 0) ? -1 : 0;
-                
-                if (hudSelection < minIdx) {
-                    // Wrap to the bottom based on how many cells are in the current mode
-                    if (currentHudMode == 0) hudSelection = 8;
-                    else if (currentHudMode == 1) hudSelection = 5;
-                    else if (currentHudMode == 3) hudSelection = 2; 
-                    else if (currentHudMode == 10) hudSelection = 3; // <-- CHANGED to 3
-                    else if (currentHudMode == 4 || currentHudMode == 6) hudSelection = 1;
-                    else hudSelection = 0;
-                }
-                updateHudUI();
-            }
-            return;
-        }
+        if (hudController.isActive() && !menuController.isNamingMode()) { hudController.handleUp(); return; }
         
         if (isProcessing || calibController.isWaiting()) return;
         
@@ -615,7 +564,7 @@ public void onEnterPressed() {
 
     @Override
     public void onDownPressed() {
-        if (isHudActive && (currentHudMode == 0 || currentHudMode == 10) && menuController.isNamingMode()) {
+        if (hudController.isActive() && (hudController.getMode() == 0 || hudController.getMode() == 10) && menuController.isNamingMode()) {
             char[] buf = menuController.getNameBuffer();
             int pos = menuController.getNameCursorPos();
             int idx = MenuController.CHARSET.indexOf(buf[pos]);
@@ -623,32 +572,11 @@ public void onEnterPressed() {
             idx -= 1;
             if (idx < 0) idx = MenuController.CHARSET.length() - 1;
             buf[pos] = MenuController.CHARSET.charAt(idx);
-            updateHudUI();
+            hudController.update();
             return;
         }
         
-        if (isHudActive) {
-            if (currentHudMode == 2) {
-                handleWbAdjustment(0, -1); 
-            } else {
-                hudSelection++;
-                
-                // Determine the max index for the current mode
-                int maxIdx = 0;
-                if (currentHudMode == 0) maxIdx = 8;
-                else if (currentHudMode == 1) maxIdx = 5;
-                else if (currentHudMode == 3) maxIdx = 2; 
-                else if (currentHudMode == 10) maxIdx = 3; // <-- CHANGED to 3
-                else if (currentHudMode == 4 || currentHudMode == 6) maxIdx = 1;
-
-                // --- NAVIGATION WRAP LOGIC ---
-                if (hudSelection > maxIdx) {
-                    hudSelection = (currentHudMode == 0) ? -1 : 0;
-                }
-                updateHudUI();
-            }
-            return;
-        }
+        if (hudController.isActive() && !menuController.isNamingMode()) { hudController.handleDown(); return; }
         
         if (isProcessing) return;
         
@@ -661,20 +589,13 @@ public void onEnterPressed() {
 
     @Override
     public void onLeftPressed() {
-        if (isHudActive && (currentHudMode == 0 || currentHudMode == 10) && menuController.isNamingMode()) {
+        if (hudController.isActive() && (hudController.getMode() == 0 || hudController.getMode() == 10) && menuController.isNamingMode()) {
             menuController.advanceNameCursor(-1);
-            updateHudUI();
+            hudController.update();
             return;
         }
         
-        if (isHudActive) {
-            if (currentHudMode == 2) handleWbAdjustment(-1, 0); 
-            else {
-                hudSelection = Math.max(0, hudSelection - 1);
-                updateHudUI();
-            }
-            return;
-        }
+        if (hudController.isActive() && !menuController.isNamingMode()) { hudController.handleLeft(); return; }
         if (isProcessing) return;
         if (calibController.handleLeft()) return;
 
@@ -691,27 +612,13 @@ public void onEnterPressed() {
 
     @Override
     public void onRightPressed() {
-        if (isHudActive && (currentHudMode == 0 || currentHudMode == 10) && menuController.isNamingMode()) {
+        if (hudController.isActive() && (hudController.getMode() == 0 || hudController.getMode() == 10) && menuController.isNamingMode()) {
             menuController.advanceNameCursor(1);
-            updateHudUI();
+            hudController.update();
             return;
         }
         
-        if (isHudActive) {
-            if (currentHudMode == 2) handleWbAdjustment(1, 0); 
-            else {
-                int maxSlots = 0;
-                if (currentHudMode == 0) maxSlots = 8;
-                else if (currentHudMode == 1) maxSlots = 5;
-                else if (currentHudMode == 3) maxSlots = 2; 
-                else if (currentHudMode == 10) maxSlots = 3; // <-- CHANGED to 3
-                else if (currentHudMode == 4 || currentHudMode == 5 || currentHudMode == 6 || currentHudMode == 8) maxSlots = 1;
-                
-                hudSelection = Math.min(maxSlots, hudSelection + 1);
-                updateHudUI();
-            }
-            return;
-        }
+        if (hudController.isActive() && !menuController.isNamingMode()) { hudController.handleRight(); return; }
         if (isProcessing) return;
         if (calibController.handleRight()) return;
         if (menuController.isOpen()) { menuController.handleRight(); return; } (!playbackController.isActive() && mDialMode == DIAL_MODE_FOCUS && lensManager != null && lensManager.isCurrentProfileManual()) {
@@ -737,7 +644,7 @@ public void onEnterPressed() {
     @Override 
     public void onFrontDialRotated(int direction) { 
         // If UI is open, act like a normal scroll wheel
-        if (isHudActive || playbackController.isActive() || menuController.isOpen()) { onControlWheelRotated(direction); return; }
+        if (hudController.isActive() || playbackController.isActive() || menuController.isOpen()) { onControlWheelRotated(direction); return; }
         
         // If shooting, forcefully change Shutter Speed
         if (!isProcessing && cameraManager != null && cameraManager.getCameraEx() != null) {
@@ -750,7 +657,7 @@ public void onEnterPressed() {
     @Override 
     public void onRearDialRotated(int direction) { 
         // If UI is open, act like a normal scroll wheel
-        if (isHudActive || playbackController.isActive() || menuController.isOpen()) { onControlWheelRotated(direction); return; }
+        if (hudController.isActive() || playbackController.isActive() || menuController.isOpen()) { onControlWheelRotated(direction); return; }
         
         // If shooting, forcefully change Aperture
         if (!isProcessing && cameraManager != null && cameraManager.getCameraEx() != null) {
@@ -767,22 +674,18 @@ public void onEnterPressed() {
     @Override 
     public void onControlWheelRotated(int direction) { 
         // --- NEW: INTERCEPT WHEEL TURNS FOR MATRIX NAMING ---
-        if (isHudActive && (currentHudMode == 0 || currentHudMode == 10) && menuController.isNamingMode()) {
+        if (hudController.isActive() && (hudController.getMode() == 0 || hudController.getMode() == 10) && menuController.isNamingMode()) {
             char[] buf = menuController.getNameBuffer();
             int pos = menuController.getNameCursorPos();
             int idx = MenuController.CHARSET.indexOf(buf[pos]);
             if (idx == -1) idx = 0;
             idx = (idx + direction + MenuController.CHARSET.length()) % MenuController.CHARSET.length();
             buf[pos] = MenuController.CHARSET.charAt(idx);
-            updateHudUI();
+            hudController.update();
             return;
         }
         
-        if (isHudActive) {
-            if (currentHudMode == 2) handleWbAdjustment(direction, 0); 
-            else handleHudAdjustment(direction);
-            return;
-        }
+        if (hudController.isActive() && !menuController.isNamingMode()) { hudController.handleDial(direction); return; }
         
         if (playbackController.isActive()) { 
             playbackController.navigate(direction); 
@@ -1016,418 +919,19 @@ public void onEnterPressed() {
     }
 
 
-    private void updateHudUI() {
-        RTLProfile p = recipeManager.getCurrentProfile();
-        String tooltip = ""; // Declared at top to prevent "cannot find symbol"
+    
 
-        // --- MODE 2: WB GRID ---
-        if (currentHudMode == 2) {
-            int ab = p.wbShift;   
-            int gm = p.wbShiftGM; 
-            
-            int leftOffset = 153 + (ab * 20);
-            int topOffset = 153 - (gm * 20);
-            
-            FrameLayout.LayoutParams cursorParams = (FrameLayout.LayoutParams) wbCursor.getLayoutParams();
-            cursorParams.setMargins(leftOffset, topOffset, 0, 0);
-            wbCursor.setLayoutParams(cursorParams);
-            
-            String abStr = ab == 0 ? "0" : (ab < 0 ? "B" + Math.abs(ab) : "A" + ab);
-            String gmStr = gm == 0 ? "0" : (gm < 0 ? "M" + Math.abs(gm) : "G" + gm);
-            wbValueText.setText(abStr + ", " + gmStr);
-            return; 
-        }
 
-        int activeCells = 0;
-        String[] labels = new String[9];
-        String[] values = new String[9];
 
-        // --- MODE 0: ADVANCED MATRIX (With Presets & Balance) ---
-        if (currentHudMode == 0) { 
-            activeCells = 9;
-            labels = new String[]{"R-R", "G-R", "B-R", "R-G", "G-G", "B-G", "R-B", "G-B", "B-B"};
-            
-            // 1. Calculate Live Row Balance
-            int rBal = p.advMatrix[0] + p.advMatrix[1] + p.advMatrix[2];
-            int gBal = p.advMatrix[3] + p.advMatrix[4] + p.advMatrix[5];
-            int bBal = p.advMatrix[6] + p.advMatrix[7] + p.advMatrix[8];
-            String balText = String.format(" [ R:%d%% | G:%d%% | B:%d%% ]", rBal, gBal, bBal);
-
-            // 2. Smart Lookup: Prevent "Teleportation Trap"
-            String currentName = "CUSTOM (UNSAVED)";
-            String matrixNote = "Use D-Pad to cycle SD Card matrices.";
-            
-            if (matrixManager != null && matrixManager.getCount() > 0) {
-                if (isScrollingMatrices) {
-                    // TRUST THE DIAL: Use the index the user actually scrolled to
-                    currentName = matrixManager.getNames().get(activeMatrixIndex);
-                    matrixNote = matrixManager.getNote(activeMatrixIndex);
-                } else {
-                    // REVERSE LOOKUP: Only search if the user manually tweaked values
-                    for (int f = 0; f < matrixManager.getCount(); f++) {
-                        int[] loaded = matrixManager.getValues(f);
-                        boolean matches = true;
-                        for (int i=0; i<9; i++) { if (p.advMatrix[i] != loaded[i]) matches = false; }
-                        
-                        if (matches) {
-                            activeMatrixIndex = f; 
-                            currentName = matrixManager.getNames().get(f);
-                            matrixNote = matrixManager.getNote(f);
-                            break; 
-                        }
-                    }
-                }
-            }
-
-            // 3. Update top status header
-            if (tvTopStatus != null) {
-                if (menuController.isNamingMode()) {
-                    StringBuilder nameDisplay = new StringBuilder("NAME: ");
-                    char[] buf = menuController.getNameBuffer();
-                    int pos = menuController.getNameCursorPos();
-                    for (int i = 0; i < buf.length; i++) {
-                        if (i == pos) nameDisplay.append("[").append(buf[i]).append("]");
-                        else nameDisplay.append(buf[i]);
-                    }
-                    tvTopStatus.setText(nameDisplay.toString());
-                    tvTopStatus.setTextColor(Color.YELLOW); 
-                } else {
-                    // Standard display
-                    tvTopStatus.setText("MATRIX: " + currentName);
-                    tvTopStatus.setTextColor(hudSelection == -1 ? Color.rgb(227, 69, 20) : Color.WHITE);
-                }
-                tvTopStatus.setVisibility(View.VISIBLE); 
-            }
-            
-            // 4. Update Description Tooltip based on selection
-            if (hudSelection == -1) {
-                tooltip = "FILE: " + matrixNote + "\n" + balText;
-            } else {
-                String[] t = {
-                    "Red sensitivity to real-world Red light (Primary - baseline is 100)", "Pushes Green light into Red channel (baseline is 0)", "Pushes Blue light into Red channel (baseline is 0)",
-                    "Pushes Red light into Green channel (baseline is 0)", "Green sensitivity to real-world Green light (Primary - baseline is 100)", "Pushes Blue light into Green channel (baseline is 0)",
-                    "Pushes Red light into Blue channel (baseline is 0)", "Pushes Green light into Blue channel (baseline is 0)", "Blue sensitivity to real-world Blue light (Primary - baseline is 100)."
-                };
-                if (hudSelection >= 0 && hudSelection < t.length) {
-                    tooltip = t[hudSelection] + "\n" + balText;
-                }
-            }
-
-            for (int i=0; i<9; i++) {
-                values[i] = p.advMatrix[i] + "%";
-            }
-            
-        // --- ALL OTHER MODES (1, 3-9) ---
-        } else if (currentHudMode == 1) {
-            activeCells = 6;
-            labels = new String[]{"RED", "GRN", "BLU", "CYN", "MAG", "YEL"};
-            int[] depths = {p.colorDepthRed, p.colorDepthGreen, p.colorDepthBlue, p.colorDepthCyan, p.colorDepthMagenta, p.colorDepthYellow};
-            for (int i=0; i<6; i++) values[i] = depths[i] == 0 ? "0" : String.format("%+d", depths[i]);
-            tooltip = "Alters the luminance and depth of the target color phase";
-
-        } else if (currentHudMode == 3) { 
-            activeCells = 3;
-            labels = new String[]{"CONTRAST", "SATURATION", "SHARPNESS"};
-            int[] vals = {p.contrast, p.saturation, p.sharpness};
-            for (int i=0; i<3; i++) values[i] = vals[i] == 0 ? "0" : String.format("%+d", vals[i]);
-            if (hudSelection == 2) tooltip = "Standard hardware sharpness (Micro-Contrast is stronger)";
-
-        } else if (currentHudMode == 4) { 
-            activeCells = 2;
-            labels = new String[]{"SHADE RED", "SHADE BLUE"};
-            int[] vals = {p.shadingRed, p.shadingBlue};
-            for (int i=0; i<2; i++) values[i] = vals[i] == 0 ? "0" : String.format("%+d", vals[i]);
-            tooltip = "Injects color shifts into the corners to simulate vintage lens tinting";
-
-        } else if (currentHudMode == 5) { 
-            activeCells = 1;
-            String eff = p.pictureEffect != null ? p.pictureEffect : "off";
-            String genericStr = p.peToyCameraTone != null ? p.peToyCameraTone.toUpperCase() : "NORM";
-            if ("toy-camera".equals(eff)) {
-                activeCells = 2; labels = new String[]{"TOY-TONE", "HW-VIGNETTE"};
-                values[0] = genericStr.equals("NORMAL") ? "NORM" : (genericStr.equals("MAGENTA") ? "MAG" : genericStr);
-                values[1] = p.vignetteHardware == 0 ? "0" : String.format("%+d", p.vignetteHardware);
-            } else if ("soft-focus".equals(eff) || "hdr-art".equals(eff) || "illust".equals(eff) || "watercolor".equals(eff)) {
-                labels = new String[]{"LEVEL"}; values[0] = String.valueOf(p.softFocusLevel);
-            } else if ("part-color".equals(eff)) {
-                labels = new String[]{"COLOR"}; values[0] = genericStr.equals("NORMAL") ? "RED" : genericStr; 
-            } else if ("miniature".equals(eff)) {
-                labels = new String[]{"AREA"}; values[0] = genericStr.equals("NORMAL") ? "AUTO" : genericStr;
-            } else {
-                labels = new String[]{"EFFECT"}; values[0] = "NO PARAMS";
-            }
-
-        } else if (currentHudMode == 6) { 
-            activeCells = 2;
-            labels = new String[]{"STYLE", "MICRO-CONTRAST"};
-            values[0] = p.colorMode != null ? p.colorMode.toUpperCase() : "STD";
-            values[1] = p.sharpnessGain == 0 ? "0" : String.format("%+d", p.sharpnessGain);
-            if (hudSelection == 1) tooltip = "Aggressive frequency enhancement (Affects film grain texture)";
-
-        } else if (currentHudMode == 7) { 
-            activeCells = 1; labels = new String[]{"WHITE BALANCE"};
-            values[0] = p.whiteBalance != null ? p.whiteBalance.toUpperCase() : "AUTO";
-            tooltip = "Adjust Kelvin Temperature (2500K - 9900K)";
-
-        } else if (currentHudMode == 8) {
-            activeCells = 1; labels = new String[]{"EFFECT"};
-            values[0] = p.pictureEffect != null ? p.pictureEffect.toUpperCase() : "OFF";
-
-        } else if (currentHudMode == 9) { 
-            activeCells = 1; labels = new String[]{"DYNAMIC RANGE"};
-            values[0] = p.dro != null ? p.dro.toUpperCase() : "OFF";
-            tooltip = "Dynamic Range Optimizer: Recovers shadow detail in high-contrast scenes";
-        } else if (currentHudMode == 10) {
-            if (menuController.isConfirmingDelete()) {
-                // --- DELETE CONFIRMATION STATE ---
-                activeCells = 2;
-                labels = new String[]{"ARE YOU SURE?", "CANCEL"};
-                values[0] = "[ CONFIRM DELETE ]";
-                values[1] = "[ GO BACK ]";
-                
-                if (hudSelection == 0) tooltip = "WARNING: This will permanently delete the recipe from the SD card.";
-                else tooltip = "Cancel and return to the Recipe Manager.";
-                
-            } else {
-                // --- STANDARD VAULT STATE ---
-                activeCells = 4;
-                labels = new String[]{"SAVE", "BROWSE", "RESET", "DELETE"};
-                
-                // FIX: Update the global class variable, do NOT create a local variable!
-                vaultItems = recipeManager.getVaultItems();
-                if (vaultIndex >= vaultItems.size() || vaultIndex < 0) vaultIndex = 0;
-                
-                String vName = (vaultItems.isEmpty() || vaultItems.get(0).filename.equals("NONE")) 
-                               ? "EMPTY" : vaultItems.get(vaultIndex).profileName;
-                
-                // Shorten name if it's too long to fit cleanly in the cell
-                if (vName.length() > 10) vName = vName.substring(0, 8) + "..";
-                
-                values[0] = "[ RENAME ]";
-                values[1] = "< " + vName + " >";
-                values[2] = "[ DEFAULT ]";
-                
-                // Only show a valid delete option if we are browsing an actual file, not "NONE"
-                if (!vaultItems.isEmpty() && !vaultItems.get(vaultIndex).filename.equals("NONE")) {
-                    values[3] = "[ TRASH ]";
-                } else {
-                    values[3] = "---";
-                }
-                
-                if (hudSelection == 0) tooltip = "Press ENTER to RENAME and SAVE this Slot to the Vault.";
-                else if (hudSelection == 1) tooltip = "Scroll wheel to browse. WARNING: LIVE VIEW will overwrite Slot.";
-                else if (hudSelection == 2) tooltip = "Press ENTER to wipe this Slot back to default settings.";
-                else if (hudSelection == 3) tooltip = "Permanently delete the currently selected Vault recipe.";
-            }
-
-            // --- TOP BAR NAMING UI ---
-            if (tvTopStatus != null) {
-            if (menuController.isNamingMode()) {
-                    StringBuilder sb = new StringBuilder("NAME: ");
-                    char[] buf = menuController.getNameBuffer();
-                    int pos = menuController.getNameCursorPos();
-                    for (int i = 0; i < buf.length; i++) {
-                        if (i == pos) sb.append("[").append(buf[i]).append("]");
-                        else sb.append(buf[i]);
-                    }
-                    tvTopStatus.setText(sb.toString());
-                    tvTopStatus.setTextColor(android.graphics.Color.YELLOW);
-                } else {
-                    tvTopStatus.setText("RECIPE MANAGER - SLOT " + (recipeManager.getCurrentSlot() + 1));
-                    tvTopStatus.setTextColor(android.graphics.Color.WHITE);
-                }
-                tvTopStatus.setVisibility(View.VISIBLE);
-            }
-        }
-
-        // --- GENERAL UI RENDER LOOP ---
-        for (int i = 0; i < 9; i++) {
-            if (i < activeCells) {
-                hudCells[i].setVisibility(View.VISIBLE);
-                hudLabels[i].setText(labels[i]);
-                hudValues[i].setText(values[i]);
-                if (i == hudSelection) {
-                    hudLabels[i].setTextColor(Color.rgb(227, 69, 20));
-                    hudValues[i].setTextColor(Color.rgb(227, 69, 20));
-                } else {
-                    hudLabels[i].setTextColor(Color.GRAY);
-                    hudValues[i].setTextColor(Color.WHITE);
-                }
-            } else {
-                hudCells[i].setVisibility(View.GONE); 
-            }
-        }
-        
-        if (hudTooltipText != null) {
-            hudTooltipText.setText(tooltip);
-            hudTooltipText.setVisibility(tooltip.isEmpty() ? View.GONE : View.VISIBLE);
-        }
-    }
-
-    private void handleWbAdjustment(int dAb, int dGm) {
-        RTLProfile p = recipeManager.getCurrentProfile();
-        p.wbShift = Math.max(-7, Math.min(7, p.wbShift + dAb));
-        p.wbShiftGM = Math.max(-7, Math.min(7, p.wbShiftGM + dGm));
-        updateHudUI();
-        uiHandler.removeCallbacks(applySettingsRunnable);
-        uiHandler.postDelayed(applySettingsRunnable, 150);
-    }
-
-    private void handleHudAdjustment(int dir) {
-        RTLProfile p = recipeManager.getCurrentProfile();
-        
-        if (currentHudMode == 0) { 
-            if (hudSelection == -1) {
-                // --- CYCLE SD CARD MATRICES ---
-                if (matrixManager != null && matrixManager.getCount() > 0) {
-                    // LOCK: Tells the UI to trust the index while the dial is spinning
-                    isScrollingMatrices = true; 
-                    
-                    activeMatrixIndex += dir;
-                    
-                    // Keep your bulletproof wrapping exactly as it was
-                    while (activeMatrixIndex < 0) activeMatrixIndex += matrixManager.getCount();
-                    activeMatrixIndex = activeMatrixIndex % matrixManager.getCount();
-                    
-                    int[] loadedVals = matrixManager.getValues(activeMatrixIndex);
-                    for(int i = 0; i < 9; i++) {
-                        p.advMatrix[i] = loadedVals[i];
-                    }
-                }
-            } else {
-                // --- MANUAL MATH ADJUSTMENT ---
-                // UNLOCK: User is tweaking numbers, so we allow Reverse Lookup again
-                isScrollingMatrices = false; 
-
-                int step = 5; 
-                int target = p.advMatrix[hudSelection] + (dir * step);
-                p.advMatrix[hudSelection] = Math.max(-200, Math.min(200, target)); 
-            }
-        } else if (currentHudMode == 1) {
-            if (hudSelection == 0) p.colorDepthRed = Math.max(-7, Math.min(7, p.colorDepthRed + dir));
-            else if (hudSelection == 1) p.colorDepthGreen = Math.max(-7, Math.min(7, p.colorDepthGreen + dir));
-            else if (hudSelection == 2) p.colorDepthBlue = Math.max(-7, Math.min(7, p.colorDepthBlue + dir));
-            else if (hudSelection == 3) p.colorDepthCyan = Math.max(-7, Math.min(7, p.colorDepthCyan + dir));
-            else if (hudSelection == 4) p.colorDepthMagenta = Math.max(-7, Math.min(7, p.colorDepthMagenta + dir));
-            else if (hudSelection == 5) p.colorDepthYellow = Math.max(-7, Math.min(7, p.colorDepthYellow + dir));
-            
-        } else if (currentHudMode == 3) { 
-            if (hudSelection == 0) p.contrast = Math.max(-3, Math.min(3, p.contrast + dir));
-            else if (hudSelection == 1) p.saturation = Math.max(-3, Math.min(3, p.saturation + dir));
-            else if (hudSelection == 2) p.sharpness = Math.max(-3, Math.min(3, p.sharpness + dir));
-            
-        } else if (currentHudMode == 4) { 
-            if (hudSelection == 0) p.shadingRed = Math.max(-7, Math.min(7, p.shadingRed + dir));
-            else if (hudSelection == 1) p.shadingBlue = Math.max(-7, Math.min(7, p.shadingBlue + dir));
-            
-        } else if (currentHudMode == 5) { 
-            String eff = p.pictureEffect != null ? p.pictureEffect : "off";
-            if (hudSelection == 0) {
-                if ("soft-focus".equals(eff) || "hdr-art".equals(eff) || "illust".equals(eff) || "watercolor".equals(eff)) {
-                    p.softFocusLevel = Math.max(1, Math.min(3, p.softFocusLevel + dir));
-                } else {
-                    String[] opts = {"normal"};
-                    if ("toy-camera".equals(eff)) opts = new String[]{"normal", "cool", "warm", "green", "magenta"};
-                    else if ("part-color".equals(eff)) opts = new String[]{"red", "green", "blue", "yellow"};
-                    else if ("miniature".equals(eff)) opts = new String[]{"auto", "left", "vcenter", "right", "upper", "hcenter", "lower"};
-                    
-                    if (opts.length > 1) {
-                        int idx = 0; for(int i=0; i<opts.length; i++) if(opts[i].equals(p.peToyCameraTone)) idx = i;
-                        p.peToyCameraTone = opts[(idx + dir + opts.length) % opts.length];
-                    }
-                }
-            } else if (hudSelection == 1 && "toy-camera".equals(eff)) {
-                p.vignetteHardware = Math.max(-16, Math.min(16, p.vignetteHardware + dir)); 
-            }
-            
-        } else if (currentHudMode == 6) { 
-            if (hudSelection == 0) {
-                String[] styles = {"standard", "vivid", "portrait", "landscape", "mono", "sunset", "sepia"};
-                int idx = 0; for(int i=0; i<styles.length; i++) if(styles[i].equalsIgnoreCase(p.colorMode)) idx = i;
-                p.colorMode = styles[(idx + dir + styles.length) % styles.length];
-            } else if (hudSelection == 1) {
-                p.sharpnessGain = Math.max(-50, Math.min(50, p.sharpnessGain + (dir * 5)));
-            }
-            
-        } else if (currentHudMode == 7) { 
-            p.whiteBalance = MenuController.cycleKelvin(p.whiteBalance, dir);
-            
-        } else if (currentHudMode == 8) {
-            if (hudSelection == 0) {
-                String[] eff = {"off", "toy-camera", "pop-color", "posterization", "retro-photo", "soft-high-key", "part-color", "rough-mono", "soft-focus", "hdr-art", "richtone-mono", "miniature", "watercolor", "illust"};
-                int idx = 0; for(int i=0; i<eff.length; i++) if(eff[i].equals(p.pictureEffect)) idx = i;
-                p.pictureEffect = eff[(idx + dir + eff.length) % eff.length];
-            }
-            
-        } else if (currentHudMode == 9) { 
-            if (hudSelection == 0) {
-                String[] droModes = {"OFF", "AUTO", "LVL 1", "LVL 2", "LVL 3", "LVL 4", "LVL 5"};
-                int idx = 0; for(int i=0; i < droModes.length; i++) if(droModes[i].equalsIgnoreCase(p.dro)) idx = i;
-                p.dro = droModes[(idx + dir + droModes.length) % droModes.length];
-            }
-        } else if (currentHudMode == 10) {
-            // Wheel browsing now only happens on the MIDDLE cell (Index 1)
-            if (hudSelection == 1 && !vaultItems.isEmpty() && !vaultItems.get(0).filename.equals("NONE")) {
-                vaultIndex = (vaultIndex + dir + vaultItems.size()) % vaultItems.size();
-                
-                // REACTIVE PREVIEW (Now safe because you have to click Right to get here)
-                recipeManager.previewVaultToSlot(vaultItems.get(vaultIndex).filename);
-                triggerLutPreload(); 
-            }
-        }
-        
-        updateHudUI();
-        uiHandler.removeCallbacks(applySettingsRunnable); 
-        uiHandler.postDelayed(applySettingsRunnable, 150);
-    }
-
-    // --- ON-CAMERA CUSTOM MATRIX SAVER ---
-    private void saveCurrentCustomMatrix(String customName) {
-        if (matrixManager == null) return;
-        
-        // --- NAME COLLISION CHECK ---
-        String finalName = customName;
-        for (String existing : matrixManager.getNames()) {
-            if (existing.equalsIgnoreCase(finalName)) {
-                finalName = finalName + "+"; // Quick "versioning" for collisions
-            }
-        }
-        
-        RTLProfile p = recipeManager.getCurrentProfile();
-        matrixManager.saveMatrix(finalName, p.advMatrix, "Saved directly from camera UI.");
-        matrixManager.scanMatrices();
-        
-        // Reset scrolling lock so the UI finds our brand new file immediately
-        isScrollingMatrices = false; 
-        updateHudUI(); 
-    }
-
-    // --- QUICK MATRIX NAME LOOKUP FOR MENU ---
+    // saveCurrentCustomMatrix removed — delegated to hudController.saveCustomMatrix()
 
     private void launchHudMode(int mode, int defaultSelection) {
-        isHudActive = true;
-        currentHudMode = mode;
-        hudSelection = defaultSelection; 
-        menuController.setConfirmingDelete(false);
-        
-        menuController.getContainer().setVisibility(View.GONE);
         mainUIContainer.setVisibility(View.VISIBLE);
-        setHUDVisibility(View.GONE); 
-        
-        if (mode == 2) {
-            hudOverlayContainer.setVisibility(View.GONE);
-            if (hudTooltipText != null) hudTooltipText.setVisibility(View.GONE);
-            if (wbGridContainer != null) wbGridContainer.setVisibility(View.VISIBLE);
-        } else {
-            hudOverlayContainer.setVisibility(View.VISIBLE);
-            if (wbGridContainer != null) wbGridContainer.setVisibility(View.GONE);
-        }
-        updateHudUI();
+        setHUDVisibility(View.GONE);
+        hudController.launch(mode, defaultSelection);
     }
-    
-    private void launchHudMode(int mode) { 
-        launchHudMode(mode, 0); 
-    }
+
+    private void launchHudMode(int mode) { launchHudMode(mode, 0); }
     
 
     private void buildUI(FrameLayout rootLayout) {
@@ -1540,94 +1044,8 @@ public void onEnterPressed() {
         // Playback viewer — PlaybackController builds and owns its views
         playbackController = new PlaybackController(this, rootLayout, this);
 
-        hudOverlayContainer = new LinearLayout(this); 
-        hudOverlayContainer.setOrientation(LinearLayout.HORIZONTAL); 
-        hudOverlayContainer.setBackgroundColor(Color.argb(220, 15, 15, 15)); 
-        hudOverlayContainer.setPadding(10, 15, 10, 15);
-        hudOverlayContainer.setVisibility(View.GONE);
-        
-        for (int i = 0; i < 9; i++) {
-            hudCells[i] = new LinearLayout(this);
-            hudCells[i].setOrientation(LinearLayout.VERTICAL);
-            hudCells[i].setGravity(Gravity.CENTER);
-            
-            hudLabels[i] = new TextView(this);
-            hudLabels[i].setTextColor(Color.GRAY); 
-            hudLabels[i].setTextSize(14);
-            if (digitalFont != null) hudLabels[i].setTypeface(digitalFont);
-            else hudLabels[i].setTypeface(Typeface.DEFAULT_BOLD);
-            
-            hudValues[i] = new TextView(this);
-            hudValues[i].setTextColor(Color.WHITE);
-            hudValues[i].setTextSize(18);
-            if (digitalFont != null) hudValues[i].setTypeface(digitalFont);
-            else hudValues[i].setTypeface(Typeface.DEFAULT_BOLD);
-            
-            hudCells[i].addView(hudLabels[i]);
-            hudCells[i].addView(hudValues[i]);
-            hudOverlayContainer.addView(hudCells[i], new LinearLayout.LayoutParams(0, -2, 1.0f));
-        }
-        
-        // --- PINNED HUD MENU (MOVED TO BOTTOM) ---
-        FrameLayout.LayoutParams overlayParams = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM); 
-        overlayParams.setMargins(0, 0, 0, 25); // Lowered from 130 to sit neatly at the bottom
-        mainUIContainer.addView(hudOverlayContainer, overlayParams);
-
-        hudTooltipText = new TextView(this);
-        hudTooltipText.setTextColor(Color.LTGRAY);
-        hudTooltipText.setTextSize(12);
-        hudTooltipText.setGravity(Gravity.CENTER);
-        hudTooltipText.setPadding(10, 8, 10, 8);
-        hudTooltipText.setBackgroundColor(Color.argb(200, 15, 15, 15));
-        hudTooltipText.setVisibility(View.GONE);
-        
-        // --- LOWERED HUD TOOLTIP ---
-        FrameLayout.LayoutParams ttParams = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM); 
-        ttParams.setMargins(0, 0, 0, 130); // Raised slightly so it doesn't overlap 4-cell HUDs
-        mainUIContainer.addView(hudTooltipText, ttParams);
-        
-        wbGridContainer = new FrameLayout(this);
-        wbGridContainer.setBackgroundColor(Color.argb(160, 20, 20, 20));
-        wbGridContainer.setVisibility(View.GONE);
-        
-        View vAxis = new View(this);
-        vAxis.setBackgroundColor(Color.GRAY);
-        wbGridContainer.addView(vAxis, new FrameLayout.LayoutParams(2, 280, Gravity.CENTER));
-        
-        View hAxis = new View(this);
-        hAxis.setBackgroundColor(Color.GRAY);
-        wbGridContainer.addView(hAxis, new FrameLayout.LayoutParams(280, 2, Gravity.CENTER));
-        
-        TextView lG = new TextView(this); lG.setText("G"); lG.setTextColor(Color.WHITE);
-        wbGridContainer.addView(lG, new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL));
-        
-        TextView lM = new TextView(this); lM.setText("M"); lM.setTextColor(Color.WHITE);
-        wbGridContainer.addView(lM, new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL));
-        
-        TextView lB = new TextView(this); lB.setText("B"); lB.setTextColor(Color.WHITE);
-        FrameLayout.LayoutParams pB = new FrameLayout.LayoutParams(-2, -2, Gravity.LEFT | Gravity.CENTER_VERTICAL);
-        pB.setMargins(10, 0, 0, 0); wbGridContainer.addView(lB, pB);
-        
-        TextView lA = new TextView(this); lA.setText("A"); lA.setTextColor(Color.WHITE);
-        FrameLayout.LayoutParams pA = new FrameLayout.LayoutParams(-2, -2, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
-        pA.setMargins(0, 0, 10, 0); wbGridContainer.addView(lA, pA);
-        
-        wbValueText = new TextView(this);
-        wbValueText.setTextColor(Color.rgb(227, 69, 20));
-        if (digitalFont != null) wbValueText.setTypeface(digitalFont);
-        else wbValueText.setTypeface(Typeface.DEFAULT_BOLD);
-        wbValueText.setTextSize(16);
-        FrameLayout.LayoutParams pVal = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.RIGHT);
-        pVal.setMargins(0, 10, 15, 0);
-        wbGridContainer.addView(wbValueText, pVal);
-        
-        wbCursor = new View(this);
-        wbCursor.setBackgroundColor(Color.rgb(227, 69, 20));
-        FrameLayout.LayoutParams cursorParams = new FrameLayout.LayoutParams(14, 14, Gravity.TOP | Gravity.LEFT);
-        cursorParams.setMargins(153, 153, 0, 0); 
-        wbGridContainer.addView(wbCursor, cursorParams);
-        
-        mainUIContainer.addView(wbGridContainer, new FrameLayout.LayoutParams(320, 320, Gravity.CENTER));
+        // HUD controller — builds and owns its overlay views
+        hudController = new HudController(this, mainUIContainer, this);
     }
 
 
@@ -1857,7 +1275,7 @@ public void onEnterPressed() {
         if (cameraManager == null || cameraManager.getCamera() == null) return;
         
         // --- 1. CLEAN DISPLAY CHECK ---
-        if (isHudActive) {
+        if (hudController.isActive()) {
             // Hide the bottom bars and icons, but keep the Top Status bar for Preset names
             setHUDVisibility(View.GONE); 
             if (tvTopStatus != null) tvTopStatus.setVisibility(View.VISIBLE); 
@@ -2148,12 +1566,7 @@ public void onEnterPressed() {
     @Override public void    setPrefGridLines(boolean v)    { prefShowGridLines    = v; }
     @Override public void    setPrefJpegQuality(int v)      { prefJpegQuality      = v; }
 
-    @Override public void closeHud() {
-        isHudActive = false;
-        if (hudOverlayContainer != null) hudOverlayContainer.setVisibility(View.GONE);
-        if (hudTooltipText != null)      hudTooltipText.setVisibility(View.GONE);
-        if (wbGridContainer != null)     wbGridContainer.setVisibility(View.GONE);
-    }
+    @Override public void closeHud() { hudController.hideOverlays(); }
 
     @Override public void onMenuOpened()  { refreshRecipes(); }
 
@@ -2186,6 +1599,17 @@ public void onEnterPressed() {
                 cameraManager.getCamera().setParameters(p);
             } catch (Exception ignored) {}
         }
+    }
+
+    // --- HudController.HostCallback ---
+    @Override public TextView  getTvTopStatus()   { return tvTopStatus; }
+    @Override public Typeface  getDigitalFont()   { return digitalFont; }
+    @Override public Handler   getUiHandler()     { return uiHandler; }
+    @Override public MenuController getMenuController() { return menuController; }
+    @Override public void applyHardwareRecipeNow() { applyHardwareRecipe(); }
+    @Override public void onHudClosed() {
+        menuController.getContainer().setVisibility(View.VISIBLE);
+        menuController.refreshDisplay();
     }
 
     private void syncHardwareState() {
