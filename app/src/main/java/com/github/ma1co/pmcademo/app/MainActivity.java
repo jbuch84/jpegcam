@@ -39,8 +39,9 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
-public class MainActivity extends Activity implements SurfaceHolder.Callback, 
-    SonyCameraManager.CameraEventListener, InputManager.InputListener, ConnectivityManager.StatusUpdateListener {
+public class MainActivity extends Activity implements SurfaceHolder.Callback,
+    SonyCameraManager.CameraEventListener, InputManager.InputListener,
+    ConnectivityManager.StatusUpdateListener, PlaybackController.HostCallback {
 
     // --- GLOBAL DEBUG FLAG ---
     // Set to true to see diagnostic Toasts, false for clean public release
@@ -64,7 +65,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private boolean hasSurface = false;
     
     private FrameLayout mainUIContainer;
-    private FrameLayout playbackContainer;
     private LinearLayout menuContainer;
     private LinearLayout llBottomBar;
     
@@ -77,7 +77,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private TextView tvMode;
     private TextView tvFocusMode;
     private TextView tvReview;
-    private TextView tvPlaybackInfo;
     
     private TextView tvTabRTL;
     private TextView tvTabSettings;
@@ -122,12 +121,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private TextView hudTooltipText;
     
     private BatteryView batteryIcon;
-    private ImageView playbackImageView;
-    private List<File> playbackFiles = new ArrayList<File>();
-    private Bitmap currentPlaybackBitmap = null;
-    
-    private int playbackIndex = 0;
-    private boolean isPlaybackMode = false;
+    private PlaybackController playbackController;
     private boolean isMenuOpen = false;
     private boolean isProcessing = false;
     private boolean isReady = false;
@@ -260,7 +254,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     private Runnable liveUpdater = new Runnable() {
         @Override
         public void run() {
-            if (displayState == 0 && !isMenuOpen && !isPlaybackMode && !isProcessing && hasSurface) {
+            if (displayState == 0 && !isMenuOpen && !playbackController.isActive() && !isProcessing && hasSurface) {
                 if (cameraManager != null && cameraManager.getCamera() != null) {
                     boolean s1_1_free = ScalarInput.getKeyStatus(ScalarInput.ISV_KEY_S1_1).status == 0;
                     boolean s1_2_free = ScalarInput.getKeyStatus(ScalarInput.ISV_KEY_S1_2).status == 0;
@@ -472,7 +466,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override 
     public void onShutterHalfPressed() {
-        if (isPlaybackMode) { exitPlayback(); return; }
+        if (playbackController.isActive()) { playbackController.exit(); return; }
         if (isMenuOpen) { exitMenu(); return; }
         if (isProcessing) return; 
         
@@ -486,7 +480,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public void onShutterHalfReleased() {
-        if (displayState == 0 && !isMenuOpen && !isPlaybackMode) setHUDVisibility(View.VISIBLE);
+        if (displayState == 0 && !isMenuOpen && !playbackController.isActive()) setHUDVisibility(View.VISIBLE);
         if (afOverlay != null && cameraManager != null && cameraManager.getCamera() != null) {
             afOverlay.stopFocus(cameraManager.getCamera());
         }
@@ -502,7 +496,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override 
     public void onMenuPressed() {
-        if (isPlaybackMode) { exitPlayback(); return; }
+        if (playbackController.isActive()) { playbackController.exit(); return; }
         if (isProcessing) return; 
         
         isMenuOpen = !isMenuOpen;
@@ -586,7 +580,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     @Override 
 public void onEnterPressed() {
-    if (isPlaybackMode) { exitPlayback(); return; }
+    if (playbackController.isActive()) { playbackController.exit(); return; }
     if (isProcessing) return;
 
     if (isHudActive) {
@@ -820,7 +814,7 @@ public void onEnterPressed() {
 
         if (!isMenuOpen) {
             if (mDialMode == DIAL_MODE_REVIEW) {
-                enterPlayback();
+                playbackController.enter();
             } else if (mDialMode == DIAL_MODE_FOCUS && cachedIsManualFocus) {
                 waitingForProfileChoice = true;
                 setHUDVisibility(View.GONE); 
@@ -1103,11 +1097,11 @@ public void onEnterPressed() {
                 menuSelection = 0; // Drop cursor to the top of the new page
                 renderMenu();
             }
-        } else if (!isPlaybackMode && mDialMode == DIAL_MODE_FOCUS && lensManager != null && lensManager.isCurrentProfileManual()) {
+        } else if (!playbackController.isActive() && mDialMode == DIAL_MODE_FOCUS && lensManager != null && lensManager.isCurrentProfileManual()) {
             virtualFocusRatio = Math.max(0.0f, virtualFocusRatio - 0.02f);
             if (focusMeter != null) focusMeter.update(virtualFocusRatio, virtualAperture, lensManager.getCurrentFocalLength(), false, lensManager.getCurrentPoints(), getCircleOfConfusion());
-        } else if (isPlaybackMode) {
-            showPlaybackImage(playbackIndex - 1);
+        } else if (playbackController.isActive()) {
+            playbackController.navigate(-1);
         } else {
             navigateHomeSpatial(ScalarInput.ISV_KEY_LEFT);
         }
@@ -1186,11 +1180,11 @@ public void onEnterPressed() {
                 menuSelection = 0; // Drop cursor to the top of the new page
                 renderMenu();
             }
-        } else if (!isPlaybackMode && mDialMode == DIAL_MODE_FOCUS && lensManager != null && lensManager.isCurrentProfileManual()) {
+        } else if (!playbackController.isActive() && mDialMode == DIAL_MODE_FOCUS && lensManager != null && lensManager.isCurrentProfileManual()) {
             virtualFocusRatio = Math.min(1.0f, virtualFocusRatio + 0.02f);
             if (focusMeter != null) focusMeter.update(virtualFocusRatio, virtualAperture, lensManager.getCurrentFocalLength(), false, lensManager.getCurrentPoints(), getCircleOfConfusion());
-        } else if (isPlaybackMode) {
-            showPlaybackImage(playbackIndex + 1);
+        } else if (playbackController.isActive()) {
+            playbackController.navigate(1);
         } else {
             navigateHomeSpatial(ScalarInput.ISV_KEY_RIGHT);
         }
@@ -1199,7 +1193,7 @@ public void onEnterPressed() {
     @Override
     public void onCustomButtonPressed() {
         // Do nothing if we are in a menu, looking at photos, or processing
-        if (isPlaybackMode || isMenuOpen || isProcessing || isCalibrating) return;
+        if (playbackController.isActive() || isMenuOpen || isProcessing || isCalibrating) return;
 
         // Simply jump the HUD cursor directly to the ISO slot
         mDialMode = DIAL_MODE_ISO;
@@ -1209,7 +1203,7 @@ public void onEnterPressed() {
     @Override 
     public void onFrontDialRotated(int direction) { 
         // If UI is open, act like a normal scroll wheel
-        if (isHudActive || isPlaybackMode || isMenuOpen) { onControlWheelRotated(direction); return; }
+        if (isHudActive || playbackController.isActive() || isMenuOpen) { onControlWheelRotated(direction); return; }
         
         // If shooting, forcefully change Shutter Speed
         if (!isProcessing && cameraManager != null && cameraManager.getCameraEx() != null) {
@@ -1222,7 +1216,7 @@ public void onEnterPressed() {
     @Override 
     public void onRearDialRotated(int direction) { 
         // If UI is open, act like a normal scroll wheel
-        if (isHudActive || isPlaybackMode || isMenuOpen) { onControlWheelRotated(direction); return; }
+        if (isHudActive || playbackController.isActive() || isMenuOpen) { onControlWheelRotated(direction); return; }
         
         // If shooting, forcefully change Aperture
         if (!isProcessing && cameraManager != null && cameraManager.getCameraEx() != null) {
@@ -1259,8 +1253,8 @@ public void onEnterPressed() {
             return;
         }
         
-        if (isPlaybackMode) { 
-            showPlaybackImage(playbackIndex + direction); 
+        if (playbackController.isActive()) { 
+            playbackController.navigate(direction); 
         } else if (isMenuOpen) {
             if (isNamingMode) { 
                 handleNamingChange(direction); 
@@ -2499,24 +2493,9 @@ public void onEnterPressed() {
         
         menuContainer.setVisibility(View.GONE); 
         rootLayout.addView(menuContainer, new FrameLayout.LayoutParams(-1, -1));
-        
-        playbackContainer = new FrameLayout(this); 
-        playbackContainer.setBackgroundColor(Color.BLACK); 
-        playbackContainer.setVisibility(View.GONE);
-        
-        playbackImageView = new ImageView(this); 
-        playbackImageView.setScaleType(ImageView.ScaleType.FIT_CENTER); 
-        playbackContainer.addView(playbackImageView, new FrameLayout.LayoutParams(-1, -1));
-        
-        tvPlaybackInfo = new TextView(this); 
-        tvPlaybackInfo.setTextColor(Color.WHITE); 
-        tvPlaybackInfo.setTextSize(18); 
-        tvPlaybackInfo.setShadowLayer(3, 0, 0, Color.BLACK); 
-        FrameLayout.LayoutParams pbInfoParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.RIGHT); 
-        pbInfoParams.setMargins(0, 30, 30, 0); 
-        playbackContainer.addView(tvPlaybackInfo, pbInfoParams);
-        
-        rootLayout.addView(playbackContainer, new FrameLayout.LayoutParams(-1, -1));
+
+        // Playback viewer — PlaybackController builds and owns its views
+        playbackController = new PlaybackController(this, rootLayout, this);
 
         hudOverlayContainer = new LinearLayout(this); 
         hudOverlayContainer.setOrientation(LinearLayout.HORIZONTAL); 
@@ -2671,8 +2650,8 @@ public void onEnterPressed() {
             // But we return 'true' for BOTH press and release to swallow it entirely.
             if (action == android.view.KeyEvent.ACTION_UP) {
                 if (!isProcessing) {
-                    if (isPlaybackMode) exitPlayback(); 
-                    else if (!isMenuOpen) enterPlayback();
+                    if (playbackController.isActive()) playbackController.exit(); 
+                    else if (!isMenuOpen) playbackController.enter();
                 }
             }
             return true; // Bouncer defeated: Native gallery will not open
@@ -2704,8 +2683,8 @@ public void onEnterPressed() {
         // --- FIXED: Added standard Android keycode ---
 
         if (k == ScalarInput.ISV_KEY_PLAY || k == android.view.KeyEvent.KEYCODE_MEDIA_PLAY) {
-            if (isPlaybackMode) exitPlayback();
-            else if (!isMenuOpen && !isProcessing) enterPlayback();
+            if (playbackController.isActive()) playbackController.exit();
+            else if (!isMenuOpen && !isProcessing) playbackController.enter();
             return true; // Swallow the press
         }
 
@@ -3148,143 +3127,9 @@ public void onEnterPressed() {
         });
     }
 
-    private void enterPlayback() {
-        playbackFiles.clear();
-        File dir = Filepaths.getGradedDir();
-        if (dir.exists() && dir.listFiles() != null) {
-            for (File f : dir.listFiles()) {
-                if (f.getName().toLowerCase().endsWith(".jpg")) playbackFiles.add(f);
-            }
-        }
-        Collections.sort(playbackFiles, new Comparator<File>() { 
-            @Override public int compare(File f1, File f2) { return Long.valueOf(f2.lastModified()).compareTo(f1.lastModified()); } 
-        });
-        if (playbackFiles.isEmpty()) return;
-        
-        isPlaybackMode = true; 
-        mainUIContainer.setVisibility(View.GONE); 
-        playbackContainer.setVisibility(View.VISIBLE); 
-        showPlaybackImage(0);
-    }
-
-    private void exitPlayback() {
-        isPlaybackMode = false;
-        playbackContainer.setVisibility(View.GONE);
-        mainUIContainer.setVisibility(displayState == 0 ? View.VISIBLE : View.GONE);
-        if (playbackImageView != null) playbackImageView.setImageBitmap(null);
-        if (currentPlaybackBitmap != null) { currentPlaybackBitmap.recycle(); currentPlaybackBitmap = null; }
-    }
-
-    private void showPlaybackImage(int idx) {
-        if (playbackFiles.isEmpty()) return;
-        if (idx < 0) idx = playbackFiles.size() - 1; 
-        if (idx >= playbackFiles.size()) idx = 0; 
-        
-        playbackIndex = idx; 
-        File file = playbackFiles.get(idx);
-        
-        try {
-            // 1. FREE MEMORY FIRST
-            if (playbackImageView != null) playbackImageView.setImageBitmap(null);
-            if (currentPlaybackBitmap != null && !currentPlaybackBitmap.isRecycled()) { 
-                currentPlaybackBitmap.recycle(); 
-                currentPlaybackBitmap = null; 
-            }
-            System.gc(); // Force sweep before we do anything heavy
-
-            if (file.length() == 0) {
-                if (tvPlaybackInfo != null) tvPlaybackInfo.setText((idx + 1) + "/" + playbackFiles.size() + "\n[ERROR: 0-BYTE FILE]");
-                return;
-            }
-            
-            String path = file.getAbsolutePath();
-            ExifInterface exif = new ExifInterface(path);
-            String fnum = exif.getAttribute("FNumber");
-            String speed = exif.getAttribute("ExposureTime");
-            String iso = exif.getAttribute("ISOSpeedRatings");
-            
-            String speedStr = "--s";
-            if (speed != null) {
-                try {
-                    double s = Double.parseDouble(speed);
-                    if (s < 1.0) speedStr = "1/" + Math.round(1.0 / s) + "s";
-                    else speedStr = Math.round(s) + "s";
-                } catch (Exception e) {}
-            }
-            
-            String apStr = fnum != null ? "f/" + fnum : "f/--";
-            String isoStr = iso != null ? "ISO " + iso : "ISO --";
-
-            String metaText = (idx + 1) + " / " + playbackFiles.size() + "\n" + file.getName() + "\n" + apStr + " | " + speedStr + " | " + isoStr;
-            if (tvPlaybackInfo != null) tvPlaybackInfo.setText(metaText);
-
-            // --- HIGH-QUALITY / MEMORY-SAFE DECODE ---
-            BitmapFactory.Options opts = new BitmapFactory.Options();
-            opts.inJustDecodeBounds = true;
-            BitmapFactory.decodeFile(path, opts);
-            
-            // SHIFTED DOWN TO 800x600: 
-            // The physical LCD is roughly 640x480. 800x600 looks identical but uses 40% less RAM than 1024x768!
-            final int reqWidth = 800;
-            final int reqHeight = 600;
-            int inSampleSize = 1;
-
-            if (opts.outHeight > reqHeight || opts.outWidth > reqWidth) {
-                while ((opts.outHeight / inSampleSize) > reqHeight || (opts.outWidth / inSampleSize) > reqWidth) {
-                    inSampleSize *= 2;
-                }
-            }
-
-            opts.inJustDecodeBounds = false;
-            opts.inSampleSize = inSampleSize;
-            opts.inPreferredConfig = Bitmap.Config.RGB_565; // Halves RAM usage
-            opts.inPurgeable = true;
-            opts.inInputShareable = true;
-
-            Bitmap raw = BitmapFactory.decodeFile(path, opts);
-
-            if (raw == null) {
-                if (tvPlaybackInfo != null) tvPlaybackInfo.setText((idx + 1) + " / " + playbackFiles.size() + "\n[DECODE ERROR]");
-                return;
-            }
-
-            // --- MATRIX TRANSFORMATION ---
-            int orient = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
-            int rot = 0; 
-            if (orient == ExifInterface.ORIENTATION_ROTATE_90) rot = 90; 
-            else if (orient == ExifInterface.ORIENTATION_ROTATE_180) rot = 180; 
-            else if (orient == ExifInterface.ORIENTATION_ROTATE_270) rot = 270;
-            
-            Matrix m = new Matrix(); 
-            if (rot != 0) m.postRotate(rot); 
-            m.postScale(0.8888f, 1.0f); 
-            
-            // This is the danger zone, but the smaller 800x600 footprint makes it safe
-            Bitmap bmp = Bitmap.createBitmap(raw, 0, 0, raw.getWidth(), raw.getHeight(), m, true);
-            
-            if (raw != bmp) {
-                raw.recycle(); // Instantly destroy the intermediate raw bitmap
-                raw = null;
-            }
-            
-            if (playbackImageView != null) {
-                playbackImageView.setImageBitmap(bmp);
-                playbackImageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            }
-            currentPlaybackBitmap = bmp;
-            
-        } catch (OutOfMemoryError oom) {
-            android.util.Log.e("JPEG.CAM", "OOM Memory limit hit during playback. Recovering...");
-            if (tvPlaybackInfo != null) tvPlaybackInfo.setText((idx + 1) + " / " + playbackFiles.size() + "\n[MEMORY ERROR - SKIPPED]");
-            if (currentPlaybackBitmap != null && !currentPlaybackBitmap.isRecycled()) { 
-                currentPlaybackBitmap.recycle(); 
-                currentPlaybackBitmap = null; 
-            }
-            System.gc(); 
-        } catch (Exception e) {
-            android.util.Log.e("JPEG.CAM", "Playback error: " + e.getMessage());
-        }
-    }
+    // --- PlaybackController.HostCallback ---
+    @Override public View getMainUIContainer() { return mainUIContainer; }
+    @Override public int getDisplayState() { return displayState; }
 
     private void syncHardwareState() {
         if (cameraManager == null || cameraManager.getCamera() == null) return;
