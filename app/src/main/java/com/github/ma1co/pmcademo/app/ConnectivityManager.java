@@ -112,26 +112,9 @@ public class ConnectivityManager {
     }
 
     public void startHotspot() {
-        stopNetworking(); // Prevent overlapping connection crash
+        stopNetworking(); 
         isHotspotRunning = true;
         updateStatus("HOTSPOT", "Starting Hotspot...");
-        
-        // GEN 3/4 FIX (A7II, A6500): Turn on Wi-Fi power BEFORE asking for the service
-        if (!wifiManager.isWifiEnabled()) {
-            wifiManager.setWifiEnabled(true);
-        }
-        
-        // LAZY LOAD: Now that power is on, fetch the service 
-        if (directManager == null) {
-            directManager = (DirectManager) context.getSystemService(DirectManager.WIFI_DIRECT_SERVICE);
-        }
-
-        // If it is STILL null, the hardware is physically busy
-        if (directManager == null) {
-            updateStatus("HOTSPOT", "Hardware Busy: Try Again");
-            isHotspotRunning = false;
-            return;
-        }
 
         directStateReceiver = new BroadcastReceiver() {
             @Override
@@ -150,7 +133,7 @@ public class ConnectivityManager {
             public void onReceive(Context context, Intent intent) {
                 DirectConfiguration config = intent.getParcelableExtra(DirectManager.EXTRA_DIRECT_CONFIG);
                 if (config != null) {
-                    updateStatus("HOTSPOT", "http://192.168.122.1:8080 (PW: " + config.getPreSharedKey() + ")");
+                    updateStatus("HOTSPOT", "http://192.168.122.1:8080");
                     startServer();
                     setAutoPowerOffMode(false); 
                 }
@@ -160,19 +143,39 @@ public class ConnectivityManager {
         context.registerReceiver(directStateReceiver, new IntentFilter(DirectManager.DIRECT_STATE_CHANGED_ACTION));
         context.registerReceiver(groupCreateSuccessReceiver, new IntentFilter(DirectManager.GROUP_CREATE_SUCCESS_ACTION));
 
-        // Start the broadcast
+        // Wait for hardware to have power before requesting the Hotspot service
         if (wifiManager.isWifiEnabled()) {
-            directManager.setDirectEnabled(true);
+            triggerDirectManager(); 
         } else {
-            // Fallback just in case the chip is slow to report it's awake
+            updateStatus("HOTSPOT", "Waking Hardware...");
             wifiReceiver = new BroadcastReceiver() {
-                @Override public void onReceive(Context context, Intent intent) {
+                @Override 
+                public void onReceive(Context c, Intent intent) {
                     if (intent.getIntExtra(WifiManager.EXTRA_WIFI_STATE, WifiManager.WIFI_STATE_UNKNOWN) == WifiManager.WIFI_STATE_ENABLED) {
-                        directManager.setDirectEnabled(true);
+                        triggerDirectManager(); 
                     }
                 }
             };
             context.registerReceiver(wifiReceiver, new IntentFilter(WifiManager.WIFI_STATE_CHANGED_ACTION));
+            wifiManager.setWifiEnabled(true);
+        }
+    }
+
+    private void triggerDirectManager() {
+        // Re-fetch the service ONLY when we know the Wi-Fi chip is powered on
+        if (directManager == null) {
+            directManager = (DirectManager) context.getSystemService(DirectManager.WIFI_DIRECT_SERVICE);
+        }
+        // Fallback for specific Gen 3 firmware versions
+        if (directManager == null) {
+            directManager = (DirectManager) context.getSystemService("sony:wifi:direct");
+        }
+        
+        if (directManager != null) {
+            directManager.setDirectEnabled(true);
+        } else {
+            updateStatus("HOTSPOT", "Hardware Error: Try Again");
+            isHotspotRunning = false;
         }
     }
 
