@@ -25,8 +25,9 @@ public class ConnectivityManager {
     private HttpServer server;
 
     private BroadcastReceiver wifiReceiver;
-    private BroadcastReceiver directStateReceiver;
+    private BroadcastReceiver wifiDirectStateReceiver;
     private BroadcastReceiver groupCreateSuccessReceiver;
+    private BroadcastReceiver groupCreateFailureReceiver;
 
     private boolean isHomeWifiRunning = false;
     private boolean isHotspotRunning = false;
@@ -43,9 +44,10 @@ public class ConnectivityManager {
     public ConnectivityManager(Context context, StatusUpdateListener listener) {
         this.context = context;
         this.listener = listener;
+        // SONY GEN 3 FIX: Use Application Context for all system services to avoid "Busy" errors
         this.wifiManager = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-        this.connManager = (android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-        this.directManager = (DirectManager) context.getSystemService(DirectManager.WIFI_DIRECT_SERVICE);
+        this.connManager = (android.net.ConnectivityManager) context.getApplicationContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+        this.directManager = (DirectManager) context.getApplicationContext().getSystemService("wifi-direct");
         this.server = new HttpServer(context);
     }
 
@@ -63,12 +65,12 @@ public class ConnectivityManager {
     }
 
     public void startHomeWifi() {
-        stopNetworking(); // Prevent overlapping connection crash
+        stopNetworking(); 
         isHomeWifiRunning = true;
         updateStatus("WIFI", "Connecting to Router...");
         
         wifiReceiver = new BroadcastReceiver() {
-            int attempts = 0; // Prevent infinite hang
+            int attempts = 0; 
             @Override
             public void onReceive(Context context, Intent intent) {
                 if (!isHomeWifiRunning) return;
@@ -114,15 +116,23 @@ public class ConnectivityManager {
     public void startHotspot() {
         stopNetworking(); 
         isHotspotRunning = true;
-        updateStatus("HOTSPOT", "Starting Hotspot...");
+        updateStatus("HOTSPOT", "Initializing...");
 
-        directStateReceiver = new BroadcastReceiver() {
+        // SONY GEN 3 FIX: Explicitly track the "Enabling" state to prevent hangs
+        wifiDirectStateReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                if (intent.getIntExtra(DirectManager.EXTRA_DIRECT_STATE, DirectManager.DIRECT_STATE_UNKNOWN) == DirectManager.DIRECT_STATE_ENABLED) {
+                int state = intent.getIntExtra(DirectManager.EXTRA_DIRECT_STATE, DirectManager.DIRECT_STATE_UNKNOWN);
+                if (state == DirectManager.DIRECT_STATE_ENABLING) {
+                    updateStatus("HOTSPOT", "Enabling Direct...");
+                } else if (state == DirectManager.DIRECT_STATE_ENABLED) {
                     List<DirectConfiguration> configs = directManager.getConfigurations();
                     if (configs != null && !configs.isEmpty()) {
-                        directManager.startGo(configs.get(configs.size() - 1).getNetworkId());
+                        updateStatus("HOTSPOT", "Creating Group...");
+                        directManager.startGo(configs.get(configs.size() - 1).getNetworkId()); //
+                    } else {
+                        updateStatus("HOTSPOT", "Error: No Configs");
+                        stopNetworking();
                     }
                 }
             }
@@ -139,35 +149,40 @@ public class ConnectivityManager {
                 }
             }
         };
-        
-        context.registerReceiver(directStateReceiver, new IntentFilter(DirectManager.DIRECT_STATE_CHANGED_ACTION));
-        context.registerReceiver(groupCreateSuccessReceiver, new IntentFilter(DirectManager.GROUP_CREATE_SUCCESS_ACTION));
 
-        // FORCE HARDWARE POWER: A7II/A6500 require this before the service will even exist
+        // NEW: Handle Group Creation Failure
+        groupCreateFailureReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                updateStatus("HOTSPOT", "Group Create Failed");
+                stopNetworking();
+            }
+        };
+        
+        context.registerReceiver(wifiDirectStateReceiver, new IntentFilter(DirectManager.DIRECT_STATE_CHANGED_ACTION));
+        context.registerReceiver(groupCreateSuccessReceiver, new IntentFilter(DirectManager.GROUP_CREATE_SUCCESS_ACTION));
+        context.registerReceiver(groupCreateFailureReceiver, new IntentFilter(DirectManager.GROUP_CREATE_FAILURE_ACTION));
+
+        // SONY GEN 3 FIX: Power Wi-Fi then use a thread to wait for the Service to become available
         if (!wifiManager.isWifiEnabled()) wifiManager.setWifiEnabled(true);
 
-        // PERSISTENT LOAD: Run a background check to find the service once it boots
         new Thread(new Runnable() {
             @Override
             public void run() {
                 int attempts = 0;
-                while (isHotspotRunning && directManager == null && attempts < 10) {
-                    // Try the standard name and the proprietary name
-                    directManager = (DirectManager) context.getSystemService(DirectManager.WIFI_DIRECT_SERVICE);
-                    if (directManager == null) directManager = (DirectManager) context.getSystemService("sony:wifi:direct");
-                    
+                while (isHotspotRunning && directManager == null && attempts < 15) {
+                    directManager = (DirectManager) ConnectivityManager.this.context.getApplicationContext().getSystemService("wifi-direct");
                     if (directManager == null) {
-                        try { Thread.sleep(500); } catch (Exception e) {} // Wait 0.5s and try again
+                        try { Thread.sleep(500); } catch (Exception e) {}
                         attempts++;
                     }
                 }
 
-                // Once found (or timed out), update the UI on the main thread
-                ((android.app.Activity)context).runOnUiThread(new Runnable() {
+                ((android.app.Activity)ConnectivityManager.this.context).runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
                         if (directManager != null) {
-                            directManager.setDirectEnabled(true);
+                            directManager.setDirectEnabled(true); // Firing this triggers the wifiDirectStateReceiver
                         } else {
                             updateStatus("HOTSPOT", "Hardware Error: Try Again");
                             isHotspotRunning = false;
@@ -178,24 +193,6 @@ public class ConnectivityManager {
         }).start();
     }
 
-    private void triggerDirectManager() {
-        // Re-fetch the service ONLY when we know the Wi-Fi chip is powered on
-        if (directManager == null) {
-            directManager = (DirectManager) context.getSystemService(DirectManager.WIFI_DIRECT_SERVICE);
-        }
-        // Fallback for specific Gen 3 firmware versions
-        if (directManager == null) {
-            directManager = (DirectManager) context.getSystemService("sony:wifi:direct");
-        }
-        
-        if (directManager != null) {
-            directManager.setDirectEnabled(true);
-        } else {
-            updateStatus("HOTSPOT", "Hardware Error: Try Again");
-            isHotspotRunning = false;
-        }
-    }
-
     public void stopNetworking() {
         if (server != null && server.isAlive()) server.stop();
         if (isHomeWifiRunning) {
@@ -204,9 +201,9 @@ public class ConnectivityManager {
             isHomeWifiRunning = false;
         }
         if (isHotspotRunning) {
-            try { context.unregisterReceiver(directStateReceiver); } catch (Exception e) {}
+            try { context.unregisterReceiver(wifiDirectStateReceiver); } catch (Exception e) {}
             try { context.unregisterReceiver(groupCreateSuccessReceiver); } catch (Exception e) {}
-            try { context.unregisterReceiver(wifiReceiver); } catch (Exception e) {} 
+            try { context.unregisterReceiver(groupCreateFailureReceiver); } catch (Exception e) {}
             try { if (directManager != null) directManager.setDirectEnabled(false); } catch (Exception e) {}
             isHotspotRunning = false;
         }
