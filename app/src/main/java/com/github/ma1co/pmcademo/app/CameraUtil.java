@@ -1,10 +1,17 @@
-package com.obsidium.bettermanual;
+package com.github.ma1co.pmcademo.app;
 
 import android.util.Pair;
 
-public class CameraUtil
-{
-    /* These have been determined experimentally, values actually do not need to be exact... */
+/**
+ * JPEG.CAM Utility: Camera & Shutter Speed Helpers
+ * Originally from the BetterManual project (com.obsidium.bettermanual).
+ * Package corrected to match JPEG.CAM namespace.
+ * 
+ * NOTE: beautifyFilenameForUI() is a candidate for future use in LUT name display.
+ * SHUTTER_SPEEDS and related methods are available for future manual shutter UI.
+ */
+public class CameraUtil {
+
     public static final int[] MIN_SHUTTER_VALUES = new int[] {
             1, 276, 347, 437, 551, 693, 873, 1101, 1385, 1743, 2202, 2771, 3486, 4404, 5540, 6972, 8808,
             11081, 13945, 17617, 22162, 27888, 35232, 44321, 55777, 70465, 93451, 116628, 145553, 181652,
@@ -68,27 +75,28 @@ public class CameraUtil
             new int[]{30, 1},
     };
 
-    
+    /**
+     * Strips file extension, removes MS-DOS 8.3 tilde artifacts, and returns
+     * a clean Title Case string suitable for display in the Sony camera UI.
+     */
     public static String beautifyFilenameForUI(String rawFilename) {
         if (rawFilename == null) return "";
-        
+
         String clean = rawFilename;
-        
-        // 1. Strip the extension
+
+        // Strip the extension
         int dotIndex = clean.lastIndexOf('.');
         if (dotIndex > 0) {
             clean = clean.substring(0, dotIndex);
         }
-        
-        // --- FIX: Eradicate MS-DOS 8.3 "~1" artifacts ---
-        // This uses Regex to find a tilde followed by any amount of numbers
-        // and deletes it entirely.
+
+        // Eradicate MS-DOS 8.3 "~1" artifacts
         clean = clean.replaceAll("~\\d+", "");
-        
-        // 2. Replace ugly computer characters with spaces
+
+        // Replace underscores and dashes with spaces
         clean = clean.replace("_", " ").replace("-", " ");
-        
-        // 3. Force Title Case for the Sony UI
+
+        // Force Title Case
         StringBuilder titleCase = new StringBuilder();
         boolean nextTitleCase = true;
         for (char c : clean.toLowerCase().toCharArray()) {
@@ -100,41 +108,33 @@ public class CameraUtil
             }
             titleCase.append(c);
         }
-        
-        // .trim() removes any dangling spaces left behind by the deleted ~1
-        return titleCase.toString().trim(); 
+
+        return titleCase.toString().trim();
     }
-    
-    public static int getShutterValueIndex(final Pair<Integer,Integer> speed)
-    {
+
+    public static int getShutterValueIndex(final Pair<Integer, Integer> speed) {
         return getShutterValueIndex(speed.first, speed.second);
     }
 
-    public static int getShutterValueIndex(int n, int d)
-    {
-        for (int i = 0; i < SHUTTER_SPEEDS.length; ++i)
-        {
-            if (SHUTTER_SPEEDS[i][0] == n &&
-                SHUTTER_SPEEDS[i][1] == d)
-            {
+    public static int getShutterValueIndex(int n, int d) {
+        for (int i = 0; i < SHUTTER_SPEEDS.length; ++i) {
+            if (SHUTTER_SPEEDS[i][0] == n && SHUTTER_SPEEDS[i][1] == d) {
                 return i;
             }
         }
         return -1;
     }
 
-    public static String formatShutterSpeed(int n, int d)
-    {
+    public static String formatShutterSpeed(int n, int d) {
         if (n == 1 && d != 2 && d != 1)
             return String.format("%d/%d", n, d);
-        else if (d == 1)
-        {
+        else if (d == 1) {
             if (n == 65535)
                 return "BULB";
             else
                 return String.format("%d\"", n);
-        }
-        else
+        } else {
             return String.format("%.1f\"", (float) n / (float) d);
+        }
     }
 }
