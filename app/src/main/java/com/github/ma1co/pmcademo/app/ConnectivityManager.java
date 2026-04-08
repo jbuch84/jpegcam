@@ -5,9 +5,14 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.NetworkInfo;
+import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 
+import com.sony.wifi.direct.DirectConfiguration;
+import com.sony.wifi.direct.DirectManager;
+
+import java.lang.reflect.Method;
 import java.util.List;
 
 /**
@@ -18,17 +23,13 @@ public class ConnectivityManager {
     private Context context;
     private WifiManager wifiManager;
     private android.net.ConnectivityManager connManager;
+    private DirectManager directManager;
     private HttpServer server;
 
     private BroadcastReceiver wifiReceiver;
     private BroadcastReceiver directStateReceiver;
     private BroadcastReceiver groupCreateSuccessReceiver;
     private BroadcastReceiver groupCreateFailureReceiver;
-    
-    // Gen 3 P2P Properties
-    private BroadcastReceiver p2pReceiver; 
-    private Object p2pManager;
-    private Object p2pChannel;
 
     private boolean isHomeWifiRunning = false;
     private boolean isHotspotRunning = false;
@@ -47,6 +48,8 @@ public class ConnectivityManager {
         this.listener = listener;
         this.wifiManager = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         this.connManager = (android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        // Standard Sony initialization (Will gracefully return null on Gen 3 cameras)
+        this.directManager = (DirectManager) context.getSystemService(DirectManager.WIFI_DIRECT_SERVICE);
         this.server = new HttpServer(context);
     }
 
@@ -115,190 +118,132 @@ public class ConnectivityManager {
     public void startHotspot() {
         stopNetworking(); 
         isHotspotRunning = true;
-        updateStatus("HOTSPOT", "Initializing...");
+        updateStatus("HOTSPOT", "Starting Hotspot...");
 
-        if (!wifiManager.isWifiEnabled()) wifiManager.setWifiEnabled(true);
+        // Ensure Wi-Fi is enabled first
+        if (!wifiManager.isWifiEnabled()) {
+            wifiManager.setWifiEnabled(true);
+        }
 
-        try {
-            // 1. Try Gen 2 Logic (A5100) using 100% Reflection to prevent Dalvik VerifyErrors on Gen 3
-            final Object directMgr = context.getSystemService("wifi-direct");
-            if (directMgr != null) {
-                // Dynamically load the Sony class and extract its proprietary constants
-                Class<?> dmClass = Class.forName("com.sony.wifi.direct.DirectManager");
-                
-                final String ACTION_STATE_CHANGED = (String) dmClass.getField("DIRECT_STATE_CHANGED_ACTION").get(null);
-                final String ACTION_SUCCESS = (String) dmClass.getField("GROUP_CREATE_SUCCESS_ACTION").get(null);
-                final String ACTION_FAILURE = (String) dmClass.getField("GROUP_CREATE_FAILURE_ACTION").get(null);
-                
-                final String EXTRA_STATE = (String) dmClass.getField("EXTRA_DIRECT_STATE").get(null);
-                final String EXTRA_CONFIG = (String) dmClass.getField("EXTRA_DIRECT_CONFIG").get(null);
-                
-                final int STATE_ENABLING = dmClass.getField("DIRECT_STATE_ENABLING").getInt(null);
-                final int STATE_ENABLED = dmClass.getField("DIRECT_STATE_ENABLED").getInt(null);
+        // --- GEN 2 LOGIC (A5100) ---
+        if (directManager == null) {
+            directManager = (DirectManager) context.getSystemService(DirectManager.WIFI_DIRECT_SERVICE);
+        }
 
-                directStateReceiver = new BroadcastReceiver() {
-                    @Override
-                    public void onReceive(Context context, Intent intent) {
-                        int state = intent.getIntExtra(EXTRA_STATE, -1);
-                        if (state == STATE_ENABLING) {
-                            updateStatus("HOTSPOT", "Enabling Direct...");
-                        } else if (state == STATE_ENABLED) {
-                            try {
-                                List<?> configs = (List<?>) directMgr.getClass().getMethod("getConfigurations").invoke(directMgr);
-                                if (configs != null && !configs.isEmpty()) {
-                                    updateStatus("HOTSPOT", "Creating Group...");
-                                    Object lastConfig = configs.get(configs.size() - 1);
-                                    int networkId = (Integer) lastConfig.getClass().getMethod("getNetworkId").invoke(lastConfig);
-                                    directMgr.getClass().getMethod("startGo", int.class).invoke(directMgr, networkId);
-                                } else {
-                                    updateStatus("HOTSPOT", "Error: No Configs");
-                                    stopNetworking();
-                                }
-                            } catch (Exception e) {}
+        if (directManager != null) {
+            directStateReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    if (intent.getIntExtra(DirectManager.EXTRA_DIRECT_STATE, DirectManager.DIRECT_STATE_UNKNOWN) == DirectManager.DIRECT_STATE_ENABLED) {
+                        List<DirectConfiguration> configs = directManager.getConfigurations();
+                        if (configs != null && !configs.isEmpty()) {
+                            directManager.startGo(configs.get(configs.size() - 1).getNetworkId());
+                        } else {
+                            updateStatus("HOTSPOT", "Error: No Configs");
+                            stopNetworking();
                         }
                     }
-                };
-                
-                groupCreateSuccessReceiver = new BroadcastReceiver() {
-                    @Override
-                    public void onReceive(Context context, Intent intent) {
-                        try {
-                            Object config = intent.getParcelableExtra(EXTRA_CONFIG);
-                            if (config != null) {
-                                String pass = (String) config.getClass().getMethod("getPreSharedKey").invoke(config);
-                                updateStatus("HOTSPOT", "PW: " + pass + " (192.168.122.1)");
-                                startServer();
-                                setAutoPowerOffMode(false); 
-                            }
-                        } catch(Exception e) {}
-                    }
-                };
-
-                groupCreateFailureReceiver = new BroadcastReceiver() {
-                    @Override
-                    public void onReceive(Context context, Intent intent) {
-                        updateStatus("HOTSPOT", "Group Creation Failed");
-                        stopNetworking();
-                    }
-                };
-                
-                context.registerReceiver(directStateReceiver, new IntentFilter(ACTION_STATE_CHANGED));
-                context.registerReceiver(groupCreateSuccessReceiver, new IntentFilter(ACTION_SUCCESS));
-                context.registerReceiver(groupCreateFailureReceiver, new IntentFilter(ACTION_FAILURE));
-
-                directMgr.getClass().getMethod("setDirectEnabled", boolean.class).invoke(directMgr, true);
-                return;
-            }
-
-            // 2. Try Gen 3 Logic (A7II, A6500) via standard Android P2P Manager
-            p2pManager = context.getSystemService("wifip2p");
-            if (p2pManager != null) {
-                updateStatus("HOTSPOT", "Waking P2P Radio...");
-
-                Class<?> p2pClass = Class.forName("android.net.wifi.p2p.WifiP2pManager");
-                Class<?> channelListenerClass = Class.forName("android.net.wifi.p2p.WifiP2pManager$ChannelListener");
-                final Class<?> actionListenerClass = Class.forName("android.net.wifi.p2p.WifiP2pManager$ActionListener");
-                final Class<?> channelClass = Class.forName("android.net.wifi.p2p.WifiP2pManager$Channel");
-
-                p2pChannel = p2pClass.getMethod("initialize", Context.class, android.os.Looper.class, channelListenerClass)
-                                     .invoke(p2pManager, context, context.getMainLooper(), null);
-
-                final java.lang.reflect.Method createGroupMethod = p2pClass.getMethod("createGroup", channelClass, actionListenerClass);
-
-                p2pReceiver = new BroadcastReceiver() {
-                    boolean groupRequested = false;
-                    @Override
-                    public void onReceive(Context context, Intent intent) {
-                        String action = intent.getAction();
-                        if ("android.net.wifi.p2p.STATE_CHANGE".equals(action)) {
-                            int state = intent.getIntExtra("wifi_p2p_state", 1);
-                            if (state == 2 && !groupRequested) { // 2 = ENABLED
-                                groupRequested = true;
-                                try {
-                                    updateStatus("HOTSPOT", "Building Group...");
-                                    createGroupMethod.invoke(p2pManager, p2pChannel, null);
-                                } catch (Exception e) {}
-                            }
-                        } else if ("android.net.wifi.p2p.CONNECTION_STATE_CHANGE".equals(action)) {
-                            NetworkInfo info = intent.getParcelableExtra("networkInfo");
-                            if (info != null && info.isConnected()) {
-                                Object group = intent.getParcelableExtra("p2pGroupInfo");
-                                if (group != null) {
-                                    try {
-                                        String pass = (String) group.getClass().getMethod("getPassphrase").invoke(group);
-                                        updateStatus("HOTSPOT", "PW: " + pass + " (192.168.122.1)");
-                                        startServer();
-                                        setAutoPowerOffMode(false); 
-                                    } catch (Exception e) {}
-                                }
-                            }
-                        }
-                    }
-                };
-
-                IntentFilter filter = new IntentFilter();
-                filter.addAction("android.net.wifi.p2p.STATE_CHANGE");
-                filter.addAction("android.net.wifi.p2p.CONNECTION_STATE_CHANGE");
-                context.registerReceiver(p2pReceiver, filter);
-
-                // BYPASS: If Wi-Fi is already on, skip the wait and trigger immediately
-                if (wifiManager.getWifiState() == WifiManager.WIFI_STATE_ENABLED) {
-                    try {
-                        updateStatus("HOTSPOT", "Building Group...");
-                        createGroupMethod.invoke(p2pManager, p2pChannel, null);
-                    } catch (Exception e) {}
                 }
+            };
+            
+            groupCreateSuccessReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    DirectConfiguration config = intent.getParcelableExtra(DirectManager.EXTRA_DIRECT_CONFIG);
+                    if (config != null) {
+                        updateStatus("HOTSPOT", "http://192.168.122.1:8080");
+                        startServer();
+                        setAutoPowerOffMode(false); 
+                    }
+                }
+            };
+
+            groupCreateFailureReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    updateStatus("HOTSPOT", "Hardware Error: Retry");
+                    stopNetworking();
+                }
+            };
+            
+            context.registerReceiver(directStateReceiver, new IntentFilter(DirectManager.DIRECT_STATE_CHANGED_ACTION));
+            context.registerReceiver(groupCreateSuccessReceiver, new IntentFilter(DirectManager.GROUP_CREATE_SUCCESS_ACTION));
+            context.registerReceiver(groupCreateFailureReceiver, new IntentFilter(DirectManager.GROUP_CREATE_FAILURE_ACTION));
+
+            directManager.setDirectEnabled(true);
+            return;
+        }
+
+        // --- GEN 3 LOGIC (A7II, A6500) FALLBACK ---
+        // If DirectManager is completely absent, use pure Android Reflection to force standard AP Tethering
+        try {
+            Method setWifiApEnabled = wifiManager.getClass().getMethod("setWifiApEnabled", WifiConfiguration.class, boolean.class);
+            boolean success = (Boolean) setWifiApEnabled.invoke(wifiManager, null, true);
+            
+            if (success) {
+                // Fetch the system's generated password
+                Method getWifiApConfiguration = wifiManager.getClass().getMethod("getWifiApConfiguration");
+                WifiConfiguration apConfig = (WifiConfiguration) getWifiApConfiguration.invoke(wifiManager);
                 
-                return;
+                if (apConfig != null) {
+                    updateStatus("HOTSPOT", "PW: " + apConfig.preSharedKey + " (192.168.43.1)");
+                } else {
+                    updateStatus("HOTSPOT", "Connect Phone (192.168.43.1)");
+                }
+                startServer();
+                setAutoPowerOffMode(false); 
+            } else {
+                updateStatus("HOTSPOT", "Hardware Unsupported");
+                isHotspotRunning = false;
             }
-
-            updateStatus("HOTSPOT", "Hardware Unsupported");
-            isHotspotRunning = false;
-
         } catch (Exception e) {
             updateStatus("HOTSPOT", "Error: " + e.getMessage());
             isHotspotRunning = false;
         }
     }
 
+    // Safety wrapper to prevent the "Exit Crash"
+    private void unregisterReceiverSafe(BroadcastReceiver receiver) {
+        if (receiver != null) {
+            try {
+                context.unregisterReceiver(receiver);
+            } catch (Exception e) {
+                // Ignore if it was never fully registered
+            }
+        }
+    }
+
     public void stopNetworking() {
         if (server != null && server.isAlive()) server.stop();
         
-        if (wifiReceiver != null) {
-            try { context.unregisterReceiver(wifiReceiver); wifiReceiver = null; } catch (Exception e) {}
-        }
-        
-        try { wifiManager.disconnect(); } catch (Exception e) {}
-        
+        // Safely kill all receivers to prevent camera crashes
+        unregisterReceiverSafe(wifiReceiver);
+        wifiReceiver = null;
+        unregisterReceiverSafe(directStateReceiver);
+        directStateReceiver = null;
+        unregisterReceiverSafe(groupCreateSuccessReceiver);
+        groupCreateSuccessReceiver = null;
+        unregisterReceiverSafe(groupCreateFailureReceiver);
+        groupCreateFailureReceiver = null;
+
         if (isHomeWifiRunning) {
+            try { wifiManager.disconnect(); } catch (Exception e) {}
             isHomeWifiRunning = false;
         }
         
         if (isHotspotRunning) {
-            // Gen 2 Cleanup (Dynamic)
-            try { context.unregisterReceiver(directStateReceiver); } catch (Exception e) {}
-            try { context.unregisterReceiver(groupCreateSuccessReceiver); } catch (Exception e) {}
-            try { context.unregisterReceiver(groupCreateFailureReceiver); } catch (Exception e) {}
-            try {
-                Object directMgr = context.getSystemService("wifi-direct");
-                if (directMgr != null) directMgr.getClass().getMethod("setDirectEnabled", boolean.class).invoke(directMgr, false);
-            } catch (Exception e) {}
+            // Cleanup Gen 2
+            try { if (directManager != null) directManager.setDirectEnabled(false); } catch (Exception e) {}
             
-            // Gen 3 Cleanup 
-            if (p2pReceiver != null) {
-                try { context.unregisterReceiver(p2pReceiver); p2pReceiver = null; } catch (Exception e) {}
-            }
+            // Cleanup Gen 3 (Turn off Android Tethering)
             try {
-                if (p2pManager != null && p2pChannel != null) {
-                    Class<?> p2pClass = Class.forName("android.net.wifi.p2p.WifiP2pManager");
-                    Class<?> channelClass = Class.forName("android.net.wifi.p2p.WifiP2pManager$Channel");
-                    Class<?> actionListenerClass = Class.forName("android.net.wifi.p2p.WifiP2pManager$ActionListener");
-                    p2pClass.getMethod("removeGroup", channelClass, actionListenerClass).invoke(p2pManager, p2pChannel, null);
-                }
+                Method setWifiApEnabled = wifiManager.getClass().getMethod("setWifiApEnabled", WifiConfiguration.class, boolean.class);
+                setWifiApEnabled.invoke(wifiManager, null, false);
             } catch (Exception e) {}
 
             isHotspotRunning = false;
         }
+        
         updateStatus("WIFI", "Press ENTER to Start");
         updateStatus("HOTSPOT", "Press ENTER to Start");
         setAutoPowerOffMode(true); 
