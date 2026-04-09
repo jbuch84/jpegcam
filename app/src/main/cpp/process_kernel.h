@@ -42,98 +42,69 @@ inline uint32_t fast_rand(uint32_t* state) {
 }
 
 // ==========================================
-// TRUE 2D EMULSION SIMULATION V3 (Optical IIR)
+// TRUE 2D EMULSION SIMULATION V4 (Nuclear Diagnostic)
 //
-// Replaces Box Blur with a Dual-Pass IIR (Infinite Impulse Response).
-// This creates a smooth, optical "bloom" tail that mimics real light
-// scattering in film layers.
-//
-// Visibility: Significantly increased Luma softening in THICK mode.
+// Replaces IIR with a fixed Radius-10 Box Blur.
+// THICK mode blurs 100% of Luma and Chroma to prove it is running.
 // ==========================================
 inline void apply_emulsion_v2(
     unsigned char** rows, uint8_t* out_row, int width, bool is_yuv, int emulsion)
 {
     if (emulsion == 0 || width < 1) return;
 
-    // Radius scaling for resolution independence
-    // Radius 10 at 6000px = 10-pixel tail
-    int radius = (width * 10) / 6000;
-    if (radius < 1) radius = 1;
-    if (radius > 10) radius = 10;
+    // FIXED RADIUS 10: 21x21 window centered on rows[10]
+    const int radius = 10;
+    const int diameter = 21;
+    const int samples = diameter * diameter;
 
-    // IIR Alpha: higher = more memory/longer tail.
-    // Level 1 (STD) = 210/256 tail. Level 2 (THICK) = 235/256 tail (massive).
-    int alpha = (emulsion == 1) ? 210 : 235;
-    int inv_alpha = 256 - alpha;
+    // MAXED WEIGHTS: Level 2 (THICK) is 100% blurred. This will look like a heavy mist.
+    int mix = (emulsion == 1) ? 128 : 255;
 
-    // Temporary row buffers for IIR passes
-    int* row_r = (int*)malloc(width * sizeof(int));
-    int* row_g = (int*)malloc(width * sizeof(int));
-    int* row_b = (int*)malloc(width * sizeof(int));
+    // HEAP ALLOCATION
+    int* vsum_r = (int*)malloc(width * sizeof(int));
+    int* vsum_g = (int*)malloc(width * sizeof(int));
+    int* vsum_b = (int*)malloc(width * sizeof(int));
 
-    if (!row_r || !row_g || !row_b) {
-        if (row_r) free(row_r); if (row_g) free(row_g); if (row_b) free(row_b);
+    if (!vsum_r || !vsum_g || !vsum_b) {
+        if (vsum_r) free(vsum_r); if (vsum_g) free(vsum_g); if (vsum_b) free(vsum_b);
         return;
     }
 
-    // --- 1. VERTICAL PASS (Column by Column) ---
-    // Uses the 21-row buffer to simulate a vertical IIR blur tail
+    // Vertical Summation (Pass 1)
     for (int x = 0; x < width; x++) {
-        int r_acc = rows[0][x*3];
-        int g_acc = rows[0][x*3+1];
-        int b_acc = rows[0][x*3+2];
-        for (int y = 1; y <= 20; y++) {
-            r_acc = (r_acc * alpha + (int)rows[y][x*3]   * inv_alpha) / 256;
-            g_acc = (g_acc * alpha + (int)rows[y][x*3+1] * inv_alpha) / 256;
-            b_acc = (b_acc * alpha + (int)rows[y][x*3+2] * inv_alpha) / 256;
+        int r_acc = 0, g_acc = 0, b_acc = 0;
+        for (int y = 0; y <= 20; y++) {
+            r_acc += (int)rows[y][x*3];
+            g_acc += (int)rows[y][x*3+1];
+            b_acc += (int)rows[y][x*3+2];
         }
-        row_r[x] = r_acc;
-        row_g[x] = g_acc;
-        row_b[x] = b_acc;
+        vsum_r[x] = r_acc; vsum_g[x] = g_acc; vsum_b[x] = b_acc;
     }
 
-    // --- 2. HORIZONTAL PASS (Forward + Backward) ---
-    // Forward
-    int r_acc = row_r[0], g_acc = row_g[0], b_acc = row_b[0];
-    for (int x = 1; x < width; x++) {
-        r_acc = (r_acc * alpha + row_r[x] * inv_alpha) / 256;
-        g_acc = (g_acc * alpha + row_g[x] * inv_alpha) / 256;
-        b_acc = (b_acc * alpha + row_b[x] * inv_alpha) / 256;
-        row_r[x] = r_acc; row_g[x] = g_acc; row_b[x] = b_acc;
-    }
-    // Backward
-    r_acc = row_r[width-1]; g_acc = row_g[width-1]; b_acc = row_b[width-1];
-    for (int x = width - 2; x >= 0; x--) {
-        r_acc = (r_acc * alpha + row_r[x] * inv_alpha) / 256;
-        g_acc = (g_acc * alpha + row_g[x] * inv_alpha) / 256;
-        b_acc = (b_acc * alpha + row_b[x] * inv_alpha) / 256;
-        row_r[x] = r_acc; row_g[x] = g_acc; row_b[x] = b_acc;
-    }
-
-    // --- 3. MIX BACK ---
-    // THICK mode now applies a visible softening to Luma too
-    int chroma_mix = (emulsion == 1) ? 180 : 255; 
-    int luma_mix   = (emulsion == 1) ? 20  : 90; // Level 2: 35% Luma softening
-
+    // Horizontal Summation (Pass 2) + Output
     for (int x = 0; x < width; x++) {
+        int r_hsum = 0, g_hsum = 0, b_hsum = 0;
+        for (int i = -radius; i <= radius; i++) {
+            int xi = x + i;
+            if (xi < 0) xi = 0; else if (xi >= width) xi = width - 1;
+            r_hsum += vsum_r[xi];
+            g_hsum += vsum_g[xi];
+            b_hsum += vsum_b[xi];
+        }
+
+        int blur_r = r_hsum / samples;
+        int blur_g = g_hsum / samples;
+        int blur_b = b_hsum / samples;
+
         int r_o = rows[10][x*3], g_o = rows[10][x*3+1], b_o = rows[10][x*3+2];
-        
-        if (is_yuv) {
-            // YUV: R=Y, G=Cb, B=Cr
-            int y  = (r_o * (256 - luma_mix)   + row_r[x] * luma_mix)   / 256;
-            int cb = (g_o * (256 - chroma_mix) + row_g[x] * chroma_mix) / 256;
-            int cr = (b_o * (256 - chroma_mix) + row_b[x] * chroma_mix) / 256;
-            out_row[x*3] = (uint8_t)CLAMP(y); out_row[x*3+1] = (uint8_t)CLAMP(cb); out_row[x*3+2] = (uint8_t)CLAMP(cr);
-        } else {
-            // RGB
-            int r = (r_o * (256 - chroma_mix) + row_r[x] * chroma_mix) / 256;
-            int g = (g_o * (256 - chroma_mix) + row_g[x] * chroma_mix) / 256;
-            int b = (b_o * (256 - chroma_mix) + row_b[x] * chroma_mix) / 256;
-            out_row[x*3] = (uint8_t)CLAMP(r); out_row[x*3+1] = (uint8_t)CLAMP(g); out_row[x*3+2] = (uint8_t)CLAMP(b);
-        }
+
+        // Mix 100% of the blur back if THICK. This will be unmistakably blurry.
+        out_row[x*3]   = (uint8_t)CLAMP((r_o * (255 - mix) + blur_r * mix) / 255);
+        out_row[x*3+1] = (uint8_t)CLAMP((g_o * (255 - mix) + blur_g * mix) / 255);
+        out_row[x*3+2] = (uint8_t)CLAMP((b_o * (255 - mix) + blur_b * mix) / 255);
     }
 
-    free(row_r); free(row_g); free(row_b);
+    free(vsum_r); free(vsum_g); free(vsum_b);
 }
 
 // ==========================================
@@ -334,7 +305,7 @@ inline void process_row_yuv(
         if (s_blue > 0 && cb > 5 && cr < 25) {
             int drop = (cb * s_blue) / 128;
             if (outY > 160) { int fade = 255 - ((outY - 160) * 3); if (fade < 0) fade = 0; drop = (drop * fade) / 256; }
-            if (outY < 50) { int fade = (targetY * 5); if (fade > 255) fade = 255; drop = (drop * fade) / 256; }
+            if (outY < 50) { int fade = (outY * 5); if (fade > 255) fade = 255; drop = (drop * fade) / 256; }
             if (drop > (outY / 4)) drop = outY / 4;
             outY -= drop; cr -= (drop / 2);
         }

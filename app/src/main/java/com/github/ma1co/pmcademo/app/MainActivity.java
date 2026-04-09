@@ -294,10 +294,23 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     }
 
     private void setupEngines() {
+        isReady = true; // FORCE READY ON BOOT
         mProcessor = new ImageProcessor(this, new ImageProcessor.ProcessorCallback() {
             @Override public void onPreloadStarted() { isReady = false; runOnUiThread(new Runnable() { public void run() { updateMainHUD(); } }); }
             @Override public void onPreloadFinished(boolean success) { isReady = true; runOnUiThread(new Runnable() { public void run() { updateMainHUD(); } }); }
-            @Override public void onProcessStarted() { runOnUiThread(new Runnable() { public void run() { if (tvTopStatus != null) { tvTopStatus.setText("PROCESSING..."); tvTopStatus.setTextColor(Color.YELLOW); } } }); }
+            @Override public void onProcessStarted() { 
+                runOnUiThread(new Runnable() { 
+                    public void run() { 
+                        if (tvTopStatus != null) { 
+                            tvTopStatus.setText("PROCESSING..."); 
+                            // DIAGNOSTIC: Turn text RED if emulsion is active
+                            RTLProfile p = recipeManager.getCurrentProfile();
+                            if (p.emulsion > 0) tvTopStatus.setTextColor(Color.RED);
+                            else tvTopStatus.setTextColor(Color.YELLOW); 
+                        } 
+                    } 
+                }); 
+            }
             @Override public void onProcessFinished(String res) { isProcessing = false; runOnUiThread(new Runnable() { public void run() { if (tvTopStatus != null) { tvTopStatus.setTextColor(Color.WHITE); } updateMainHUD(); } }); }
         });
         
