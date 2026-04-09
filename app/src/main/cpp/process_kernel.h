@@ -109,23 +109,23 @@ inline void apply_emulsion(
         } else {
             // RGB Path: Convert 3x3 neighborhood to YCbCr on the fly to avoid
             // blurring Luma and Chroma with the same weights.
-            auto ycbcr = [](int r, int g, int b, int& y, int& cb, int& cr) {
-                y  = (77 * r + 150 * g + 29 * b) / 256;
-                cb = (-43 * r - 85 * g + 128 * b) / 256;
-                cr = (128 * r - 107 * g - 21 * b) / 256;
-            };
+#define CALC_YCBCR(r, g, b, y, cb, cr) \
+    y  = (77 * r + 150 * g + 29 * b) / 256; \
+    cb = (-43 * r - 85 * g + 128 * b) / 256; \
+    cr = (128 * r - 107 * g - 21 * b) / 256
 
-            int y_tl, cb_tl, cr_tl; ycbcr(r_tl, g_tl, b_tl, y_tl, cb_tl, cr_tl);
-            int y_tc, cb_tc, cr_tc; ycbcr(r_tc, g_tc, b_tc, y_tc, cb_tc, cr_tc);
-            int y_tr, cb_tr, cr_tr; ycbcr(r_tr, g_tr, b_tr, y_tr, cb_tr, cr_tr);
+            int y_tl, cb_tl, cr_tl; CALC_YCBCR(r_tl, g_tl, b_tl, y_tl, cb_tl, cr_tl);
+            int y_tc, cb_tc, cr_tc; CALC_YCBCR(r_tc, g_tc, b_tc, y_tc, cb_tc, cr_tc);
+            int y_tr, cb_tr, cr_tr; CALC_YCBCR(r_tr, g_tr, b_tr, y_tr, cb_tr, cr_tr);
             
-            int y_cl, cb_cl, cr_cl; ycbcr(r_cl, g_cl, b_cl, y_cl, cb_cl, cr_cl);
-            int y_cc, cb_cc, cr_cc; ycbcr(r_cc, g_cc, b_cc, y_cc, cb_cc, cr_cc);
-            int y_cr, cb_cr, cr_cr; ycbcr(r_cr, g_cr, b_cr, y_cr, cb_cr, cr_cr);
+            int y_cl, cb_cl, cr_cl; CALC_YCBCR(r_cl, g_cl, b_cl, y_cl, cb_cl, cr_cl);
+            int y_cc, cb_cc, cr_cc; CALC_YCBCR(r_cc, g_cc, b_cc, y_cc, cb_cc, cr_cc);
+            int y_cr, cb_cr, cr_cr; CALC_YCBCR(r_cr, g_cr, b_cr, y_cr, cb_cr, cr_cr);
             
-            int y_bl, cb_bl, cr_bl; ycbcr(r_bl, g_bl, b_bl, y_bl, cb_bl, cr_bl);
-            int y_bc, cb_bc, cr_bc; ycbcr(r_bc, g_bc, b_bc, y_bc, cb_bc, cr_bc);
-            int y_br, cb_br, cr_br; ycbcr(r_br, g_br, b_br, y_br, cb_br, cr_br);
+            int y_bl, cb_bl, cr_bl; CALC_YCBCR(r_bl, g_bl, b_bl, y_bl, cb_bl, cr_bl);
+            int y_bc, cb_bc, cr_bc; CALC_YCBCR(r_bc, g_bc, b_bc, y_bc, cb_bc, cr_bc);
+            int y_br, cb_br, cr_br; CALC_YCBCR(r_br, g_br, b_br, y_br, cb_br, cr_br);
+#undef CALC_YCBCR
 
             int y  = (y_cc * cw_l + (y_tc + y_bc + y_cl + y_cr) * side_l + (y_tl + y_tr + y_bl + y_br) * diag_l) / 256;
             int cb = (cb_cc * cw_c + (cb_tc + cb_bc + cb_cl + cb_cr) * side_c + (cb_tl + cb_tr + cb_bl + cb_br) * diag_c) / 256;
