@@ -305,12 +305,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             @Override 
             public boolean isReadyToProcess() { 
                 RTLProfile p = recipeManager.getCurrentProfile();
-                // --- FIXED: Added shadowToe, subtractiveSat, halation, and emulsion to the trigger ---
-                return isReady && !isProcessing && !calibController.isCalibrating() &&
-                       (p.lutIndex != 0 || p.grain != 0 || p.vignette != 0 ||
+                boolean shouldProcess = (p.lutIndex != 0 || p.grain != 0 || p.vignette != 0 ||
                         p.rollOff != 0 || p.colorChrome != 0 || p.chromeBlue != 0 ||
                         p.shadowToe != 0 || p.subtractiveSat != 0 || p.halation != 0 ||
-                        p.emulsion != 0);            }
+                        p.emulsion != 0);
+                android.util.Log.d("JPEG.CAM", "Engine Trigger Check: isReady=" + isReady + ", isProcessing=" + isProcessing + ", shouldProcess=" + shouldProcess + " (emulsion=" + p.emulsion + ")");
+                return isReady && !isProcessing && !calibController.isCalibrating() && shouldProcess;
+            }
             @Override 
             public void onNewPhotoDetected(final String path) { 
                 processWhenFileReady(path);

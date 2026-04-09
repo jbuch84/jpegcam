@@ -2,8 +2,12 @@
 #define PROCESS_KERNEL_H
 
 #include <stdint.h>
+#include <stdlib.h>
+#include <android/log.h>
 
 #define CLAMP(x) ((x) < 0 ? 0 : ((x) > 255 ? 255 : (x)))
+#define LOG_TAG "COOKBOOK_NATIVE"
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 
 // === KERNEL_UI_METADATA ===
 // shadowToe, 0, 2
@@ -40,7 +44,7 @@ inline uint32_t fast_rand(uint32_t* state) {
 // ==========================================
 // TRUE 2D EMULSION SIMULATION V2 (Wide-Radius)
 //
-// Uses an 11-row symmetric buffer to apply a circular dye-cloud blur.
+// Uses a 21-row symmetric buffer to apply a circular dye-cloud blur.
 // This ensures the softness is visible at arm's length on 24MP sensors.
 //
 // Chroma: Wide circular blur (mimics 20-30 micron dye clouds).
@@ -51,26 +55,32 @@ inline void apply_emulsion_v2(
 {
     if (emulsion == 0 || width < 1) return;
 
-    // Radius scaling for resolution independence (Radius 5 at FULL 24MP)
-    int radius = (width * 5) / 6000;
+    // RADIUS SCALING: 10 pixels at FULL 24MP (6000px)
+    int radius = (width * 10) / 6000;
     if (radius < 1) radius = 1;
-    if (radius > 5) radius = 5;
+    if (radius > 10) radius = 10; // Max supported by 21-row buffer
     
     int diameter = radius * 2 + 1;
     int samples = diameter * diameter;
 
-    // Blend weights (0..256 scale)
-    // emulsion 1 (STD) = visible but subtle. emulsion 2 (THICK) = heavy analog look.
-    int chroma_mix = (emulsion == 1) ? 140 : 210; 
-    int luma_mix   = (emulsion == 1) ? 20  : 40;
+    // MAXED WEIGHTS for extreme visibility during testing
+    int chroma_mix = (emulsion == 1) ? 180 : 255; 
+    int luma_mix   = (emulsion == 1) ? 40  : 120; // Up to 47% luma blur
 
-    // Vertical Accumulation (72KB stack space)
-    int vsum_r[6000], vsum_g[6000], vsum_b[6000];
-    int safe_w = (width > 6000) ? 6000 : width;
+    // HEAP ALLOCATION
+    int* vsum_r = (int*)malloc(width * sizeof(int));
+    int* vsum_g = (int*)malloc(width * sizeof(int));
+    int* vsum_b = (int*)malloc(width * sizeof(int));
 
-    for (int x = 0; x < safe_w; x++) {
+    if (!vsum_r || !vsum_g || !vsum_b) {
+        if (vsum_r) free(vsum_r); if (vsum_g) free(vsum_g); if (vsum_b) free(vsum_b);
+        return;
+    }
+
+    for (int x = 0; x < width; x++) {
         int r_acc = 0, g_acc = 0, b_acc = 0;
-        for (int y = 5 - radius; y <= 5 + radius; y++) {
+        // Window is centered at rows[10]
+        for (int y = 10 - radius; y <= 10 + radius; y++) {
             r_acc += rows[y][x*3];
             g_acc += rows[y][x*3+1];
             b_acc += rows[y][x*3+2];
@@ -80,30 +90,29 @@ inline void apply_emulsion_v2(
         vsum_b[x] = b_acc;
     }
 
-    for (int x = 0; x < safe_w; x++) {
+    for (int x = 0; x < width; x++) {
         int r_hsum = 0, g_hsum = 0, b_hsum = 0;
         for (int i = -radius; i <= radius; i++) {
             int xi = x + i;
-            if (xi < 0) xi = 0; else if (xi >= safe_w) xi = safe_w - 1;
+            if (xi < 0) xi = 0; else if (xi >= width) xi = width - 1;
             r_hsum += vsum_r[xi];
             g_hsum += vsum_g[xi];
             b_hsum += vsum_b[xi];
         }
 
-        // Circular Blur Values
         int blur_r = r_hsum / samples;
         int blur_g = g_hsum / samples;
         int blur_b = b_hsum / samples;
 
         if (is_yuv) {
-            // YUV Path: rows[5] is R=Y, G=Cb, B=Cr
-            int y_orig = rows[5][x*3], cb_orig = rows[5][x*3+1], cr_orig = rows[5][x*3+2];
+            // YUV Path: rows[10] is R=Y, G=Cb, B=Cr
+            int y_orig = rows[10][x*3], cb_orig = rows[10][x*3+1], cr_orig = rows[10][x*3+2];
             
-            // Tight 3x3 Luma Blur for structural roll-off
+            // Tight 3x3 Luma Blur
             int y_sum3 = 0;
             for(int ix=-1; ix<=1; ix++) {
-                int xi = x+ix; if(xi<0) xi=0; else if(xi>=safe_w) xi=safe_w-1;
-                y_sum3 += rows[4][xi*3] + rows[5][xi*3] + rows[6][xi*3];
+                int xi = x+ix; if(xi<0) xi=0; else if(xi>=width) xi=width-1;
+                y_sum3 += rows[9][xi*3] + rows[10][xi*3] + rows[11][xi*3];
             }
             int y_blur3 = y_sum3 / 9;
 
@@ -111,13 +120,15 @@ inline void apply_emulsion_v2(
             out_row[x*3+1] = (uint8_t)CLAMP((cb_orig * (256 - chroma_mix) + blur_g * chroma_mix) / 256);
             out_row[x*3+2] = (uint8_t)CLAMP((cr_orig * (256 - chroma_mix) + blur_b * chroma_mix) / 256);
         } else {
-            // RGB Path: Direct channel blending
-            int r_o = rows[5][x*3], g_o = rows[5][x*3+1], b_o = rows[5][x*3+2];
+            // RGB Path
+            int r_o = rows[10][x*3], g_o = rows[10][x*3+1], b_o = rows[10][x*3+2];
             out_row[x*3]   = (uint8_t)CLAMP((r_o * (256 - chroma_mix) + blur_r * chroma_mix) / 256);
             out_row[x*3+1] = (uint8_t)CLAMP((g_o * (256 - chroma_mix) + blur_g * chroma_mix) / 256);
             out_row[x*3+2] = (uint8_t)CLAMP((b_o * (256 - chroma_mix) + blur_b * chroma_mix) / 256);
         }
     }
+
+    free(vsum_r); free(vsum_g); free(vsum_b);
 }
 
 // ==========================================
