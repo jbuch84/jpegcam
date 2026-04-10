@@ -5,7 +5,7 @@
 
 #define CLAMP(x) ((x) < 0 ? 0 : ((x) > 255 ? 255 : (x)))
 
-// === KERNEL_UI_METADATA ===
+// === KERNEL_UI_METADATA === 
 // shadowToe, 0, 2
 // rollOff, 0, 5
 // colorChrome, 0, 2
