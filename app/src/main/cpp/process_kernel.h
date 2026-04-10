@@ -41,106 +41,138 @@ inline uint32_t fast_rand(uint32_t* state) {
     uint32_t x = *state; x ^= x << 13; x ^= x >> 17; x ^= x << 5; *state = x; return x;
 }
 
+inline uint32_t spatial_hash(int x, int y, uint32_t seed) {
+    uint32_t h = (uint32_t)x * 374761393U + (uint32_t)y * 668265263U + seed;
+    h = (h ^ (h >> 13)) * 1274126177U;
+    return h ^ (h >> 16);
+}
+
 // ==========================================
-// OPTICAL BLOOM & TRUE HALATION ENGINE
+// OPTICAL BLOOM & TRUE HALATION ENGINE V2
 //
-// 1. True Halation: 2D Red/Orange bloom from bright specular highlights.
-// 2. Chromatic Soft Glow: Color-reactive bloom (e.g. Yellow boxes glow Yellow).
+// Optimized for visible "Arm's Length" effects on 24MP sensors.
+// 1. Horizontal IIR: Huge radius bloom (50-100px tail).
+// 2. Peak-Detect Halation: Finds bright specular highlights and bleeds them.
 // ==========================================
 inline void apply_bloom_halation(
     unsigned char** rows, uint8_t* out_row, int width, int abs_y, bool is_yuv, int bloom, int halation, uint32_t seed)
 {
-    // RADIUS: 10 pixels for wide feathering
-    const int radius = 10;
-    const int diameter = 21;
-    const int samples = diameter * diameter;
+    // BLOOM RADIUS (Horizontal IIR)
+    // Alpha 245 = ~50px tail. Alpha 250 = ~100px tail.
+    int alpha = (bloom == 1) ? 245 : 252;
+    int inv_alpha = 256 - alpha;
 
-    // Blend weights
-    int bloom_mix = (bloom == 1) ? 80 : 160; 
-    int hal_mix   = (halation == 1) ? 120 : 220;
+    // HALATION RADIUS (Vertical Scan)
+    int hal_rad = (halation == 1) ? 4 : 8;
 
-    // HEAP ALLOCATION for sliding window summation
-    int* vsum_r = (int*)malloc(width * sizeof(int));
-    int* vsum_g = (int*)malloc(width * sizeof(int));
-    int* vsum_b = (int*)malloc(width * sizeof(int));
-    int* vsum_h = (int*)malloc(width * sizeof(int)); // Halation source map
+    // HEAP ALLOCATION for 1D workspace
+    int* work_r = (int*)malloc(width * sizeof(int));
+    int* work_g = (int*)malloc(width * sizeof(int));
+    int* work_b = (int*)malloc(width * sizeof(int));
+    int* work_h = (int*)malloc(width * sizeof(int));
 
-    if (!vsum_r || !vsum_g || !vsum_b || !vsum_h) {
-        if (vsum_r) free(vsum_r); if (vsum_g) free(vsum_g); if (vsum_b) free(vsum_b); if (vsum_h) free(vsum_h);
+    if (!work_r || !work_g || !work_b || !work_h) {
+        if (work_r) free(work_r); if (work_g) free(work_g); if (work_b) free(work_b); if (work_h) free(work_h);
         return;
     }
 
-    // Pass 1: Vertical Summation
+    // Pass 1: Vertical Scan (Weighted average for bloom, Peak detection for halation)
     for (int x = 0; x < width; x++) {
-        int r_acc = 0, g_acc = 0, b_acc = 0, h_acc = 0;
+        int r_sum = 0, g_sum = 0, b_sum = 0, h_max = 0;
         for (int y = 0; y <= 20; y++) {
             int r = rows[y][x*3], g = rows[y][x*3+1], b = rows[y][x*3+2];
-            r_acc += r; g_acc += g; b_acc += b;
+            r_sum += r; g_sum += g; b_sum += b;
             
-            // Halation Source: Identify very bright pixels (specular highlights)
-            int lum = is_yuv ? r : (r*77 + g*150 + b*29)/256;
-            if (lum > 240) h_acc += (lum - 240);
+            // Halation: Detect specular peaks within hal_rad
+            if (y >= 10-hal_rad && y <= 10+hal_rad) {
+                int lum = is_yuv ? r : (r*77 + g*150 + b*29)/256;
+                if (lum > 235 && (lum - 235) > h_max) h_max = (lum - 235);
+            }
         }
-        vsum_r[x] = r_acc; vsum_g[x] = g_acc; vsum_b[x] = b_acc; vsum_h[x] = h_acc;
+        work_r[x] = r_sum / 21; work_g[x] = g_sum / 21; work_b[x] = b_sum / 21;
+        work_h[x] = h_max;
     }
 
-    // Pass 2: Horizontal Summation + Reconstruction
-    for (int x = 0; x < width; x++) {
-        int r_hsum = 0, g_hsum = 0, b_hsum = 0, h_hsum = 0;
-        for (int i = -radius; i <= radius; i++) {
-            int xi = x + i;
-            if (xi < 0) xi = 0; else if (xi >= width) xi = width - 1;
-            r_hsum += vsum_r[xi]; g_hsum += vsum_g[xi]; b_hsum += vsum_b[xi]; h_hsum += vsum_h[xi];
+    // Pass 2: Horizontal IIR (Forward + Backward) for massive radius
+    if (bloom > 0) {
+        // Forward
+        int ra = work_r[0], ga = work_g[0], ba = work_b[0];
+        for (int x = 1; x < width; x++) {
+            ra = (ra * alpha + work_r[x] * inv_alpha) / 256;
+            ga = (ga * alpha + work_g[x] * inv_alpha) / 256;
+            ba = (ba * alpha + work_b[x] * inv_alpha) / 256;
+            work_r[x] = ra; work_g[x] = ga; work_b[x] = ba;
         }
+        // Backward
+        ra = work_r[width-1]; ga = work_g[width-1]; ba = work_b[width-1];
+        for (int x = width-2; x >= 0; x--) {
+            ra = (ra * alpha + work_r[x] * inv_alpha) / 256;
+            ga = (ga * alpha + work_g[x] * inv_alpha) / 256;
+            ba = (ba * alpha + work_b[x] * inv_alpha) / 256;
+            work_r[x] = ra; work_g[x] = ga; work_b[x] = ba;
+        }
+    }
 
-        // Diffused Light (The Dye Cloud)
-        int diff_r = r_hsum / samples;
-        int diff_g = g_hsum / samples;
-        int diff_b = b_hsum / samples;
-        int diff_h = h_hsum / samples; // The red halation bleed
+    // Pass 3: Horizontal Halation Scan (Max-based)
+    if (halation > 0) {
+        int* hal_line = (int*)malloc(width * sizeof(int));
+        if (hal_line) {
+            for (int x = 0; x < width; x++) {
+                int peak = 0;
+                for (int i = -hal_rad; i <= hal_rad; i++) {
+                    int xi = x + i; if (xi < 0) xi = 0; else if (xi >= width) xi = width - 1;
+                    if (work_h[xi] > peak) peak = work_h[xi];
+                }
+                hal_line[x] = peak;
+            }
+            for (int x = 0; x < width; x++) work_h[x] = hal_line[x];
+            free(hal_line);
+        }
+    }
 
+    // Pass 4: Reconstruction
+    for (int x = 0; x < width; x++) {
         int r_o = rows[10][x*3], g_o = rows[10][x*3+1], b_o = rows[10][x*3+2];
-
+        
         if (is_yuv) {
-            // YUV Path: R=Y, G=Cb, B=Cr
-            // Soft Glow (Bloom): Color bleeds, Luma stays relatively sharp
+            // YUV Path
             if (bloom > 0) {
-                int cb_b = (g_o * (256 - bloom_mix) + diff_g * bloom_mix) / 256;
-                int cr_b = (b_o * (256 - bloom_mix) + diff_b * bloom_mix) / 256;
-                // Add a microscopic luma bloom for the "creaminess"
-                int y_b = (r_o * 240 + diff_r * 16) / 256;
+                int b_mix = (bloom == 1) ? 100 : 180;
+                int cb_b = (g_o * (256 - b_mix) + work_g[x] * b_mix) / 256;
+                int cr_b = (b_o * (256 - b_mix) + work_b[x] * b_mix) / 256;
+                int y_b = (r_o * 245 + work_r[x] * 11) / 256;
                 out_row[x*3] = (uint8_t)CLAMP(y_b); out_row[x*3+1] = (uint8_t)CLAMP(cb_b); out_row[x*3+2] = (uint8_t)CLAMP(cr_b);
             } else {
                 out_row[x*3] = r_o; out_row[x*3+1] = g_o; out_row[x*3+2] = b_o;
             }
 
-            // True Halation (Red/Warm Glow around highlights)
-            if (halation > 0 && diff_h > 0) {
-                int hl = (diff_h * hal_mix) / 256;
-                out_row[x*3]   = (uint8_t)CLAMP(out_row[x*3] + hl / 4); // Brighten slightly
-                out_row[x*3+2] = (uint8_t)CLAMP(out_row[x*3+2] + hl);   // Boost Cr (Red)
-                out_row[x*3+1] = (uint8_t)CLAMP(out_row[x*3+1] - hl/4); // Roll off Cb (Blue)
+            if (halation > 0 && work_h[x] > 0) {
+                int hl = (work_h[x] * ((halation == 1) ? 128 : 255)) / 16;
+                out_row[x*3]   = (uint8_t)CLAMP(out_row[x*3] + hl / 4);
+                out_row[x*3+2] = (uint8_t)CLAMP(out_row[x*3+2] + hl);   // Red boost
+                out_row[x*3+1] = (uint8_t)CLAMP(out_row[x*3+1] - hl/4); // Cyan roll-off
             }
         } else {
             // RGB Path
             if (bloom > 0) {
-                out_row[x*3]   = (uint8_t)CLAMP((r_o * (256 - bloom_mix) + diff_r * bloom_mix) / 256);
-                out_row[x*3+1] = (uint8_t)CLAMP((g_o * (256 - bloom_mix) + diff_g * bloom_mix) / 256);
-                out_row[x*3+2] = (uint8_t)CLAMP((b_o * (256 - bloom_mix) + diff_b * bloom_mix) / 256);
+                int b_mix = (bloom == 1) ? 100 : 180;
+                out_row[x*3]   = (uint8_t)CLAMP((r_o * (256 - b_mix) + work_r[x] * b_mix) / 256);
+                out_row[x*3+1] = (uint8_t)CLAMP((g_o * (256 - b_mix) + work_g[x] * b_mix) / 256);
+                out_row[x*3+2] = (uint8_t)CLAMP((b_o * (256 - b_mix) + work_b[x] * b_mix) / 256);
             } else {
                 out_row[x*3] = r_o; out_row[x*3+1] = g_o; out_row[x*3+2] = b_o;
             }
 
-            if (halation > 0 && diff_h > 0) {
-                int hl = (diff_h * hal_mix) / 256;
-                out_row[x*3]   = (uint8_t)CLAMP(out_row[x*3] + hl);     // Red lift
-                out_row[x*3+1] = (uint8_t)CLAMP(out_row[x*3+1] - hl/8); // Green dip
-                out_row[x*3+2] = (uint8_t)CLAMP(out_row[x*3+2] - hl/4); // Blue roll-off
+            if (halation > 0 && work_h[x] > 0) {
+                int hl = (work_h[x] * ((halation == 1) ? 128 : 255)) / 16;
+                out_row[x*3]   = (uint8_t)CLAMP(out_row[x*3] + hl);
+                out_row[x*3+1] = (uint8_t)CLAMP(out_row[x*3+1] - hl/8);
+                out_row[x*3+2] = (uint8_t)CLAMP(out_row[x*3+2] - hl/4);
             }
         }
     }
 
-    free(vsum_r); free(vsum_g); free(vsum_b); free(vsum_h);
+    free(work_r); free(work_g); free(work_b); free(work_h);
 }
 
 // ==========================================
@@ -238,8 +270,6 @@ inline void process_row_rgb(
             outR = (outR * r256) / 256; outG = (outG * r256) / 256; outB = (outB * r256) / 256;
         }
 
-        // --- FILM HALATION (Removed legacy per-pixel logic) ---
-
         if (vignette > 0) {
             int v_m = 256 - (int)((d_sq * vig_coef) / 16777216);
             if (v_m < 0) v_m = 0;
@@ -305,9 +335,6 @@ inline void process_row_yuv(
         }
 
         int cb = row[i+1] - 128, cr = row[i+2] - 128;
-        
-        // --- FILM HALATION (Removed legacy per-pixel logic) ---
-
         if (oldY != outY) {
             int r256 = (outY * 256) / (oldY == 0 ? 1 : oldY);
             cb = (cb * r256) / 256; cr = (cr * r256) / 256;
