@@ -153,7 +153,20 @@ public class ConnectivityManager {
                 public void onReceive(Context context, Intent intent) {
                     DirectConfiguration config = intent.getParcelableExtra(DirectManager.EXTRA_DIRECT_CONFIG);
                     if (config != null) {
-                        updateStatus("HOTSPOT", "PW: " + config.getNetworkKey() + " (192.168.122.1)");
+                        String password = "N/A";
+                        try {
+                            // Bypass the local OpenMemories stub JAR compiler limitation via Reflection
+                            Method getPassphrase = config.getClass().getMethod("getPassphrase");
+                            password = (String) getPassphrase.invoke(config);
+                        } catch (Exception e1) {
+                            try {
+                                Method getPassword = config.getClass().getMethod("getPassword");
+                                password = (String) getPassword.invoke(config);
+                            } catch (Exception e2) {
+                                password = "Error";
+                            }
+                        }
+                        updateStatus("HOTSPOT", "PW: " + password + " (192.168.122.1)");
                         startServer();
                         setAutoPowerOffMode(false); 
                     }
