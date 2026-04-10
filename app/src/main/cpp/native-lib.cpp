@@ -261,8 +261,9 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
 
     // --- MEMORY-SAFE 21-ROW SYMMETRIC BUFFER (~400KB overhead) ---
     // 21 source rows (rows[0]..rows[20]) and 1 output row (rows[21])
+    unsigned char* row_block = (unsigned char*)malloc(22 * row_stride);
     unsigned char* rows[22];
-    for (int i = 0; i < 22; i++) rows[i] = (unsigned char*)malloc(row_stride);
+    for (int i = 0; i < 22; i++) rows[i] = row_block + (i * row_stride);
     JSAMPROW row_pointer[1];
 
     int map[256];
@@ -275,6 +276,18 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
     uint8_t rolloff_lut[256];
     if (!use_rgb_path) {
         generate_rolloff_lut(rolloff_lut, rollOff);
+    }
+
+    // --- PRE-ALLOCATE WORKSPACE FOR BLOOM & HALATION ---
+    int* work_0 = NULL; int* work_1 = NULL; int* work_2 = NULL; 
+    int* work_h = NULL; int* h_line = NULL;
+    if (bloom > 0 || halation > 0) {
+        int w_size = cinfo_d.output_width * sizeof(int);
+        work_0 = (int*)malloc(w_size);
+        work_1 = (int*)malloc(w_size);
+        work_2 = (int*)malloc(w_size);
+        work_h = (int*)malloc(w_size);
+        if (halation > 0) h_line = (int*)malloc(w_size);
     }
 
     // --- GRAIN SEED ---
@@ -312,7 +325,8 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
 
         // Optical Bloom & Halation pre-pass
         if (bloom > 0 || halation > 0) {
-            apply_bloom_halation(rows, rows[21], cinfo_d.output_width, abs_y, !use_rgb_path, bloom, halation, seed);
+            apply_bloom_halation(rows, rows[21], cinfo_d.output_width, abs_y, !use_rgb_path, bloom, halation, seed, 
+                                 work_0, work_1, work_2, work_h, h_line);
         }
 
         if (use_rgb_path) {
@@ -357,7 +371,13 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
         processed_rows++;
     }
 
-    for (int i = 0; i < 22; i++) free(rows[i]);
+    free(row_block);
+    if (work_0) free(work_0);
+    if (work_1) free(work_1);
+    if (work_2) free(work_2);
+    if (work_h) free(work_h);
+    if (h_line) free(h_line);
+
     jpeg_finish_compress(&cinfo_c);  jpeg_destroy_compress(&cinfo_c);
     jpeg_finish_decompress(&cinfo_d); jpeg_destroy_decompress(&cinfo_d);
     fclose(infile); fclose(outfile);

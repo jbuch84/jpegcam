@@ -47,20 +47,14 @@ inline uint32_t fast_rand(uint32_t* state) {
 // FIXED: Handled YUV offsets and prevented integer overflow/wrap-around.
 // ==========================================
 inline void apply_bloom_halation(
-    unsigned char** rows, uint8_t* out_row, int width, int abs_y, bool is_yuv, int bloom, int halation, uint32_t seed)
+    unsigned char** rows, uint8_t* out_row, int width, int abs_y, bool is_yuv, int bloom, int halation, uint32_t seed,
+    int* work_0, int* work_1, int* work_2, int* work_h, int* h_line)
 {
     // BLOOM RADIUS (IIR Alpha)
     int alpha = (bloom == 1) ? 245 : 252;
     int inv_alpha = 256 - alpha;
 
-    // WORKSPACE (Use signed ints to handle YUV offsets)
-    int* work_0 = (int*)malloc(width * sizeof(int));
-    int* work_1 = (int*)malloc(width * sizeof(int));
-    int* work_2 = (int*)malloc(width * sizeof(int));
-    int* work_h = (int*)malloc(width * sizeof(int));
-
     if (!work_0 || !work_1 || !work_2 || !work_h) {
-        if (work_0) free(work_0); if (work_1) free(work_1); if (work_2) free(work_2); if (work_h) free(work_h);
         return;
     }
 
@@ -110,18 +104,18 @@ inline void apply_bloom_halation(
     // 3. Horizontal Halation Scan (Peak Detect)
     if (halation > 0) {
         int hal_rad = (halation == 1) ? 12 : 24;
-        int* h_line = (int*)malloc(width * sizeof(int));
         if (h_line) {
             for (int x = 0; x < width; x++) {
                 int peak = 0;
                 for (int i = -hal_rad; i <= hal_rad; i++) {
                     int xi = x + i; if (xi < 0) xi = 0; else if (xi >= width) xi = width - 1;
-                    if (work_h[xi] > peak) peak = work_h[xi];
+                    int dist = (i < 0) ? -i : i;
+                    int val = work_h[xi] - ((dist * 15) / hal_rad);
+                    if (val > peak) peak = val;
                 }
                 h_line[x] = peak;
             }
             for (int x = 0; x < width; x++) work_h[x] = h_line[x];
-            free(h_line);
         }
     }
 
@@ -137,14 +131,14 @@ inline void apply_bloom_halation(
             if (bloom > 0) {
                 cb_res = (cb_res * (256 - mix) + work_1[x] * mix) / 256;
                 cr_res = (cr_res * (256 - mix) + work_2[x] * mix) / 256;
-                y_res  = (y_res * 240 + work_0[x] * 16) / 256; // Gentle luma bloom
+                y_res  = (y_res * (256 - mix) + work_0[x] * mix) / 256;
             }
 
             if (halation > 0 && work_h[x] > 0) {
                 int hl = (work_h[x] * ((halation == 1) ? 128 : 255)) / 16;
-                y_res  = CLAMP(y_res + hl / 4);
-                cr_res = CLAMP(cr_res + hl);   // Red
-                cb_res = CLAMP(cb_res - hl/4); // Roll off Blue
+                y_res  += hl / 4;
+                cr_res += hl;      // Red
+                cb_res -= hl / 4;  // Roll off Blue
             }
             out_row[x*3]   = (uint8_t)CLAMP(y_res);
             out_row[x*3+1] = (uint8_t)CLAMP(cb_res + 128);
@@ -170,8 +164,6 @@ inline void apply_bloom_halation(
             out_row[x*3+2] = (uint8_t)CLAMP(b_res);
         }
     }
-
-    free(work_0); free(work_1); free(work_2); free(work_h);
 }
 
 // ==========================================
