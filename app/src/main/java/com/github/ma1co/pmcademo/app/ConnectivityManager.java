@@ -153,7 +153,7 @@ public class ConnectivityManager {
                 public void onReceive(Context context, Intent intent) {
                     DirectConfiguration config = intent.getParcelableExtra(DirectManager.EXTRA_DIRECT_CONFIG);
                     if (config != null) {
-                        updateStatus("HOTSPOT", "PW: " + config.getPassphrase() + " (192.168.122.1)");
+                        updateStatus("HOTSPOT", "PW: " + config.getPassword() + " (192.168.122.1)");
                         startServer();
                         setAutoPowerOffMode(false); 
                     }
