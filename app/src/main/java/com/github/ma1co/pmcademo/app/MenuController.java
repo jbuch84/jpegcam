@@ -447,7 +447,8 @@ public class MenuController {
             else if (sel == 1 && p.lutIndex > 0) p.opacity = Math.max(10, Math.min(100, p.opacity + dir * 10));
             else if (sel == 2) p.grain = Math.max(0, Math.min(5, p.grain + dir));
             else if (sel == 3 && p.grain > 0) p.grainSize = Math.max(0, Math.min(2, p.grainSize + dir));
-            else if (sel == 4) p.vignette = Math.max(0, Math.min(5, p.vignette + dir));
+            else if (sel == 4 && p.grain > 0) p.advancedGrainExperimental = Math.max(0, Math.min(1, p.advancedGrainExperimental + dir));
+            else if (sel == 5) p.vignette = Math.max(0, Math.min(5, p.vignette + dir));
         } else if (currentPage == 5) {
             if (sel == 0) p.rollOff        = Math.max(0, Math.min(5, p.rollOff + dir));
             else if (sel == 1) p.shadowToe = Math.max(0, Math.min(2, p.shadowToe + dir));
@@ -569,12 +570,14 @@ public class MenuController {
                 setRow(1, "Effect Tweaker",       param);
                 setRow(2, "Edge Shading Editor",  shade);
             } else if (currentPage == 4) {
-                ic = 5;
+                ic = 6;
+                String[] engineLbls = {"LEGACY", "ADVANCED"};
                 setRow(0, "LUT File",    rm.getRecipeNames().get(p.lutIndex));
                 setRow(1, "LUT Opacity", p.opacity + "%");
                 setRow(2, "Grain Amount",amtLbls[Math.max(0,Math.min(5,p.grain))]);
                 setRow(3, "Grain Size",  sizeLbls[Math.max(0,Math.min(2,p.grainSize))]);
-                setRow(4, "Vignette",    amtLbls[Math.max(0,Math.min(5,p.vignette))]);
+                setRow(4, "Grain Engine",engineLbls[Math.max(0,Math.min(1,p.advancedGrainExperimental))]);
+                setRow(5, "Vignette",    amtLbls[Math.max(0,Math.min(5,p.vignette))]);
             } else if (currentPage == 5) {
                 ic = 7; // CHANGED TO 7
                 setRow(0, "Highlight Roll-Off",    amtLbls[Math.max(0,Math.min(5,p.rollOff))]);
@@ -585,7 +588,7 @@ public class MenuController {
                 setRow(5, "Halation (Red Glow)",    p.halation==0?"OFF":(p.halation==1?"WEAK":"STRONG"));
                 
                 // NEW ROW ADDED HERE
-                setRow(6, "Soft Bloom",             p.bloom==0?"OFF":(p.bloom==1?"STD":"RICH"));
+                setRow(6, "Diffusion",              p.bloom==0?"OFF":(p.bloom==1?"1/4":"1/2"));
             }
         }
         if (currentPage == 6) {
@@ -637,7 +640,7 @@ public class MenuController {
         }
         if (currentMainTab == 0 && currentPage == 4) {
             if (i == 1) return p.lutIndex > 0;
-            if (i == 3) return p.grain > 0;
+            if (i == 3 || i == 4) return p.grain > 0;
         }
         return true;
     }
