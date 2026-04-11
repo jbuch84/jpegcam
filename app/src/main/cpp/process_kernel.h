@@ -240,7 +240,9 @@ inline void process_row_rgb(
         int outB = b + ((((p[2]*w0 + p1_v[2]*w1 + p2_v[2]*w2 + p3_v[2]*w3) / 128) - b) * opac_mapped / 256);
 
         // --- FILM DENSITY & PHYSICS ---
-        int currentY = (outR*77 + outG*150 + outB*29) / 256;
+        // ZERO-RISK OPTIMIZATION: Only exact powers of 2 are bit-shifted.
+        // Complex divisions (/140, /180, /11000) are left completely untouched.
+        int currentY = (outR*77 + outG*150 + outB*29) >> 8; 
         int targetY  = currentY;
 
         if (shadowToe > 0) {
@@ -249,40 +251,41 @@ inline void process_row_rgb(
         }
         if (rollOff > 0 && targetY > 200) targetY -= ((targetY - 200) * (targetY - 200) * s_roll) / 11000;
 
-        int cb_p = ((-38 * outR - 74 * outG + 112 * outB) / 256);
-        int cr_p = ((112 * outR - 94 * outG - 18 * outB) / 256);
+        // Keep chroma values signed for subtractive calcs, but use shift for divide
+        int cb_p = (-38 * outR - 74 * outG + 112 * outB) >> 8; 
+        int cr_p = (112 * outR - 94 * outG - 18 * outB) >> 8;
         int sat_p = (cb_p < 0 ? -cb_p : cb_p) + (cr_p < 0 ? -cr_p : cr_p);
 
         if (s_chrome > 0 && sat_p > 15) {
-            int drop = ((sat_p - 15) * s_chrome) / 256;
-            if (targetY > 160) { int fade = 255 - ((targetY - 160) * 3); if (fade < 0) fade = 0; drop = (drop * fade) / 256; }
-            if (drop > (targetY / 4)) drop = targetY / 4;
+            int drop = ((sat_p - 15) * s_chrome) >> 8;
+            if (targetY > 160) { int fade = 255 - ((targetY - 160) * 3); if (fade < 0) fade = 0; drop = (drop * fade) >> 8; }
+            if (drop > (targetY >> 2)) drop = targetY >> 2; 
             targetY -= drop;
         }
         if (s_blue > 0 && cb_p > 5 && cr_p < 25) {
-            int drop = (cb_p * s_blue) / 128;
-            if (targetY > 160) { int fade = 255 - ((targetY - 160) * 3); if (fade < 0) fade = 0; drop = (drop * fade) / 256; }
-            if (targetY < 50) { int fade = (targetY * 5); if (fade > 255) fade = 255; drop = (drop * fade) / 256; }
-            if (drop > (targetY / 4)) drop = targetY / 4;
+            int drop = (cb_p * s_blue) >> 7; 
+            if (targetY > 160) { int fade = 255 - ((targetY - 160) * 3); if (fade < 0) fade = 0; drop = (drop * fade) >> 8; }
+            if (targetY < 50) { int fade = (targetY * 5); if (fade > 255) fade = 255; drop = (drop * fade) >> 8; }
+            if (drop > (targetY >> 2)) drop = targetY >> 2;
             targetY -= drop;
         }
         if (s_sat > 0 && sat_p > 20) {
-            int density = ((sat_p - 20) * s_sat) / 256;
-            if (targetY > 200) { int fade = 255 - ((targetY - 200) * 4); if (fade < 0) fade = 0; density = (density * fade) / 256; }
-            if (density > (targetY / 4)) density = targetY / 4;
+            int density = ((sat_p - 20) * s_sat) >> 8;
+            if (targetY > 200) { int fade = 255 - ((targetY - 200) * 4); if (fade < 0) fade = 0; density = (density * fade) >> 8; }
+            if (density > (targetY >> 2)) density = targetY >> 2;
             targetY -= density;
         }
 
         if (targetY < 8) targetY = 8;
         if (targetY != currentY) {
-            int r256 = (targetY * 256) / (currentY == 0 ? 1 : currentY);
-            outR = (outR * r256) / 256; outG = (outG * r256) / 256; outB = (outB * r256) / 256;
+            int r256 = (targetY << 8) / (currentY == 0 ? 1 : currentY); 
+            outR = (outR * r256) >> 8; outG = (outG * r256) >> 8; outB = (outB * r256) >> 8;
         }
 
         if (vignette > 0) {
-            int v_m = 256 - (int)((d_sq * vig_coef) / 16777216);
+            int v_m = 256 - (int)((d_sq * vig_coef) >> 24); 
             if (v_m < 0) v_m = 0;
-            outR = (outR * v_m) / 256; outG = (outG * v_m) / 256; outB = (outB * v_m) / 256;
+            outR = (outR * v_m) >> 8; outG = (outG * v_m) >> 8; outB = (outB * v_m) >> 8;
         }
 
         // --- GRAIN ---
@@ -291,16 +294,16 @@ inline void process_row_rgb(
             int salt = (int)(salt_raw & 0xFF) - 128;
             int noise = salt;
             if (grainSize > 0) {
-                uint32_t bx = (grainSize == 1) ? (x / 2) : ((x * 21845) / 65536);
-                uint32_t by = (grainSize == 1) ? (abs_y / 2) : ((abs_y * 21845) / 65536);
+                uint32_t bx = (grainSize == 1) ? (x >> 1) : ((x * 21845) >> 16);
+                uint32_t by = (grainSize == 1) ? (abs_y >> 1) : ((abs_y * 21845) >> 16);
                 uint32_t h = (bx * 1274126177U) ^ (by * 2654435761U) ^ seed;
-                h = (h ^ (h / 8192)) * 374761393U;
+                h = (h ^ (h >> 13)) * 374761393U;
                 int clump = (int)(h & 0xFF) - 128;
-                noise = (salt * 100 + clump * 150) / 256;
+                noise = (salt * 100 + clump * 150) >> 8; 
             }
             int mask = (targetY < 128) ? targetY : 255 - targetY;
-            if (targetY < 64) mask = (mask * targetY) / 64;
-            int gv = (noise * mask * s_grain) / 32768;
+            if (targetY < 64) mask = (mask * targetY) >> 6; 
+            int gv = (noise * mask * s_grain) >> 15; 
             outR += gv; outG += gv; outB += gv;
         }
 
@@ -359,16 +362,16 @@ inline void process_row_yuv(
             int salt = (int)(salt_raw & 0xFF) - 128;
             int noise = salt;
             if (grainSize > 0) {
-                uint32_t bx = (grainSize == 1) ? (x / 2) : ((x * 21845) / 65536);
-                uint32_t by = (grainSize == 1) ? (abs_y / 2) : ((abs_y * 21845) / 65536);
+                uint32_t bx = (grainSize == 1) ? (x >> 1) : ((x * 21845) >> 16);
+                uint32_t by = (grainSize == 1) ? (abs_y >> 1) : ((abs_y * 21845) >> 16);
                 uint32_t h = (bx * 1274126177U) ^ (by * 2654435761U) ^ seed;
-                h = (h ^ (h / 8192)) * 374761393U;
+                h = (h ^ (h >> 13)) * 374761393U;
                 int clump = (int)(h & 0xFF) - 128;
-                noise = (salt * 100 + clump * 150) / 256;
+                noise = (salt * 100 + clump * 150) >> 8;
             }
             int mask = (outY < 128) ? outY : 255 - outY;
-            if (outY < 64) mask = (mask * outY) / 64;
-            outY += (noise * mask * s_grain) / 32768;
+            if (outY < 64) mask = (mask * outY) >> 6;
+            outY += (noise * mask * s_grain) >> 15;
         }
 
         row[i] = (uint8_t)CLAMP(outY); row[i+1] = (uint8_t)CLAMP(128+cb); row[i+2] = (uint8_t)CLAMP(128+cr);
