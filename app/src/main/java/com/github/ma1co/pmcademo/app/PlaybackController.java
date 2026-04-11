@@ -204,7 +204,13 @@ public class PlaybackController {
             }
             opts.inJustDecodeBounds = false;
             opts.inSampleSize       = inSampleSize;
-            opts.inPreferredConfig  = Bitmap.Config.RGB_565; // halves RAM vs ARGB_8888
+            
+            // --- FIX: TRUE COLOR & DITHERING ---
+            // Upgrading from RGB_565 to ARGB_8888 to unlock full 8-bit gradients,
+            // and enabling dithering to smooth out the downsampling process.
+            opts.inPreferredConfig  = Bitmap.Config.ARGB_8888; 
+            opts.inDither           = true; 
+            
             opts.inPurgeable        = true;
             opts.inInputShareable   = true;
 
