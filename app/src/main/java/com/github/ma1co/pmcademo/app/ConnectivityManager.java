@@ -172,13 +172,10 @@ public class ConnectivityManager {
 
                 // ---------------------------------------------------------
                 // PATH 1: Try Gen 2 DirectManager (a5100)
-                // Fix: Check Activity context first, then Application Context
+                // RESTORED: Use the official OpenMemories constant so it doesn't return null
                 // ---------------------------------------------------------
                 Object dm = null;
-                try { dm = context.getSystemService("wifi_direct"); } catch (Throwable t) {}
-                if (dm == null) {
-                    try { dm = context.getApplicationContext().getSystemService("wifi_direct"); } catch (Throwable t) {}
-                }
+                try { dm = context.getApplicationContext().getSystemService(DirectManager.WIFI_DIRECT_SERVICE); } catch (Throwable t) {}
                 if (dm != null) {
                     startHotspotGen2(dm);
                     return;
@@ -188,10 +185,7 @@ public class ConnectivityManager {
                 // PATH 2: Try Gen 3 Standard Android WifiP2pManager (a7ii/a6500)
                 // ---------------------------------------------------------
                 Object p2p = null;
-                try { p2p = context.getSystemService("wifip2p"); } catch (Throwable t) {}
-                if (p2p == null) {
-                    try { p2p = context.getApplicationContext().getSystemService("wifip2p"); } catch (Throwable t) {}
-                }
+                try { p2p = context.getApplicationContext().getSystemService("wifip2p"); } catch (Throwable t) {}
                 if (p2p != null) {
                     startHotspotGen3(p2p);
                     return;
@@ -265,12 +259,24 @@ public class ConnectivityManager {
             final Class<?> p2pClass = Class.forName("android.net.wifi.p2p.WifiP2pManager");
             final Class<?> channelClass = Class.forName("android.net.wifi.p2p.WifiP2pManager$Channel");
             final Class<?> actionListenerClass = Class.forName("android.net.wifi.p2p.WifiP2pManager$ActionListener");
-            final Class<?> groupInfoListenerClass = Class.forName("android.net.wifi.p2p.WifiP2pManager$GroupInfoListener");
 
             Method initialize = p2pClass.getMethod("initialize", Context.class, android.os.Looper.class, Class.forName("android.net.wifi.p2p.WifiP2pManager$ChannelListener"));
             final Object channel = initialize.invoke(p2pManager, context, context.getMainLooper(), null);
 
-            final Object actionListener = java.lang.reflect.Proxy.newProxyInstance(
+            // Execute with 3 retries to bypass Error 2 (Busy)
+            executeP2pCreateGroup(p2pManager, p2pClass, channelClass, actionListenerClass, channel, 3);
+
+        } catch (Exception e) {
+            updateStatus("HOTSPOT", "P2P Reflection Error: " + e.getMessage());
+            isHotspotRunning = false;
+        }
+    }
+
+    private void executeP2pCreateGroup(final Object p2pManager, final Class<?> p2pClass, final Class<?> channelClass, final Class<?> actionListenerClass, final Object channel, final int retriesLeft) {
+        try {
+            final Class<?> groupInfoListenerClass = Class.forName("android.net.wifi.p2p.WifiP2pManager$GroupInfoListener");
+
+            Object actionListener = java.lang.reflect.Proxy.newProxyInstance(
                     context.getClassLoader(),
                     new Class<?>[]{actionListenerClass},
                     new java.lang.reflect.InvocationHandler() {
@@ -288,6 +294,8 @@ public class ConnectivityManager {
                                                     if (group != null) {
                                                         Method getPassphrase = group.getClass().getMethod("getPassphrase");
                                                         String pass = (String) getPassphrase.invoke(group);
+                                                        
+                                                        // Android P2P framework defaults to 192.168.49.1
                                                         updateStatus("HOTSPOT", "PW: " + pass + " (192.168.49.1)");
                                                         setAutoPowerOffMode(false);
                                                     } else {
@@ -300,44 +308,41 @@ public class ConnectivityManager {
                                 );
                                 Method requestGroupInfo = p2pClass.getMethod("requestGroupInfo", channelClass, groupInfoListenerClass);
                                 requestGroupInfo.invoke(p2pManager, channel, groupInfoListener);
+
                             } else if ("onFailure".equals(method.getName())) {
-                                updateStatus("HOTSPOT", "P2P Error: " + args[0]);
-                                isHotspotRunning = false;
+                                int reason = (Integer) args[0];
+                                if (reason == 2 && retriesLeft > 0) { // Error 2 = BUSY
+                                    updateStatus("HOTSPOT", "P2P Busy, clearing... (" + retriesLeft + ")");
+                                    
+                                    // 1. Blindly issue a removeGroup to kill hanging Sony tasks
+                                    try {
+                                        Method removeGroup = p2pClass.getMethod("removeGroup", channelClass, actionListenerClass);
+                                        removeGroup.invoke(p2pManager, channel, null);
+                                    } catch (Exception e) {}
+
+                                    // 2. Wait exactly 1 second for the radio buffer to settle, then retry
+                                    new Handler(context.getMainLooper()).postDelayed(new Runnable() {
+                                        public void run() {
+                                            if (isHotspotRunning) {
+                                                executeP2pCreateGroup(p2pManager, p2pClass, channelClass, actionListenerClass, channel, retriesLeft - 1);
+                                            }
+                                        }
+                                    }, 1000);
+                                } else {
+                                    updateStatus("HOTSPOT", "P2P Error: " + reason);
+                                    isHotspotRunning = false;
+                                }
                             }
                             return null;
                         }
                     }
             );
 
-            final Method createGroup = p2pClass.getMethod("createGroup", channelClass, actionListenerClass);
-            final Method removeGroup = p2pClass.getMethod("removeGroup", channelClass, actionListenerClass);
-
-            // FIX FOR ERROR 2 (BUSY): Force the framework to remove any hanging P2P groups
-            // created by Sony background tasks. Once the remove attempt completes (success or fail),
-            // wait half a second for the hardware buffer to flush, then cleanly create the new group.
-            Object removeListener = java.lang.reflect.Proxy.newProxyInstance(
-                    context.getClassLoader(),
-                    new Class<?>[]{actionListenerClass},
-                    new java.lang.reflect.InvocationHandler() {
-                        @Override
-                        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-                            new Handler(context.getMainLooper()).postDelayed(new Runnable() {
-                                @Override
-                                public void run() {
-                                    try {
-                                        createGroup.invoke(p2pManager, channel, actionListener);
-                                    } catch (Exception e) {}
-                                }
-                            }, 500);
-                            return null;
-                        }
-                    }
-            );
-
-            removeGroup.invoke(p2pManager, channel, removeListener);
+            Method createGroup = p2pClass.getMethod("createGroup", channelClass, actionListenerClass);
+            createGroup.invoke(p2pManager, channel, actionListener);
 
         } catch (Exception e) {
-            updateStatus("HOTSPOT", "P2P Reflection Error: " + e.getMessage());
+            updateStatus("HOTSPOT", "P2P Exec Error: " + e.getMessage());
             isHotspotRunning = false;
         }
     }
