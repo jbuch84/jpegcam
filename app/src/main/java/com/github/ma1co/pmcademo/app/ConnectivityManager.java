@@ -183,8 +183,11 @@ public class ConnectivityManager {
                 }
             });
         } else {
-            // GEN 3 (e.g. A6500) - Requires standard Wifi to be OFF for AP mode to work
-            waitForHardwareAndExecute(false, new Runnable() {
+            // GEN 3 (e.g. A7II / A6500) 
+            // CRITICAL FIX: Pass TRUE. Wake the antenna into client mode first. 
+            // Android's Tethering service will handle the transition. 
+            // Passing false here causes the physical radio to power down.
+            waitForHardwareAndExecute(true, new Runnable() {
                 @Override
                 public void run() {
                     startHotspotGen3();
@@ -274,14 +277,24 @@ public class ConnectivityManager {
         updateStatus("HOTSPOT", "Starting Hotspot...");
 
         try {
+            // 1. Fetch the existing native configuration first
+            Method getWifiApConfiguration = wifiManager.getClass().getMethod("getWifiApConfiguration");
+            WifiConfiguration apConfig = (WifiConfiguration) getWifiApConfiguration.invoke(wifiManager);
+            
+            // 2. Force it to be visible (Sony firmware sometimes hides it)
+            if (apConfig != null) {
+                apConfig.hiddenSSID = false;
+            }
+
+            // 3. Start the AP using the explicit configuration
             Method setWifiApEnabled = wifiManager.getClass().getMethod("setWifiApEnabled", WifiConfiguration.class, boolean.class);
-            boolean success = (Boolean) setWifiApEnabled.invoke(wifiManager, null, true);
+            boolean success = (Boolean) setWifiApEnabled.invoke(wifiManager, apConfig, true);
             
             if (success) {
-                Method getWifiApConfiguration = wifiManager.getClass().getMethod("getWifiApConfiguration");
-                WifiConfiguration apConfig = (WifiConfiguration) getWifiApConfiguration.invoke(wifiManager);
                 if (apConfig != null) {
-                    updateStatus("HOTSPOT", "PW: " + apConfig.preSharedKey + " (192.168.43.1)");
+                    // PreSharedKey is returned with quotes around it by the OS, e.g. "password"
+                    String cleanPw = apConfig.preSharedKey != null ? apConfig.preSharedKey.replace("\"", "") : "None";
+                    updateStatus("HOTSPOT", "PW: " + cleanPw + " (192.168.43.1)");
                 } else {
                     updateStatus("HOTSPOT", "Connect Phone (192.168.43.1)");
                 }
