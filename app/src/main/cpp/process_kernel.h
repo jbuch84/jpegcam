@@ -529,6 +529,7 @@ inline void apply_bloom_halation(
     int inv_alpha = 256 - alpha;
 
     // Halation alpha remains independent
+    int h_alpha;
     if (halation == 1) h_alpha = (scaleDenom == 4) ? 140 : ((scaleDenom == 2) ? 180 : 220);
     else               h_alpha = (scaleDenom == 4) ? 197 : ((scaleDenom == 2) ? 221 : 240);
     int inv_h = 256 - h_alpha;
