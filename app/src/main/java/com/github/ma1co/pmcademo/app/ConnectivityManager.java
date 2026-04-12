@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.NetworkInfo;
+import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Handler;
@@ -47,10 +48,14 @@ public class ConnectivityManager {
         this.listener = listener;
         this.wifiManager = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         this.connManager = (android.net.ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-        this.server = new HttpServer(context);
         
-        // Note: We deliberately DO NOT initialize DirectManager here anymore. 
-        // We must wait until the hardware is awake.
+        // --- THE SERVER FIX ---
+        // Boot the server once and leave it running. 
+        // Prevents BindExceptions when switching networks.
+        this.server = new HttpServer(context);
+        try {
+            if (!server.isAlive()) server.start();
+        } catch (Exception e) {}
     }
 
     public String getConnStatusHotspot() { return connStatusHotspot; }
@@ -66,7 +71,7 @@ public class ConnectivityManager {
         context.sendBroadcast(intent);
     }
 
-    // --- SONY RTOS HARDWARE WAKEUP ---
+    // Wake up the physical RTOS hardware (This worked perfectly for you)
     private void wakeUpSonyWifiHardware() {
         try {
             Class<?> nmClass = Class.forName("com.sony.scalar.sysutil.NetworkManager");
@@ -85,9 +90,7 @@ public class ConnectivityManager {
         } catch (Exception e) {}
     }
 
-    // --- HARDWARE BOOT SEQUENCER ---
     private void waitForHardwareAndExecute(final Runnable action) {
-        // 1. Physically flip the Sony hardware switch
         wakeUpSonyWifiHardware();
 
         if (wifiManager.isWifiEnabled()) {
@@ -106,8 +109,6 @@ public class ConnectivityManager {
                     if (state == WifiManager.WIFI_STATE_ENABLED) {
                         unregisterReceiverSafe(hardwareBootReceiver);
                         hardwareBootReceiver = null;
-                        
-                        // Give the chip 1 extra second to stabilize the driver
                         new Handler().postDelayed(action, 1000);
                     }
                 }
@@ -142,7 +143,6 @@ public class ConnectivityManager {
                             if (ip != 0) {
                                 String ipAddress = String.format("%d.%d.%d.%d", (ip & 0xff), (ip >> 8 & 0xff), (ip >> 16 & 0xff), (ip >> 24 & 0xff));
                                 updateStatus("WIFI", "http://" + ipAddress + ":" + HttpServer.PORT);
-                                startServer();
                                 setAutoPowerOffMode(false); 
                                 return;
                             }
@@ -173,7 +173,6 @@ public class ConnectivityManager {
                 if (!isHotspotRunning) return;
                 updateStatus("HOTSPOT", "Starting Hotspot...");
 
-                // 2. NOW we fetch the DirectManager (because the hardware is awake)
                 if (directManager == null) {
                     directManager = (DirectManager) context.getSystemService(DirectManager.WIFI_DIRECT_SERVICE);
                 }
@@ -201,21 +200,20 @@ public class ConnectivityManager {
                             if (config != null) {
                                 String password = "N/A";
                                 
-                                // 3. ROBUST REFLECTION: Loops all methods to bypass subclass hiding 
+                                // --- THE PASSWORD FIX ---
+                                // Because we are compiling against ma1co's stubs, we can 
+                                // call this natively without reflection!
                                 try {
-                                    for (Method m : config.getClass().getMethods()) {
-                                        if (m.getName().equalsIgnoreCase("getPassphrase") || m.getName().equalsIgnoreCase("getPassword")) {
-                                            m.setAccessible(true);
-                                            password = (String) m.invoke(config);
-                                            break;
-                                        }
-                                    }
-                                } catch (Exception e) {
-                                    password = "Parse Error";
+                                    password = config.getPassphrase();
+                                } catch (NoSuchMethodError e) {
+                                    // Fallback for weird firmware variants
+                                    try {
+                                        Method m = config.getClass().getMethod("getNetworkKey");
+                                        password = (String) m.invoke(config);
+                                    } catch (Exception ex) {}
                                 }
                                 
                                 updateStatus("HOTSPOT", "PW: " + password + " (192.168.122.1)");
-                                startServer();
                                 setAutoPowerOffMode(false); 
                             }
                         }
@@ -235,8 +233,29 @@ public class ConnectivityManager {
 
                     directManager.setDirectEnabled(true);
                 } else {
-                    updateStatus("HOTSPOT", "Critical: Service Offline");
-                    isHotspotRunning = false;
+                    // --- GEN 3 FALLBACK (A7II / A6500) ---
+                    try {
+                        if (wifiManager.isWifiEnabled()) wifiManager.setWifiEnabled(false);
+                        Method setWifiApEnabled = wifiManager.getClass().getMethod("setWifiApEnabled", WifiConfiguration.class, boolean.class);
+                        boolean success = (Boolean) setWifiApEnabled.invoke(wifiManager, null, true);
+                        
+                        if (success) {
+                            Method getWifiApConfiguration = wifiManager.getClass().getMethod("getWifiApConfiguration");
+                            WifiConfiguration apConfig = (WifiConfiguration) getWifiApConfiguration.invoke(wifiManager);
+                            if (apConfig != null) {
+                                updateStatus("HOTSPOT", "PW: " + apConfig.preSharedKey + " (192.168.43.1)");
+                            } else {
+                                updateStatus("HOTSPOT", "Connect Phone (192.168.43.1)");
+                            }
+                            setAutoPowerOffMode(false);
+                        } else {
+                            updateStatus("HOTSPOT", "Hardware Unsupported");
+                            isHotspotRunning = false;
+                        }
+                    } catch (Exception e) {
+                        updateStatus("HOTSPOT", "Error: " + e.getMessage());
+                        isHotspotRunning = false;
+                    }
                 }
             }
         });
@@ -249,8 +268,6 @@ public class ConnectivityManager {
     }
 
     public void stopNetworking() {
-        if (server != null && server.isAlive()) server.stop();
-        
         if (wifiPollHandler != null && wifiPollRunnable != null) {
             wifiPollHandler.removeCallbacks(wifiPollRunnable);
             wifiPollHandler = null;
@@ -273,20 +290,19 @@ public class ConnectivityManager {
         
         if (isHotspotRunning) {
             try { if (directManager != null) directManager.setDirectEnabled(false); } catch (Exception e) {}
+            try {
+                Method setWifiApEnabled = wifiManager.getClass().getMethod("setWifiApEnabled", WifiConfiguration.class, boolean.class);
+                setWifiApEnabled.invoke(wifiManager, null, false);
+            } catch (Exception e) {}
             isHotspotRunning = false;
         }
         
-        // Physically power down the hardware antenna
         sleepSonyWifiHardware();
         try { wifiManager.setWifiEnabled(false); } catch (Exception e) {}
 
         updateStatus("WIFI", "Press ENTER to Start");
         updateStatus("HOTSPOT", "Press ENTER to Start");
         setAutoPowerOffMode(true); 
-    }
-
-    private void startServer() {
-        try { if (!server.isAlive()) server.start(); } catch (Exception e) {}
     }
 
     private void updateStatus(String target, String status) {
