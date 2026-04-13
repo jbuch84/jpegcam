@@ -26,7 +26,6 @@
 // bloom, 0, 4
 // === END_METADATA ===
 
-// --- SHARED HELPERS ---
 inline long long get_vig_coef(int vignette, long long max_dist_sq) {
     int s_vig = vignette * 12;
     return ((long long)((s_vig * 256) / 100) << 24) / (max_dist_sq > 0 ? max_dist_sq : 1);
@@ -300,6 +299,25 @@ inline int sample_atlas_template(const std::vector<int8_t>& tpl, int sizeMask, i
     return tpl[((y & sizeMask) * (sizeMask + 1)) + (x & sizeMask)];
 }
 
+// --- NEW: Kills the "Cheetah Print" by smoothly blending grain edges ---
+inline int sample_atlas_bilinear(const std::vector<int8_t>& tpl, int sizeMask, int x_fp8, int y_fp8) {
+    int cx = (x_fp8 >> 8) & sizeMask;
+    int cy = (y_fp8 >> 8) & sizeMask;
+    int nx = (cx + 1) & sizeMask;
+    int ny = (cy + 1) & sizeMask;
+    int fx = x_fp8 & 255;
+    int fy = y_fp8 & 255;
+
+    int c00 = tpl[(cy * (sizeMask + 1)) + cx];
+    int c10 = tpl[(cy * (sizeMask + 1)) + nx];
+    int c01 = tpl[(ny * (sizeMask + 1)) + cx];
+    int c11 = tpl[(ny * (sizeMask + 1)) + nx];
+
+    int interp_x1 = c00 + (((c10 - c00) * fx) >> 8);
+    int interp_x2 = c01 + (((c11 - c01) * fx) >> 8);
+    return interp_x1 + (((interp_x2 - interp_x1) * fy) >> 8);
+}
+
 inline int grain_amount_mask(int y) {
     if (y < 16 || y > 236) return 0;
     if (y < 40) return ((y - 16) * 52) >> 3;
@@ -366,19 +384,20 @@ inline const std::vector<int8_t>& atlas_profile_for_index(const BakedGrainAtlas&
     }
 }
 
-inline int grain_profile_sample(int x, int y, int profileIndex, int flatness, int amp, uint32_t seed) {
+// Note the updated parameter names to x_fp8 and y_fp8
+inline int grain_profile_sample(int x_fp8, int y_fp8, int profileIndex, int flatness, int amp, uint32_t seed) {
     if (amp <= 0) return 0;
     const BakedGrainAtlas& atlas = baked_grain_atlas();
     
-    // --- DOMAIN WARPING (ANTI-TILE) ---
-    // Organically distorts the grid coordinates using the coarse noise
-    // itself, breaking up any visible repeating patterns without seams.
-    int warp = sample_atlas_template(atlas.coarse, atlas.mask, y >> 1, x >> 1) >> 3;
+    // Coarse warp remains integer
+    int warp = sample_atlas_template(atlas.coarse, atlas.mask, (y_fp8 >> 9), (x_fp8 >> 9)) >> 3;
 
-    int phase0x = int(seed & (uint32_t)atlas.mask) + warp;
-    int phase0y = int((seed >> 8) & (uint32_t)atlas.mask) - warp;
+    // Shift phases into Fixed-Point 8
+    int phase0x = (int(seed & (uint32_t)atlas.mask) + warp) << 8;
+    int phase0y = (int((seed >> 8) & (uint32_t)atlas.mask) - warp) << 8;
 
-    int sample = sample_atlas_template(atlas_profile_for_index(atlas, profileIndex), atlas.mask, x + phase0x, y + phase0y);
+    // Use smooth bilinear sampling instead of nearest-neighbor block sampling
+    int sample = sample_atlas_bilinear(atlas_profile_for_index(atlas, profileIndex), atlas.mask, x_fp8 + phase0x, y_fp8 + phase0y);
     int gate = 126 + ((flatness * 3) >> 3);
     return (sample * gate * amp + (1 << 15)) >> 16;
 }
@@ -386,11 +405,23 @@ inline int grain_profile_sample(int x, int y, int profileIndex, int flatness, in
 inline int form_grain_luma_core(int centerY, int leftY, int rightY, int x, int abs_y, int s_grain, int grainSize, int scaleDenom, uint32_t seed) {
     if (s_grain <= 0) return centerY;
 
-    // --- RESOLUTION SCALING FIX ---
-    // Locks the physical size of the grain clumps to the full sensor resolution,
-    // preventing grain from appearing massive in Live-View (Proxy) or Half-Res.
-    int sx = x * scaleDenom;
-    int sy = abs_y * scaleDenom;
+    // --- V9 TRUE OPTICAL SCALING (Bilinear Fractional Math) ---
+    // Shift to Fixed-Point 8 to allow for sub-pixel sampling
+    int sx_fp8 = (x * scaleDenom) << 8;
+    int sy_fp8 = (abs_y * scaleDenom) << 8;
+
+    // Stretch the fractional canvas to make the grain clumps larger organically
+    if (grainSize == 1) {
+        sx_fp8 = (sx_fp8 * 170) >> 8; // approx 1.5x larger
+        sy_fp8 = (sy_fp8 * 170) >> 8;
+    } else if (grainSize == 2) {
+        sx_fp8 = sx_fp8 >> 1; // Exactly 2.0x larger
+        sy_fp8 = sy_fp8 >> 1;
+    }
+
+    // Extract the strict integers for the mask calculations below
+    int sx = sx_fp8 >> 8;
+    int sy = sy_fp8 >> 8;
 
     int blurY = (leftY + (centerY << 1) + rightY + 2) >> 2;
     int edge = leftY > rightY ? leftY - rightY : rightY - leftY;
@@ -427,14 +458,14 @@ inline int form_grain_luma_core(int centerY, int leftY, int rightY, int x, int a
 
     const BakedGrainAtlas& atlas = baked_grain_atlas();
     int profileIndex = (scaleDenom == 1)
-        ? select_profile_full_res(densityY, sx, sy, seed, atlas)
+        ? select_profile_full_res(densityY, sx, sy, seed, atlas) // Keep integers here
         : grain_profile_index(densityY);
 
-    int grainTerm = grain_profile_sample(sx, sy, profileIndex, flat, amp, seed);
+    // --- APPLY BILINEAR SAMPLING ---
+    // We pass the new fractional fp8 coordinates into the profile sample
+    // to smoothly blend the edges of the grain clumps.
+    int grainTerm = grain_profile_sample(sx_fp8, sy_fp8, profileIndex, flat, amp, seed);
 
-    // --- ANALOG SHOULDER (EMULSION LIMITER) ---
-    // Protects the original Portra model from hard-clipping when the 
-    // user pushes the in-camera menu to MAX Amount or LARGE Size.
     int limit = 64; 
     if (grainTerm > limit) {
         grainTerm = limit + ((grainTerm - limit) * 3) / 8;
@@ -468,7 +499,6 @@ inline int form_grain_luma_core(int centerY, int leftY, int rightY, int x, int a
 
     return CLAMP(formedY + residual);
 }
-
 inline int row_luma_rgb_at(const uint8_t* row, int width, int x) {
     if (x < 0) x = 0;
     if (x >= width) x = width - 1;
@@ -484,21 +514,39 @@ inline int grain_resolution_scale256(int scaleDenom) {
     }
 }
 
+// Helper for smooth legacy noise
+inline int hash_coord(int cx, int cy, uint32_t seed) {
+    uint32_t h = ((uint32_t)cx * 1274126177U) ^ ((uint32_t)cy * 2654435761U) ^ seed;
+    h = (h ^ (h >> 13)) * 374761393U;
+    return (int)(h & 0xFF) - 128;
+}
+
 inline int legacy_grain_noise(int x, int abs_y, int grainSize, uint32_t& seed) {
     uint32_t salt_raw = fast_rand(&seed);
     int salt = (int)(salt_raw & 0xFF) - 128;
-    int noise = salt;
 
     if (grainSize > 0) {
-        uint32_t bx = (grainSize == 1) ? (uint32_t)(x >> 1) : (uint32_t)((x * 21845) >> 16);
-        uint32_t by = (grainSize == 1) ? (uint32_t)(abs_y >> 1) : (uint32_t)((abs_y * 21845) >> 16);
-        uint32_t h = (bx * 1274126177U) ^ (by * 2654435761U) ^ seed;
-        h = (h ^ (h >> 13)) * 374761393U;
-        int clump = (int)(h & 0xFF) - 128;
-        noise = (salt * 100 + clump * 150) >> 8;
+        // True physical scaling using Bilinear Value Noise
+        int scale = (grainSize == 1) ? 2 : 4; 
+        int cx = x / scale; int cy = abs_y / scale;
+        int fx = x % scale; int fy = abs_y % scale;
+
+        // Sample the 4 corners of the current "clump"
+        int c00 = hash_coord(cx, cy, seed);
+        int c10 = hash_coord(cx + 1, cy, seed);
+        int c01 = hash_coord(cx, cy + 1, seed);
+        int c11 = hash_coord(cx + 1, cy + 1, seed);
+
+        // Smoothly interpolate between the corners to remove hard digital edges
+        int nx0 = c00 + ((c10 - c00) * fx) / scale;
+        int nx1 = c01 + ((c11 - c01) * fx) / scale;
+        int clump = nx0 + ((nx1 - nx0) * fy) / scale;
+        
+        // Blend organic clumps with a tiny bit of salt for chemical texture
+        return (salt * 64 + clump * 192) >> 8;
     }
 
-    return noise;
+    return salt;
 }
 
 // ==========================================
@@ -550,8 +598,7 @@ inline void apply_bloom_halation(
             int bloom_emission;
             
             if (bloom == 2 || bloom == 4) {
-                // FULL BLOOM (Menu 2 & 4): The Digital Sharpness Killer.
-                // Leaves shadows linear to maintain global image softening, 
+                // FULL BLOOM: Leaves shadows linear to maintain global image softening, 
                 // but violently boosts highlights into the HDR range.
                 if (lum < 128) {
                     bloom_emission = lum; 
@@ -559,8 +606,7 @@ inline void apply_bloom_halation(
                     bloom_emission = lum + (((lum - 128) * (lum - 128)) >> 6); 
                 }
             } else {
-                // LOCAL BLOOM (Menu 1 & 3): The Cinematic Punch.
-                // Crushes shadow emission geometrically for deep contrast, 
+                // LOCAL BLOOM: Crushes shadow emission geometrically for deep contrast, 
                 // only glowing from bright practical light sources.
                 if (lum < 128) {
                     bloom_emission = (lum * lum) >> 7; 
@@ -576,8 +622,7 @@ inline void apply_bloom_halation(
                 sh += (lum - 210) * 5 * w; 
             }
         }
-        // Fix: Do NOT divide by 121 here. Store the raw massive number (up to ~30k) 
-        // to give the IIR blur maximum floating-point-like precision.
+        
         work_0[x] = (int)s0; 
         work_h[x] = (int)sh; 
     }
@@ -616,15 +661,12 @@ inline void apply_bloom_halation(
         int v0_o = rows[10][x*3], v1_o = rows[10][x*3+1], v2_o = rows[10][x*3+2];
         int orig_y = is_yuv ? v0_o : ((v0_o*77 + v1_o*150 + v2_o*29)/256);
 
-        // Fix: Now we divide the blurred, high-precision map back down to 0-255 visual ranges
         int blur_y = work_0[x] / 121;
         int halation_y = work_h[x] / 121;
 
-        // Bloom Bleed: How much brighter is the glow map than the original pixel?
         int b_bleed = blur_y - orig_y;
         if (b_bleed < 0) b_bleed = 0;
 
-        // Halation Core Protection: Fade out the red dye if the base pixel is bright white.
         int h_eff = (halation_y * h_mix) / 256;
         h_eff = (h_eff * (255 - orig_y)) / 256; 
 
@@ -634,16 +676,14 @@ inline void apply_bloom_halation(
             if (bloom > 0 && b_bleed > 0) {
                 int add_y = (b_bleed * b_mix) / 256;
                 y_res += add_y;
-                
-                // Cinematic Diffusion: Pull chroma naturally toward neutral gray (128) as it blooms white
                 cb_res = cb_res + ((128 - cb_res) * add_y) / 256;
                 cr_res = cr_res + ((128 - cr_res) * add_y) / 256;
             }
 
             if (halation > 0 && h_eff > 0) {
-                y_res += h_eff / 3;     // Slight brightness bump
-                cr_res += h_eff;        // Massive push to pure Red
-                cb_res -= h_eff / 2;    // Pull blue away to keep it warm
+                y_res += h_eff / 3;     
+                cr_res += h_eff;        
+                cb_res -= h_eff / 2;    
             }
 
             out_row[x*3]   = (uint8_t)CLAMP(y_res);
@@ -661,8 +701,8 @@ inline void apply_bloom_halation(
             }
 
             if (halation > 0 && h_eff > 0) {
-                r_res += h_eff;         // Pure Red
-                g_res += h_eff / 5;     // Tiny bit of green for orange fade
+                r_res += h_eff;         
+                g_res += h_eff / 5;     
                 b_res -= h_eff / 5;     
             }
 
@@ -688,9 +728,7 @@ inline void process_row_rgb(
     int s_chrome = colorChrome * 40;
     int s_blue   = chromeBlue * 40;
     int s_sat    = subtractiveSat * 40;
-    int s_grain  = grain * 20;
-    if (grainSize == 1) s_grain = (s_grain * 3) >> 1;
-    if (grainSize == 2) s_grain = (s_grain * 5) >> 2;
+    int s_grain = (grain * 40) + (grain * grain * 12); 
     s_grain = (s_grain * grain_resolution_scale256(scaleDenom) + 128) >> 8;
 
     long long dy = (long long)(abs_y - cy_center);
@@ -708,24 +746,13 @@ inline void process_row_rgb(
         if (advancedGrainExperimental != 0 && s_grain > 0) {
             int formedY = form_grain_luma_core(currRawY, prevRawY, nextRawY, x, abs_y, s_grain, grainSize, scaleDenom, seed);
             if (formedY != currRawY) {
-                
                 // --- PORTRA T-GRAIN DYE COUPLING (V7) ---
-                // We completely remove random, high-frequency noise (which triggers JPEG artifacts).
-                // Instead, we derive the color footprint directly from the structural density of the 
-                // grain clump. In Kodak film, the Yellow dye layer (Blue light) is the coarsest. 
-                // Magenta (Green) is medium. Cyan (Red) is the finest.
-                
                 int luma_diff = formedY - currRawY;
 
-                // Split the master luminance shift into distinct CMY dye layer sensitivities:
-                // Red retains slightly more light (finer Cyan grain)
                 int shift_r = luma_diff - ((luma_diff * 35) >> 8); 
-                // Green acts as the standard baseline (medium Magenta grain)
                 int shift_g = luma_diff - ((luma_diff * 10) >> 8); 
-                // Blue gets hit the hardest (coarse Yellow grain)
                 int shift_b = luma_diff + ((luma_diff * 45) >> 8); 
 
-                // Create individual scaling maps for each physical layer
                 int scale_r = ((currRawY + shift_r) * 256) / (currRawY > 0 ? currRawY : 1);
                 int scale_g = ((currRawY + shift_g) * 256) / (currRawY > 0 ? currRawY : 1);
                 int scale_b = ((currRawY + shift_b) * 256) / (currRawY > 0 ? currRawY : 1);
@@ -764,7 +791,6 @@ inline void process_row_rgb(
         int outG = g + ((((p[1]*w0 + p1_v[1]*w1 + p2_v[1]*w2 + p3_v[1]*w3) >> 7) - g) * opac_mapped >> 8);
         int outB = b + ((((p[2]*w0 + p1_v[2]*w1 + p2_v[2]*w2 + p3_v[2]*w3) >> 7) - b) * opac_mapped >> 8);
 
-        // --- FILM DENSITY & PHYSICS ---
         int currentY = (outR*77 + outG*150 + outB*29) >> 8;
         int targetY = currentY;
 
@@ -774,7 +800,7 @@ inline void process_row_rgb(
         }
         if (rollOff > 0 && targetY > 200) targetY -= ((targetY - 200) * (targetY - 200) * s_roll) / 11000;
 
-        // --- OPTIMIZATION: Only run heavy color math if effects are actually turned on! ---
+        // --- OPTIMIZATION: Only run heavy color math if effects are ON ---
         if (s_chrome > 0 || s_blue > 0 || s_sat > 0) {
             int cb_p = ((-38 * outR - 74 * outG + 112 * outB) >> 8);
             int cr_p = ((112 * outR - 94 * outG - 18 * outB) >> 8);
@@ -817,7 +843,6 @@ inline void process_row_rgb(
             if (v_m < 0) v_m = 0;
             outR = (outR * v_m) >> 8; outG = (outG * v_m) >> 8; outB = (outB * v_m) >> 8;
             
-            // Moved inside so it only calculates when Vignette is ON
             d_sq += d_sq_step; 
             d_sq_step += 2;
         }
@@ -834,7 +859,7 @@ inline void process_row_rgb(
             
             // --- BALANCED DENSITY MULTIPLIER ---
             // Symmetrical but soft impact
-            gv = (gv * 180) >> 8; 
+            gv = (gv * 220) >> 8; 
 
             outR = CLAMP(outR + gv); 
             outG = CLAMP(outG + gv); 
@@ -862,9 +887,9 @@ inline void process_row_yuv(
     int s_chrome = colorChrome * 40;
     int s_blue   = chromeBlue * 40;
     int s_sat    = subtractiveSat * 40;
-    int s_grain  = grain * 20;
-    if (grainSize == 1) s_grain = (s_grain * 3) >> 1;
-    if (grainSize == 2) s_grain = (s_grain * 5) >> 2;
+    
+    // Exponential math: Slider 1 is subtle, Slider 5 is massive cinematic noise
+    int s_grain = (grain * 40) + (grain * grain * 12); 
     s_grain = (s_grain * grain_resolution_scale256(scaleDenom) + 128) >> 8;
 
     long long dy = (long long)(abs_y - cy_center);
@@ -887,12 +912,12 @@ inline void process_row_yuv(
             if (outY < lift) outY += ((lift - outY) * (lift - outY)) / (shadowToe == 1 ? 140 : 180);
         }
         if (rollOff > 0) outY = rolloff_lut[outY];
+        
         if (vignette > 0) {
             int v_m = 256 - (int)((d_sq * vig_coef) >> 24);
             if (v_m < 0) v_m = 0;
             outY = (outY * v_m) >> 8;
             
-            // Moved inside so it only calculates when Vignette is ON
             d_sq += d_sq_step; 
             d_sq_step += 2;
         }
@@ -900,24 +925,27 @@ inline void process_row_yuv(
         int cb = row[i+1] - 128, cr = row[i+2] - 128;
         int sat = (cb >= 0 ? cb : -cb) + (cr >= 0 ? cr : -cr);
 
-        if (s_chrome > 0 && sat > 15) {
-            int drop = ((sat - 15) * s_chrome) >> 8;
-            if (outY > 160) { int fade = 255 - ((outY - 160) * 3); if (fade < 0) fade = 0; drop = (drop * fade) >> 8; }
-            if (drop > (outY >> 2)) drop = outY >> 2;
-            outY -= drop;
-        }
-        if (s_blue > 0 && cb > 5 && cr < 25) {
-            int drop = (cb * s_blue) >> 7;
-            if (outY > 160) { int fade = 255 - ((outY - 160) * 3); if (fade < 0) fade = 0; drop = (drop * fade) >> 8; }
-            if (outY < 50) { int fade = (outY * 5); if (fade > 255) fade = 255; drop = (drop * fade) >> 8; }
-            if (drop > (outY >> 2)) drop = outY >> 2;
-            outY -= drop; cr -= (drop >> 1);
-        }
-        if (s_sat > 0 && sat > 20) {
-            int density = ((sat - 20) * s_sat) >> 8;
-            if (outY > 200) { int fade = 255 - ((outY - 200) * 4); if (fade < 0) fade = 0; density = (density * fade) >> 8; }
-            if (density > (outY >> 2)) density = outY >> 2;
-            outY -= density;
+        // --- OPTIMIZATION: Only run heavy color math if effects are ON ---
+        if (s_chrome > 0 || s_blue > 0 || s_sat > 0) {
+            if (s_chrome > 0 && sat > 15) {
+                int drop = ((sat - 15) * s_chrome) >> 8;
+                if (outY > 160) { int fade = 255 - ((outY - 160) * 3); if (fade < 0) fade = 0; drop = (drop * fade) >> 8; }
+                if (drop > (outY >> 2)) drop = outY >> 2;
+                outY -= drop;
+            }
+            if (s_blue > 0 && cb > 5 && cr < 25) {
+                int drop = (cb * s_blue) >> 7;
+                if (outY > 160) { int fade = 255 - ((outY - 160) * 3); if (fade < 0) fade = 0; drop = (drop * fade) >> 8; }
+                if (outY < 50) { int fade = (outY * 5); if (fade > 255) fade = 255; drop = (drop * fade) >> 8; }
+                if (drop > (outY >> 2)) drop = outY >> 2;
+                outY -= drop; cr -= (drop >> 1);
+            }
+            if (s_sat > 0 && sat > 20) {
+                int density = ((sat - 20) * s_sat) >> 8;
+                if (outY > 200) { int fade = 255 - ((outY - 200) * 4); if (fade < 0) fade = 0; density = (density * fade) >> 8; }
+                if (density > (outY >> 2)) density = outY >> 2;
+                outY -= density;
+            }
         }
 
         if (outY < 8) outY = 8;
@@ -942,7 +970,7 @@ inline void process_row_yuv(
             int gv = (noise * mask * s_grain) >> 15;
             
             // Balanced Softening
-            gv = (gv * 180) >> 8; 
+            gv = (gv * 220) >> 8;
             
             // Apply to Y only and CLAMP
             outY = CLAMP(outY + gv);
