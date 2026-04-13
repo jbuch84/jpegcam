@@ -89,11 +89,18 @@ struct BakedGrainAtlas {
     std::vector<int8_t> point;
     std::vector<int8_t> pointLarge;
     std::vector<int8_t> pointHuge;
+    
+    // --- RESTORED: Standard profiles needed by the engine ---
     std::vector<int8_t> deepDense;
     std::vector<int8_t> shadowDense;
     std::vector<int8_t> midOpen;
     std::vector<int8_t> brightOpen;
     std::vector<int8_t> highDense;
+    
+    // --- NEW: The Custom Portra Textures ---
+    std::vector<int8_t> portra160;
+    std::vector<int8_t> portra400;
+    std::vector<int8_t> portra800;
 
     BakedGrainAtlas() : size(256), mask(255), ready(false) {}
 };
@@ -290,6 +297,20 @@ inline BakedGrainAtlas& baked_grain_atlas() {
         build_carrier_template(t.midOpen, size, t.fine, t.medium, t.coarse, t.pointHuge, 196, 52, 18, 6, 112);
         build_carrier_template(t.brightOpen, size, t.fine, t.medium, t.coarse, t.pointLarge, 152, 70, 18, 6, 88);
         build_carrier_template(t.highDense, size, t.fine, t.medium, t.coarse, t.point, 84, 112, 18, 6, 58);
+
+        // ==========================================
+        // GENERATE THE KODAK PORTRA SAMPLES
+        // Parameters: (out, size, fine, med, coarse, point, wPoint, wFine, wMed, wCoarse, targetStd)
+        // ==========================================
+        
+        // PORTRA 160: 90% fine T-grain, tiny bit of medium for depth. Target standard deviation: 60.
+        build_carrier_template(t.portra160, size, t.fine, t.medium, t.coarse, t.point, 20, 200, 36, 0, 60);
+        
+        // PORTRA 400: Benchmark emulsion. Heavy medium chunks, supported by fine filler. Target Std: 85.
+        build_carrier_template(t.portra400, size, t.fine, t.medium, t.coarse, t.pointLarge, 40, 80, 160, 16, 85);
+        
+        // PORTRA 800: Massive, coarse dye clouds organically suspended in medium/fine filler. Target Std: 110.
+        build_carrier_template(t.portra800, size, t.fine, t.medium, t.coarse, t.pointHuge, 60, 30, 90, 136, 110);
         t.ready = true;
     }
     return t;
@@ -424,10 +445,62 @@ inline int grain_profile_sample(int sx, int sy, int flatness, int amp, uint32_t 
     return (sample * gate * amp + (1 << 15)) >> 16;
 }
 
+// =========================================================
+// V13 TRUE CRYSTAL ENGINE (REPLACES BAKED ATLAS CAMO)
+// =========================================================
+
+// 1. FAST SHARP NOISE GENERATOR (Microscopic Crystals)
+inline int halide_crystal(int x, int y, uint32_t seed) {
+    uint32_t h = (uint32_t)x * 374761393U + (uint32_t)y * 668265263U + seed;
+    h = (h ^ (h >> 13)) * 1274126177U;
+    return (int)((h ^ (h >> 16)) & 255) - 128;
+}
+
+// 2. KODAK PORTRA STRUCTURAL CLUSTERING (No spacing, no gaps, no blur)
+inline int portra_emulsion_sample(int sx, int sy, int grainSize, uint32_t seed) {
+    int c1 = halide_crystal(sx, sy, seed);
+    
+    if (grainSize == 0) { 
+        // PORTRA 160: Extremely fine independent crystals.
+        return c1; 
+    } 
+    
+    // Portra 400 & 800: Crystals physically clump together. 
+    // We simulate this by checking neighbors and letting the largest crystals "bleed" over.
+    int c2 = halide_crystal(sx + 1, sy, seed ^ 0x9E3779B1u);
+    int c3 = halide_crystal(sx, sy + 1, seed ^ 0x85EBCA77u);
+    
+    if (grainSize == 1) { 
+        // PORTRA 400: Small, sharp 3-crystal clusters.
+        int clump = c1;
+        if (c2 > clump) clump = c2;
+        if (c3 > clump) clump = c3;
+        
+        // Re-center mean to 0 and boost contrast so it hits as hard as 160
+        clump = ((clump - 60) * 170) / 100; 
+        return (clump * 180 + c1 * 76) >> 8;
+    }
+    
+    // PORTRA 800: Massive, dense 6-crystal clusters.
+    int c4 = halide_crystal(sx + 1, sy + 1, seed ^ 0xC2B2AE3Du);
+    int c5 = halide_crystal(sx - 1, sy + 1, seed ^ 0x7FEB352Du);
+    int c6 = halide_crystal(sx + 1, sy - 1, seed ^ 0x846CA68Bu);
+    
+    int clump = c1;
+    if (c2 > clump) clump = c2;
+    if (c3 > clump) clump = c3;
+    if (c4 > clump) clump = c4;
+    if (c5 > clump) clump = c5;
+    if (c6 > clump) clump = c6;
+    
+    clump = ((clump - 90) * 240) / 100;
+    return (clump * 220 + c1 * 36) >> 8;
+}
+
 inline int form_grain_luma_core(int centerY, int leftY, int rightY, int x, int abs_y, int s_grain, int grainSize, int scaleDenom, uint32_t seed) {
     if (s_grain <= 0) return centerY;
 
-    // 1:1 Mapping. No scaling, no cheetah print, no spaced-out dots.
+    // Strict 1:1 Pixel Mapping. No stretching = NO CAMO, NO PAINT SPLATTERS.
     int sx = x * scaleDenom;
     int sy = abs_y * scaleDenom;
 
@@ -440,33 +513,56 @@ inline int form_grain_luma_core(int centerY, int leftY, int rightY, int x, int a
     int densityY = (centerY + blurY * 3 + 2) >> 2;
     int amountY = centerY;
 
+    // ISO 800 physically reaches deeper into the shadows
+    if (grainSize == 2) {
+        int surfaceLift = std::max(0, 144 - densityY);
+        surfaceLift = (surfaceLift * std::max(0, flat - 152) + 128) >> 8;
+        surfaceLift -= std::min(32, edge << 1);
+        if (surfaceLift < 0) surfaceLift = 0;
+        if (surfaceLift > 56) surfaceLift = 56;
+        amountY += surfaceLift;
+        if (amountY > 255) amountY = 255;
+    }
+
     int env = grain_amount_mask(amountY);
     if (env <= 0) return centerY;
     
-    // Amount slider dictates user's push
     int rawAmp = (s_grain * env + 128) >> 8;
     
-    // --- ISO BASE DENSITY ---
-    // ISO 800 is inherently heavier across the entire image than ISO 160.
-    if (grainSize == 0) rawAmp = (rawAmp * 100) >> 8;      // Subtle (Portra 160)
-    else if (grainSize == 1) rawAmp = (rawAmp * 180) >> 8; // Present (Portra 400)
-    else rawAmp = (rawAmp * 280) >> 8;                     // Heavy (Portra 800)
+    // Balance the amplitude response for the different stocks
+    if (grainSize == 0) rawAmp = (rawAmp * 150) >> 8;      // Portra 160
+    else if (grainSize == 1) rawAmp = (rawAmp * 200) >> 8; // Portra 400
+    else rawAmp = (rawAmp * 280) >> 8;                     // Portra 800
 
     int edgeAtten = 256 - std::min(176, edge * 4);
     if (edgeAtten < 84) edgeAtten = 84;
     int amp = (rawAmp * edgeAtten + 128) >> 8;
 
-    // Build the texture
-    int grainTerm = grain_profile_sample(sx, sy, flat, amp, seed, grainSize);
+    const BakedGrainAtlas& atlas = baked_grain_atlas();
+    
+    // Organic Warp Phase
+    int warp = sample_atlas_template(atlas.coarse, atlas.mask, (sy >> 9), (sx >> 9)) >> 3;
+    int p0x = int(seed & (uint32_t)atlas.mask) + warp;
+    int p0y = int((seed >> 8) & (uint32_t)atlas.mask) - warp;
 
-    // Organic Limiter: Prevent digital clipping but allow heavy ISO 800 hits
-    int limit = (grainSize == 0) ? 40 : ((grainSize == 1) ? 65 : 100); 
+    // --- YOUR SOLUTION: Just pull from the custom samples we built ---
+    int raw_grain = 0;
+    if (grainSize == 0)      raw_grain = sample_atlas_template(atlas.portra160, atlas.mask, sx + p0x, sy + p0y);
+    else if (grainSize == 1) raw_grain = sample_atlas_template(atlas.portra400, atlas.mask, sx + p0x, sy + p0y);
+    else                     raw_grain = sample_atlas_template(atlas.portra800, atlas.mask, sx + p0x, sy + p0y);
+
+    int gate = 126 + ((flat * 3) >> 3);
+    int grainTerm = (raw_grain * gate * amp + (1 << 15)) >> 16;
+
+    // Soft limiter
+    int limit = 64; 
     if (grainTerm > limit) {
         grainTerm = limit + ((grainTerm - limit) * 3) / 8;
     } else if (grainTerm < -limit) {
         grainTerm = -limit - ((-limit - grainTerm) * 3) / 8;
     }
 
+    // Shadow Integration
     int darkBase = std::max(0, 156 - densityY);
     int sceneExposure = std::max(0, blurY - 48);
     int lateDarkSurfaceBoost = ((darkBase * sceneExposure + 128) >> 8) + (std::max(0, flat - 168) >> 2) - (edge << 1);
@@ -474,15 +570,10 @@ inline int form_grain_luma_core(int centerY, int leftY, int rightY, int x, int a
     if (lateDarkSurfaceBoost > 72) lateDarkSurfaceBoost = 72;
     
     if (lateDarkSurfaceBoost > 0) {
-        // ISO 800 bites into the shadows aggressively
         if (grainSize == 2) lateDarkSurfaceBoost = (lateDarkSurfaceBoost * 3) >> 1; 
-        if (grainSize == 0) lateDarkSurfaceBoost = (lateDarkSurfaceBoost * 100) >> 8; 
         grainTerm += (grainTerm * lateDarkSurfaceBoost + 128) >> 8;
     }
 
-    // --- INTEGRATION ---
-    // apply_density_style_grain_y ensures the grain acts as subtractive density, 
-    // embedding it organically rather than sitting "on top" of the image.
     int formedY = apply_density_style_grain_y(centerY, grainTerm);
     
     int softBlend = 8 + (amp >> 4) + std::max(0, flat - 160) / 32;
