@@ -546,9 +546,32 @@ inline void apply_bloom_halation(
             // Calculate true brightness (Luma)
             int lum = is_yuv ? v0 : ((v0*77 + v1*150 + v2*29) / 256);
 
-            s0 += lum * w; // Bloom: Collect all light
+            // --- V6 "SMART" LUMINANCE-DEPENDENT BLOOM EMISSION ---
+            int bloom_emission;
             
-            // Halation: Only collect extreme highlights (Luma > 210) and amplify
+            if (bloom == 2 || bloom == 4) {
+                // FULL BLOOM (Menu 2 & 4): The Digital Sharpness Killer.
+                // Leaves shadows linear to maintain global image softening, 
+                // but violently boosts highlights into the HDR range.
+                if (lum < 128) {
+                    bloom_emission = lum; 
+                } else {
+                    bloom_emission = lum + (((lum - 128) * (lum - 128)) >> 6); 
+                }
+            } else {
+                // LOCAL BLOOM (Menu 1 & 3): The Cinematic Punch.
+                // Crushes shadow emission geometrically for deep contrast, 
+                // only glowing from bright practical light sources.
+                if (lum < 128) {
+                    bloom_emission = (lum * lum) >> 7; 
+                } else {
+                    bloom_emission = lum + (((lum - 128) * (lum - 128)) >> 6); 
+                }
+            }
+
+            s0 += bloom_emission * w; 
+            
+            // Halation remains untouched (it only pulls from extreme highlights)
             if (lum > 210) {
                 sh += (lum - 210) * 5 * w; 
             }
@@ -751,28 +774,31 @@ inline void process_row_rgb(
         }
         if (rollOff > 0 && targetY > 200) targetY -= ((targetY - 200) * (targetY - 200) * s_roll) / 11000;
 
-        int cb_p = ((-38 * outR - 74 * outG + 112 * outB) >> 8);
-        int cr_p = ((112 * outR - 94 * outG - 18 * outB) >> 8);
-        int sat_p = (cb_p < 0 ? -cb_p : cb_p) + (cr_p < 0 ? -cr_p : cr_p);
+        // --- OPTIMIZATION: Only run heavy color math if effects are actually turned on! ---
+        if (s_chrome > 0 || s_blue > 0 || s_sat > 0) {
+            int cb_p = ((-38 * outR - 74 * outG + 112 * outB) >> 8);
+            int cr_p = ((112 * outR - 94 * outG - 18 * outB) >> 8);
+            int sat_p = (cb_p < 0 ? -cb_p : cb_p) + (cr_p < 0 ? -cr_p : cr_p);
 
-        if (s_chrome > 0 && sat_p > 15) {
-            int drop = ((sat_p - 15) * s_chrome) >> 8;
-            if (targetY > 160) { int fade = 255 - ((targetY - 160) * 3); if (fade < 0) fade = 0; drop = (drop * fade) >> 8; }
-            if (drop > (targetY >> 2)) drop = targetY >> 2;
-            targetY -= drop;
-        }
-        if (s_blue > 0 && cb_p > 5 && cr_p < 25) {
-            int drop = (cb_p * s_blue) >> 7;
-            if (targetY > 160) { int fade = 255 - ((targetY - 160) * 3); if (fade < 0) fade = 0; drop = (drop * fade) >> 8; }
-            if (targetY < 50) { int fade = (targetY * 5); if (fade > 255) fade = 255; drop = (drop * fade) >> 8; }
-            if (drop > (targetY >> 2)) drop = targetY >> 2;
-            targetY -= drop;
-        }
-        if (s_sat > 0 && sat_p > 20) {
-            int density = ((sat_p - 20) * s_sat) >> 8;
-            if (targetY > 200) { int fade = 255 - ((targetY - 200) * 4); if (fade < 0) fade = 0; density = (density * fade) >> 8; }
-            if (density > (targetY >> 2)) density = targetY >> 2;
-            targetY -= density;
+            if (s_chrome > 0 && sat_p > 15) {
+                int drop = ((sat_p - 15) * s_chrome) >> 8;
+                if (targetY > 160) { int fade = 255 - ((targetY - 160) * 3); if (fade < 0) fade = 0; drop = (drop * fade) >> 8; }
+                if (drop > (targetY >> 2)) drop = targetY >> 2;
+                targetY -= drop;
+            }
+            if (s_blue > 0 && cb_p > 5 && cr_p < 25) {
+                int drop = (cb_p * s_blue) >> 7;
+                if (targetY > 160) { int fade = 255 - ((targetY - 160) * 3); if (fade < 0) fade = 0; drop = (drop * fade) >> 8; }
+                if (targetY < 50) { int fade = (targetY * 5); if (fade > 255) fade = 255; drop = (drop * fade) >> 8; }
+                if (drop > (targetY >> 2)) drop = targetY >> 2;
+                targetY -= drop;
+            }
+            if (s_sat > 0 && sat_p > 20) {
+                int density = ((sat_p - 20) * s_sat) >> 8;
+                if (targetY > 200) { int fade = 255 - ((targetY - 200) * 4); if (fade < 0) fade = 0; density = (density * fade) >> 8; }
+                if (density > (targetY >> 2)) density = targetY >> 2;
+                targetY -= density;
+            }
         }
 
         if (targetY < 8) targetY = 8;
@@ -790,6 +816,10 @@ inline void process_row_rgb(
             int v_m = 256 - (int)((d_sq * vig_coef) >> 24);
             if (v_m < 0) v_m = 0;
             outR = (outR * v_m) >> 8; outG = (outG * v_m) >> 8; outB = (outB * v_m) >> 8;
+            
+            // Moved inside so it only calculates when Vignette is ON
+            d_sq += d_sq_step; 
+            d_sq_step += 2;
         }
 
         if (advancedGrainExperimental == 0 && s_grain > 0) {
@@ -811,7 +841,6 @@ inline void process_row_rgb(
         }
 
         row[i] = (uint8_t)CLAMP(outR); row[i+1] = (uint8_t)CLAMP(outG); row[i+2] = (uint8_t)CLAMP(outB);
-        d_sq += d_sq_step; d_sq_step += 2;
 
         prevRawY = currRawY;
         currRawY = nextRawY;
@@ -861,6 +890,10 @@ inline void process_row_yuv(
             int v_m = 256 - (int)((d_sq * vig_coef) >> 24);
             if (v_m < 0) v_m = 0;
             outY = (outY * v_m) >> 8;
+            
+            // Moved inside so it only calculates when Vignette is ON
+            d_sq += d_sq_step; 
+            d_sq_step += 2;
         }
 
         int cb = row[i+1] - 128, cr = row[i+2] - 128;
@@ -912,7 +945,6 @@ inline void process_row_yuv(
         }
 
         row[i] = (uint8_t)CLAMP(outY); row[i+1] = (uint8_t)CLAMP(128+cb); row[i+2] = (uint8_t)CLAMP(128+cr);
-        d_sq += d_sq_step; d_sq_step += 2;
 
         prevInputY = currInputY;
         currInputY = nextInputY;
