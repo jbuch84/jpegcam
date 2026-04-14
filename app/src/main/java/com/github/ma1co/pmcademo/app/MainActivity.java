@@ -1479,14 +1479,21 @@ public void onEnterPressed() {
                     
                     cachedIsManualFocus = "manual".equals(p.getFocusMode());
                     
-                    // --- NEW: DYNAMIC SENSOR DETECTION ---
-                    // Full frame cameras support APS-C crop mode switching. We must check
-                    // both the hardware capability AND the active crop state to get the true CoC.
-                    boolean hardwareIsFullFrame = "true".equals(p.get("apsc-mode-supported"));
+                    // --- NEW: BULLETPROOF SENSOR DETECTION ---
+                    // Older A7 cameras don't expose 'apsc-mode-supported' in parameters.
+                    // We check the physical hardware model name instead.
+                    String model = android.os.Build.MODEL;
+                    boolean hardwareIsFullFrame = model != null && (
+                        model.contains("ILCE-7") || model.contains("ILCE-9") || 
+                        model.contains("ILCE-1") || model.contains("DSC-RX1")
+                    );
+                    
+                    // Check if the user actively turned on APS-C crop mode in the Sony menu
                     boolean isCropActive = "on".equals(p.get("sony-apsc-mode"));
+                    
                     isFullFrame = hardwareIsFullFrame && !isCropActive;
                     
-                    android.util.Log.e("JPEG.CAM", "Sensor size detected as: " + (isFullFrame ? "FULL FRAME" : "APS-C"));
+                    android.util.Log.e("JPEG.CAM", "Model: " + model + " | Sensor: " + (isFullFrame ? "FULL FRAME" : "APS-C"));
                 } catch (Exception e) {
                     android.util.Log.e("JPEG.CAM", "Boot sync failed: " + e.getMessage());
                 }
