@@ -84,40 +84,47 @@ public class SonyFileScanner {
         }, 500);
     }
 
-    // NEW: Lightweight PNG Metadata parser (Avoids OOM by skipping image data)
+    // NEW: Lightweight PNG Metadata parser (Safely handles .txt disguises)
     public static String getGrainTitle(File file) {
         String name = file.getName();
-        if (name.toLowerCase().endsWith(".png")) {
+        String lowerName = name.toLowerCase();
+        
+        // Accept PNGs, or TXT files (which might be disguised PNGs)
+        if (lowerName.endsWith(".png") || lowerName.endsWith(".txt")) {
             try {
                 java.io.FileInputStream fis = new java.io.FileInputStream(file);
                 byte[] header = new byte[8];
-                fis.read(header); // Skip PNG signature
                 
-                while (true) {
-                    byte[] lenBuf = new byte[4];
-                    if (fis.read(lenBuf) < 4) break;
-                    int len = ((lenBuf[0] & 0xFF) << 24) | ((lenBuf[1] & 0xFF) << 16) | 
-                              ((lenBuf[2] & 0xFF) << 8) | (lenBuf[3] & 0xFF);
-                    
-                    byte[] typeBuf = new byte[4];
-                    if (fis.read(typeBuf) < 4) break;
-                    String type = new String(typeBuf, "US-ASCII");
+                // Read the first 8 bytes and check the PNG Magic Signature
+                if (fis.read(header) == 8 && header[0] == (byte)137 && header[1] == 80 && header[2] == 78 && header[3] == 71) {
+                    while (true) {
+                        byte[] lenBuf = new byte[4];
+                        if (fis.read(lenBuf) < 4) break;
+                        int len = ((lenBuf[0] & 0xFF) << 24) | ((lenBuf[1] & 0xFF) << 16) | 
+                                  ((lenBuf[2] & 0xFF) << 8) | (lenBuf[3] & 0xFF);
+                        
+                        // Prevent OOM from corrupted chunks
+                        if (len < 0 || len > 10000) { fis.skip(len + 4); continue; }
+                        
+                        byte[] typeBuf = new byte[4];
+                        if (fis.read(typeBuf) < 4) break;
+                        String type = new String(typeBuf, "US-ASCII");
 
-                    // Stop searching if we hit the heavy image data to save RAM
-                    if (type.equals("IDAT") || type.equals("IEND")) break; 
+                        if (type.equals("IDAT") || type.equals("IEND")) break; 
 
-                    if (type.equals("tEXt")) {
-                        byte[] data = new byte[len];
-                        fis.read(data);
-                        String textChunk = new String(data, "ISO-8859-1");
-                        if (textChunk.startsWith("Title\0")) {
-                            fis.close();
-                            return textChunk.substring(6); // Return everything after "Title\0"
+                        if (type.equals("tEXt")) {
+                            byte[] data = new byte[len];
+                            fis.read(data);
+                            String textChunk = new String(data, "ISO-8859-1");
+                            if (textChunk.startsWith("Title\0")) {
+                                fis.close();
+                                return textChunk.substring(6); 
+                            }
+                        } else {
+                            fis.skip(len); 
                         }
-                    } else {
-                        fis.skip(len); // Skip irrelevant chunk data
+                        fis.skip(4); // Skip CRC
                     }
-                    fis.skip(4); // Skip 4-byte CRC
                 }
                 fis.close();
             } catch (Exception e) {
@@ -125,7 +132,7 @@ public class SonyFileScanner {
             }
         }
         
-        // Fallback: Just return the filename minus the extension (.png / .jpg)
+        // Fallback: Return the filename minus the extension (.png / .jpg / .txt)
         int dot = name.lastIndexOf('.');
         return dot > 0 ? name.substring(0, dot) : name;
     }

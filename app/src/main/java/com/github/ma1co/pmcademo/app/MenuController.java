@@ -50,10 +50,11 @@ public class MenuController {
                 java.util.Arrays.sort(files); // Keep them alphabetical
                 for (File f : files) {
                     String name = f.getName().toLowerCase();
-                    if (name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg")) {
+                    // ADDED: .txt support for disguised images
+                    if (name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".txt")) {
                         grainTextureFiles.add(f);
                         String title = SonyFileScanner.getGrainTitle(f);
-                        options.add(title.toUpperCase()); // Keep menu text uppercase
+                        options.add(title.toUpperCase()); 
                     }
                 }
             }
