@@ -834,6 +834,27 @@ inline void apply_bloom_halation(
     }
 }
 
+// High-fidelity sampler for 1024x1024 textures to prevent aliasing on Proxy/Half
+inline void sample_tex_bilinear_1024(const uint8_t* tex, int x_fp8, int y_fp8, int* outRGB) {
+    int x0 = (x_fp8 >> 8) & 1023;
+    int y0 = (y_fp8 >> 8) & 1023;
+    int x1 = (x0 + 1) & 1023;
+    int y1 = (y0 + 1) & 1023;
+    int fx = x_fp8 & 255;
+    int fy = y_fp8 & 255;
+
+    for (int c = 0; c < 3; c++) {
+        int c00 = tex[(y0 * 1024 + x0) * 3 + c];
+        int c10 = tex[(y0 * 1024 + x1) * 3 + c];
+        int c01 = tex[(y1 * 1024 + x0) * 3 + c];
+        int c11 = tex[(y1 * 1024 + x1) * 3 + c];
+        
+        int top = c00 + (((c10 - c00) * fx) >> 8);
+        int bot = c01 + (((c11 - c01) * fx) >> 8);
+        outRGB[c] = top + (((bot - top) * fy) >> 8);
+    }
+}
+
 // ==========================================
 // PATH A: RGB + LUT + ANALOG PHYSICS
 // ==========================================
@@ -978,23 +999,28 @@ inline void process_row_rgb(
             
             // Optimization: If the mask is 0 (pure black or pure white), skip the heavy math!
             if (env > 0) {
-                // Fast 512x512 tiling
-                int tx = (x * scaleDenom) & 511;
-                int ty = (abs_y * scaleDenom) & 511;
-                int tex_idx = (ty * 512 + tx) * 3; 
-                
-                uint8_t tr = externalGrainTexture[tex_idx];
-                uint8_t tg = externalGrainTexture[tex_idx + 1];
-                uint8_t tb = externalGrainTexture[tex_idx + 2];
+                int tr, tg, tb;
+
+                if (scaleDenom == 1) {
+                    // --- FAST PATH (FULL RES): 1:1 Pixel Mapping ---
+                    int tx = x & 1023;
+                    int ty = abs_y & 1023;
+                    int tex_idx = (ty * 1024 + tx) * 3;
+                    tr = externalGrainTexture[tex_idx];
+                    tg = externalGrainTexture[tex_idx + 1];
+                    tb = externalGrainTexture[tex_idx + 2];
+                } else {
+                    // --- HQ PATH (HALF/PROXY): Bilinear Interpolation ---
+                    int gRGB[3];
+                    sample_tex_bilinear_1024(externalGrainTexture, (x * scaleDenom) << 8, (abs_y * scaleDenom) << 8, gRGB);
+                    tr = gRGB[0]; tg = gRGB[1]; tb = gRGB[2];
+                }
 
                 int blendedR = blend_overlay(outR, tr);
                 int blendedG = blend_overlay(outG, tg);
                 int blendedB = blend_overlay(outB, tb);
 
-                // Base UI opacity from the camera dial (1-5)
                 int base_mix = (grain >= 5) ? 256 : (grain * 51);
-                
-                // Final Opacity = (UI Dial) * (Midtone Mask)
                 int mix = (base_mix * env) >> 8;
 
                 outR = outR + (((blendedR - outR) * mix) >> 8);
@@ -1123,20 +1149,32 @@ inline void process_row_yuv(
             int env = grain_amount_mask(outY);
 
             if (env > 0) {
-                int tx = (x * scaleDenom) & 511;
-                int ty = (abs_y * scaleDenom) & 511;
-                int tex_idx = (ty * 512 + tx) * 3;
+                int tr, tg, tb;
+
+                if (scaleDenom == 1) {
+                    // --- FAST PATH (FULL RES): 1:1 Pixel Mapping ---
+                    int tx = x & 1023;
+                    int ty = abs_y & 1023;
+                    int tex_idx = (ty * 1024 + tx) * 3;
+                    tr = externalGrainTexture[tex_idx];
+                    tg = externalGrainTexture[tex_idx + 1];
+                    tb = externalGrainTexture[tex_idx + 2];
+                } else {
+                    // --- HQ PATH (HALF/PROXY): Bilinear Interpolation ---
+                    int gRGB[3];
+                    sample_tex_bilinear_1024(externalGrainTexture, (x * scaleDenom) << 8, (abs_y * scaleDenom) << 8, gRGB);
+                    tr = gRGB[0]; tg = gRGB[1]; tb = gRGB[2];
+                }
                 
                 // Fast YUV to RGB for blending
                 int r = outY + ((cr * 359) >> 8);
                 int g = outY - ((cb * 88 + cr * 183) >> 8);
                 int b = outY + ((cb * 454) >> 8);
 
-                int blendedR = blend_overlay(r, externalGrainTexture[tex_idx]);
-                int blendedG = blend_overlay(g, externalGrainTexture[tex_idx + 1]);
-                int blendedB = blend_overlay(b, externalGrainTexture[tex_idx + 2]);
+                int blendedR = blend_overlay(r, tr);
+                int blendedG = blend_overlay(g, tg);
+                int blendedB = blend_overlay(b, tb);
 
-                // Multiply the slider opacity by the luminance mask
                 int base_mix = (grain >= 5) ? 256 : (grain * 51);
                 int mix = (base_mix * env) >> 8;
                 
