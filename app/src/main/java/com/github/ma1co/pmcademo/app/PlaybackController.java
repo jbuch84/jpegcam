@@ -208,8 +208,8 @@ public class PlaybackController {
             opts.inSampleSize       = inSampleSize;
             
             opts.inPreferredConfig  = Bitmap.Config.ARGB_8888; 
-            opts.inDither           = false; 
-            opts.inPreferQualityOverSpeed = true; 
+            opts.inDither           = false; // Keep this false! We are dithering the DRAW, not the DECODE.
+            opts.inPreferQualityOverSpeed = true;
             
             // <--- DELETED: inPurgeable and inInputShareable 
 
@@ -233,7 +233,13 @@ public class PlaybackController {
             Bitmap bmp = Bitmap.createBitmap(raw, 0, 0, raw.getWidth(), raw.getHeight(), matrix, true);
             if (raw != bmp) { raw.recycle(); raw = null; }
 
-            imageView.setImageBitmap(bmp);
+            // <--- NEW: Force High-Quality Paint Dithering
+            // We wrap the 32-bit bitmap in a Drawable and force the paint to dither it.
+            // This hides the banding when Android inevitably crushes it to 16-bit for the display.
+            android.graphics.drawable.BitmapDrawable drawable = new android.graphics.drawable.BitmapDrawable(context.getResources(), bmp);
+            drawable.setDither(true);
+            
+            imageView.setImageDrawable(drawable);
             imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
             currentBitmap = bmp;
 
