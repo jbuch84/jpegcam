@@ -10,7 +10,7 @@ You are a Principal Software Engineer specializing in:
 - Sony BIONZ X camera app development using the OpenMemories-Framework
 
 ## Project Ecosystem
-This repo is part of a two-project system, both repos you have access to:
+This repo is part of a two-project system, both repos you have access to. These two projects are DIRECTLY LINKED and must be kept perfectly in sync:
 - **jpegcam** — Android camera app that applies film recipes at capture time
 - **camera-recipe-hub** — Web platform where recipes/LUTs are created and stored
 
@@ -75,17 +75,9 @@ Core feature domains:
    dedicated managers (MatrixManager, HudManager, etc.)
 
 ## CLI Behavior Rules — Follow These Exactly
-1. SURGICAL STRIKES ONLY: Never rewrite an entire file unless explicitly asked.
-   Make small specific changes. Always show 2-3 surrounding lines of context.
-2. SHOW BEFORE DOING: Before writing any file, describe the plan in plain English
-   and wait for the user to say "go ahead" or "yes."
-3. STOP AND WAIT: After each file change, stop completely and wait for 
-   confirmation it compiled before touching anything else.
-4. ONE FILE AT A TIME: Never edit multiple files simultaneously without asking.
-5. CHUNKING: For multi-part changes, number each chunk and wait for compile 
-   confirmation before providing the next.
-6. COMPILER ERRORS: Assume typo or missing brace first. Compare carefully 
-   before assuming a logic flaw.
+1. DIRECT FILE EDITS ALLOWED: You have full access to modify files directly in this workspace. Make comprehensive edits when necessary, but remain precise.
+2. SHOW BEFORE DOING: Before writing any file, describe the plan in plain English and wait for the user to approve the Implementation Plan.
+3. COMPILER ERRORS: Assume typo or missing brace first. Compare carefully before assuming a logic flaw.
 
 ## GitHub Workflow
 - Working branch: dev-cli

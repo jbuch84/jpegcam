@@ -182,7 +182,7 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
     jint scaleDenom, jint opacity, jint grain, jint grainSize,
     jint vignette, jint rollOff, jint colorChrome, jint chromeBlue,
     jint shadowToe, jint subtractiveSat, jint halation,
-    jint bloom, jint advancedGrainExperimental, jint jpegQuality,
+    jint bloom, jint jpegQuality,
     jboolean applyCrop) { // <-- ADDED XPAN CROP FLAG
 
     long long start_time = get_time_ms();
@@ -334,12 +334,11 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
         if (halation > 0) h_line = (int*)malloc(w_size);
     }
 
-    // --- GRAIN SEED ---
-    uint32_t seed = (uint32_t)(start_time & 0xFFFFFFFF);
-    if (seed == 0) seed = 98765;
+
 
     // --- PRE-LOAD BUFFER (Initialize the 21-row window) ---
     const uint8_t* externalTex = nativeGrainTexture.empty() ? NULL : nativeGrainTexture.data();
+    bool is_1024_grain = nativeGrainTexture.size() > 1000000;
 
     if (cinfo_d.output_height > 0) {
         row_pointer[0] = rows[10]; 
@@ -371,7 +370,7 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
 
             // Optical Bloom & Halation pre-pass
             if (bloom > 0 || halation > 0) {
-                apply_bloom_halation(rows, rows[21], cinfo_d.output_width, abs_y, !use_rgb_path, bloom, halation, seed, 
+                apply_bloom_halation(rows, rows[21], cinfo_d.output_width, abs_y, !use_rgb_path, bloom, halation, 
                                      work_0, work_1, work_2, work_h, h_line, scaleDenom);
             }
 
@@ -379,17 +378,17 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
                 process_row_rgb(
                     rows[21], cinfo_d.output_width, abs_y, cx, cy_center, vig_coef,
                     shadowToe, rollOff, colorChrome, chromeBlue, subtractiveSat, 0, vignette,
-                    grain, grainSize, scaleDenom, advancedGrainExperimental, seed,
+                    grain, grainSize, scaleDenom,
                     opac_mapped, map, nativeLut.data(), nativeLutSize, lutMax, lutSize2,
-                    externalTex 
+                    externalTex, is_1024_grain
                 );
             } else {
                 process_row_yuv(
                     rows[21], cinfo_d.output_width, abs_y, cx, cy_center, vig_coef,
                     shadowToe, rollOff, colorChrome, chromeBlue, subtractiveSat, 0, vignette,
-                    grain, grainSize, scaleDenom, advancedGrainExperimental, seed,
+                    grain, grainSize, scaleDenom,
                     rolloff_lut,
-                    externalTex 
+                    externalTex, is_1024_grain
                 );
             }
 

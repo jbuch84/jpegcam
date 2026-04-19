@@ -92,26 +92,17 @@ public class ImageProcessor {
                     finalJpegQuality = Math.min(90, this.jpegQuality);
                 }
 
-                // --- NEW: ENGINE 2 TEXTURE INTERCEPT ---
-                int cxxGrainEngine = p.advancedGrainExperimental;
-                
-                // If the user selected an SD card texture (Index 2 or higher)
-                if (cxxGrainEngine >= 2) {
-                    int fileIndex = cxxGrainEngine - 2;
-                    if (fileIndex < MenuController.grainTextureFiles.size()) {
-                        File texFile = MenuController.grainTextureFiles.get(fileIndex);
-                        mEngine.loadGrainTexture(texFile); // Load into C++ Global RAM
-                    }
-                    cxxGrainEngine = 2; // Lock the C++ flag to Engine 2
+                // Texture Intercept
+                if (MenuController.grainTextureFiles.size() > 0 && p.grainSize >= 0 && p.grainSize < MenuController.grainTextureFiles.size()) {
+                    File texFile = MenuController.grainTextureFiles.get(p.grainSize);
+                    mEngine.loadGrainTexture(texFile); // Load into C++ Global RAM
                 }
-                // --- END NEW ---
 
                 if (mEngine.applyLutToJpeg(
                     original.getAbsolutePath(), outFile.getAbsolutePath(),
                     scale, p.opacity, p.grain, p.grainSize, p.vignette, p.rollOff,
                     p.colorChrome, p.chromeBlue, p.shadowToe, p.subtractiveSat,
                     p.halation, p.bloom, 
-                    cxxGrainEngine, 
                     finalJpegQuality, 
                     applyCrop)) {  // <--- ADDED HERE
                 return "SAVED";

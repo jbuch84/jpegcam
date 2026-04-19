@@ -10,7 +10,7 @@ public class RTLProfile {
     public int grainSize = 1; // 0=Small, 1=Med, 2=Large
     public int rollOff = 0;
     public int vignette = 0;
-    public int advancedGrainExperimental = 1;
+
 
     // Color & Tone (Hardware)
     public String whiteBalance = "AUTO";

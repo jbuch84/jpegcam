@@ -16,7 +16,7 @@ public class LutEngine {
         String inPath, String outPath, int scaleDenom, int opacity,
         int grain, int grainSize, int vignette, int rollOff,
         int colorChrome, int chromeBlue, int shadowToe,
-        int subtractiveSat, int halation, int bloom, int advancedGrainExperimental, int jpegQuality,
+        int subtractiveSat, int halation, int bloom, int jpegQuality,
         boolean applyCrop // <-- ADDED: Anamorphic Crop Flag
     );
 
@@ -36,11 +36,11 @@ public class LutEngine {
                                   int grain, int grainSize, int vignette, int rollOff,
                                   int colorChrome, int chromeBlue, int shadowToe,
                                   int subtractiveSat, int halation, int bloom,
-                                  int advancedGrainExperimental, int quality,
+                                  int quality,
                                   boolean applyCrop) { // <-- ADDED: XPAN Crop Flag
         return processImageNative(in, out, scale, opacity, grain, grainSize, vignette,
                                  rollOff, colorChrome, chromeBlue, shadowToe,
-                                 subtractiveSat, halation, bloom, advancedGrainExperimental, quality,
+                                 subtractiveSat, halation, bloom, quality,
                                  applyCrop); // <-- ADDED: XPAN Crop Flag
     }
 
