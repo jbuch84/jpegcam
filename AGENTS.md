@@ -90,3 +90,10 @@ Core feature domains:
 - Do not auto-import any library not already present in build.gradle
 - When explaining code in the chat sidebar, assume zero Android knowledge
 - This project builds via GitHub Actions only — never suggest local gradle commands
+
+## Synchronization & Maintenance
+To keep the two projects (`camera-recipe-hub` and `jpegcam`) in sync, follow these strict rules:
+1. **Shared C++ Kernel**: The core image processing math in `camera-recipe-hub/wasm-src/process_kernel.h` and `jpegcam/app/src/main/cpp/process_kernel.h` must remain identical. If you change the math in one, you MUST sync it to the other and rebuild both the WebAssembly and Android native layers.
+2. **Recipe Contract**: The `.TXT` recipe file is a shared JSON contract. Never change or delete keys (like `grainName` or `lutName`) in the Web Studio without simultaneously updating the `RecipeManager.java` parser in the Android app.
+3. **Legacy Fallbacks**: Always preserve backward compatibility for legacy recipes. If a recipe lacks a modern key (like `grainName`), the system must fallback to mapping legacy indices (e.g., mapping `grainSize` 0, 1, 2 to explicit "SMALL", "MED", and "LARGE" filenames).
+4. **Path Consistency**: Ensure that SD card folder instructions provided to users in the Web Studio (e.g., `/JPEGCAM/LUTS/`) match the hardcoded paths used by the Android app's `Filepaths.java` logic.
