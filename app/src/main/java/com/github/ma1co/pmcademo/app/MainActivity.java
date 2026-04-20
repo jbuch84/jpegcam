@@ -736,16 +736,49 @@ public void onEnterPressed() {
             return true;
         } else if (action == 2) { // FOCUS MAGNIFIER
             if (cameraManager != null && cameraManager.getCameraEx() != null) {
-                // We must explicitly set the magnification level and the center X/Y coordinates
-                // using a Pair<Integer, Integer> as required by the CameraEx API.
-                android.util.Pair<Integer, Integer> centerPos = new android.util.Pair<Integer, Integer>(0, 0);
+                com.sony.scalar.hardware.CameraEx cx = cameraManager.getCameraEx();
                 
-                // 100 usually denotes the first step of magnification.
-                cameraManager.getCameraEx().setPreviewMagnification(100, centerPos);
-                
-                isMagnifierActive = true; 
+                if (isMagnifierActive) {
+                    // Toggle OFF
+                    cx.stopPreviewMagnification();
+                    isMagnifierActive = false;
+                } else {
+                    // Toggle ON
+                    
+                    // 1. Sony OS requires a listener to activate the hardware scaler
+                    try {
+                        cx.setPreviewMagnificationListener(new com.sony.scalar.hardware.CameraEx.PreviewMagnificationListener() {
+                            @Override
+                            public void onChanged(boolean enabled, int magFactor, int magLevel, android.util.Pair coords, com.sony.scalar.hardware.CameraEx cameraEx) {}
+                            @Override
+                            public void onInfoUpdated(boolean b, android.util.Pair coords, com.sony.scalar.hardware.CameraEx cameraEx) {}
+                        });
+                    } catch (Throwable t) {
+                        android.util.Log.e("JPEG.CAM", "Magnifier Listener Error: " + t.getMessage());
+                    }
+
+                    // 2. Discover the actual supported zoom level for this specific camera
+                    int magLevel = 100; // Fallback
+                    try {
+                        android.hardware.Camera c = cameraManager.getCamera();
+                        if (c != null) {
+                            com.sony.scalar.hardware.CameraEx.ParametersModifier pm = cx.createParametersModifier(c.getParameters());
+                            java.util.List<Integer> supportedMags = (java.util.List<Integer>) pm.getSupportedPreviewMagnification();
+                            if (supportedMags != null && !supportedMags.isEmpty()) {
+                                magLevel = supportedMags.get(0); // Grab the first native hardware step
+                            }
+                        }
+                    } catch (Throwable t) {
+                        android.util.Log.e("JPEG.CAM", "Magnifier Level Error: " + t.getMessage());
+                    }
+
+                    // 3. Fire the zoom command!
+                    android.util.Pair<Integer, Integer> centerPos = new android.util.Pair<Integer, Integer>(0, 0);
+                    cx.setPreviewMagnification(magLevel, centerPos);
+                    isMagnifierActive = true; 
+                }
             }
-            return true; // Swallow the hardware click since we fired the API!
+            return true; // Swallow the hardware click!
         } else if (action == 3) { // TOGGLE FOCUS METER
             setPrefFocusMeter(!isPrefFocusMeter());
             updateMainHUD();
