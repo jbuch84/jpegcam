@@ -695,6 +695,7 @@ public void onEnterPressed() {
         int action = 0;
         if (keyId.equals("C1")) action = rm.getPrefC1();
         else if (keyId.equals("C2")) action = rm.getPrefC2();
+        else if (keyId.equals("C3")) action = rm.getPrefC3();
         else if (keyId.equals("AEL")) action = rm.getPrefAel();
         else if (keyId.equals("FN")) action = rm.getPrefFn();
 

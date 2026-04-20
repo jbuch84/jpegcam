@@ -78,6 +78,7 @@ public class InputManager {
         // --- APP-SPECIFIC CUSTOM BUTTON ROUTER ---
         if (sc == ScalarInput.ISV_KEY_CUSTOM1) { if (listener.onCustomButtonPressed("C1")) return true; }
         if (sc == ScalarInput.ISV_KEY_CUSTOM2) { if (listener.onCustomButtonPressed("C2")) return true; }
+        if (sc == ScalarInput.ISV_KEY_CUSTOM3) { if (listener.onCustomButtonPressed("C3")) return true; }
         if (sc == ScalarInput.ISV_KEY_AEL)     { if (listener.onCustomButtonPressed("AEL")) return true; }
         if (sc == ScalarInput.ISV_KEY_FN)      { if (listener.onCustomButtonPressed("FN")) return true; }
 
@@ -126,7 +127,7 @@ public class InputManager {
 
         // Swallow custom button releases so the Sony OS ignores them
         if (sc == ScalarInput.ISV_KEY_CUSTOM1 || sc == ScalarInput.ISV_KEY_CUSTOM2 || 
-            sc == ScalarInput.ISV_KEY_AEL || sc == ScalarInput.ISV_KEY_FN) {
+            sc == ScalarInput.ISV_KEY_CUSTOM3 || sc == ScalarInput.ISV_KEY_AEL || sc == ScalarInput.ISV_KEY_FN) {
             return true; 
         }
         

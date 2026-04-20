@@ -554,8 +554,9 @@ public class MenuController {
         } else if (currentPage == 7) {
             if      (sel == 0) rm.setPrefC1(Math.max(0, Math.min(5, rm.getPrefC1() + dir)));
             else if (sel == 1) rm.setPrefC2(Math.max(0, Math.min(5, rm.getPrefC2() + dir)));
-            else if (sel == 2) rm.setPrefAel(Math.max(0, Math.min(5, rm.getPrefAel() + dir)));
-            else if (sel == 3) rm.setPrefFn(Math.max(0, Math.min(5, rm.getPrefFn() + dir)));
+            else if (sel == 2) rm.setPrefC3(Math.max(0, Math.min(5, rm.getPrefC3() + dir)));
+            else if (sel == 3) rm.setPrefAel(Math.max(0, Math.min(5, rm.getPrefAel() + dir)));
+            else if (sel == 4) rm.setPrefFn(Math.max(0, Math.min(5, rm.getPrefFn() + dir)));
         }
 
         render();
@@ -696,12 +697,13 @@ public class MenuController {
             setRow(4, "Rule of Thirds Grid",   host.isPrefGridLines()    ? "ON" : "OFF");
             setRow(5, "SW JPEG Quality",       String.valueOf(host.getPrefJpegQuality()));
         } else if (currentPage == 7) {
-            ic = 4;
+            ic = 5;
             String[] btnLbls = {"OFF", "ISO MENU", "FOCUS MAGNIFIER", "TOGGLE FOCUS METER", "TOGGLE CINEMA MATTES", "TOGGLE GRID LINES"};
             setRow(0, "Custom 1 (C1)", btnLbls[Math.max(0, Math.min(5, rm.getPrefC1()))]);
             setRow(1, "Custom 2 (C2)", btnLbls[Math.max(0, Math.min(5, rm.getPrefC2()))]);
-            setRow(2, "AEL Button",    btnLbls[Math.max(0, Math.min(5, rm.getPrefAel()))]);
-            setRow(3, "FN Button",     btnLbls[Math.max(0, Math.min(5, rm.getPrefFn()))]);
+            setRow(2, "Custom 3 (C3)", btnLbls[Math.max(0, Math.min(5, rm.getPrefC3()))]);
+            setRow(3, "AEL Button",    btnLbls[Math.max(0, Math.min(5, rm.getPrefAel()))]);
+            setRow(4, "FN Button",     btnLbls[Math.max(0, Math.min(5, rm.getPrefFn()))]);
         } else if (currentPage == 8) {
             ic = 3;
             setRow(0, "Camera Hotspot", hotspotStatus);
