@@ -445,7 +445,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                         Bitmap composite = null;
                         boolean stitched = false;
 
-                        while (sampleSize <= 4 && !stitched) {
+                        while (sampleSize <= 8 && !stitched) {
                             try {
                                 opts.inJustDecodeBounds = false;
                                 opts.inSampleSize = sampleSize;
@@ -470,12 +470,25 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                                 Bitmap rightBmp = BitmapFactory.decodeFile(rightPath, opts);
                                 if (rightBmp == null) throw new Exception("Failed to decode right image");
 
-                                android.graphics.Rect srcRight = new android.graphics.Rect(midW, 0, w, h);
-                                canvas.drawBitmap(rightBmp, srcRight, srcRight, null);
+                                // Failsafe bounds check in case the sensor shifted resolutions between shots
+                                int rightW = rightBmp.getWidth();
+                                int rightH = rightBmp.getHeight();
+                                int safeW = Math.min(w, rightW);
+                                int safeH = Math.min(h, rightH);
+                                int safeMid = safeW / 2;
+
+                                android.graphics.Rect srcRight = new android.graphics.Rect(safeMid, 0, safeW, safeH);
+                                android.graphics.Rect dstRight = new android.graphics.Rect(midW, 0, midW + (safeW - safeMid), safeH);
+                                canvas.drawBitmap(rightBmp, srcRight, dstRight, null);
                                 
-                                // Free Right RAM
                                 rightBmp.recycle();
                                 rightBmp = null;
+
+                                // Add a clean black divider down the middle for a true analog film strip look
+                                android.graphics.Paint dividerPaint = new android.graphics.Paint();
+                                dividerPaint.setColor(android.graphics.Color.BLACK);
+                                dividerPaint.setStrokeWidth(Math.max(4, w / 400));
+                                canvas.drawLine(midW, 0, midW, h, dividerPaint);
 
                                 java.io.FileOutputStream out = new java.io.FileOutputStream(rightPath);
                                 composite.compress(Bitmap.CompressFormat.JPEG, 95, out);
@@ -497,17 +510,28 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                         new File(leftPath).delete();
                         if (composite != null && !composite.isRecycled()) composite.recycle();
                         
-                        // Send the stitched master through your standard Recipe pipeline!
-                        File outDir = Filepaths.getGradedDir();
-                        mProcessor.processJpeg(rightPath, outDir.getAbsolutePath(), 
-                                               recipeManager.getQualityIndex(), prefJpegQuality,   
-                                               recipeManager.getCurrentProfile(), prefShowCinemaMattes);
+                        // CRITICAL FIX: AsyncTask (.execute) MUST be called from the main UI thread!
+                        final File outDir = Filepaths.getGradedDir();
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                mProcessor.processJpeg(rightPath, outDir.getAbsolutePath(), 
+                                                       recipeManager.getQualityIndex(), prefJpegQuality,   
+                                                       recipeManager.getCurrentProfile(), prefShowCinemaMattes);
+                            }
+                        });
                                                
-                    } catch (Exception e) {
+                    } catch (final Exception e) {
                         e.printStackTrace();
                         isProcessing = false;
                         runOnUiThread(new Runnable() {
-                            public void run() { updateMainHUD(); }
+                            public void run() { 
+                                if (tvTopStatus != null) {
+                                    tvTopStatus.setText("STITCH FAILED");
+                                    tvTopStatus.setTextColor(Color.RED);
+                                }
+                                updateMainHUD(); 
+                            }
                         });
                     }
                 }
