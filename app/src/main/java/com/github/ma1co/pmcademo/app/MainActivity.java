@@ -436,59 +436,64 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                         // Bypass the async C++ workaround entirely to prevent race conditions.
                         BitmapFactory.Options opts = new BitmapFactory.Options();
                         opts.inPreferredConfig = Bitmap.Config.RGB_565; // Save 50% RAM
-                        opts.inJustDecodeBounds = true;
-                        BitmapFactory.decodeFile(leftPath, opts);
 
-                        // BIONZ X has very limited RAM. 24MP = 48MB in RGB_565 (Guaranteed OOM).
-                        // Downscale by at least 2 (3000x2000 = 12MB). Fallback to 4 if needed.
-                        int sampleSize = 2;
+                        // By using BitmapRegionDecoder, we only load the exact 50% slice we need into memory.
+                        // This prevents the OOM crash and guarantees we can use a high-res sampleSize (like 2)
+                        // instead of falling back to tiny thumbnails.
+                        int sampleSize = 2; // High-res 6 Megapixel proxy output (approx 3000x2000)
                         Bitmap composite = null;
                         boolean stitched = false;
 
                         while (sampleSize <= 8 && !stitched) {
                             try {
-                                opts.inJustDecodeBounds = false;
                                 opts.inSampleSize = sampleSize;
 
-                                Bitmap leftBmp = BitmapFactory.decodeFile(leftPath, opts);
-                                if (leftBmp == null) throw new Exception("Failed to decode left image");
+                                // 1. Decode ONLY the Left Half 
+                                android.graphics.BitmapRegionDecoder leftDecoder = android.graphics.BitmapRegionDecoder.newInstance(leftPath, false);
+                                int fullW = leftDecoder.getWidth();
+                                int fullH = leftDecoder.getHeight();
+                                
+                                android.graphics.Rect rectLeft = new android.graphics.Rect(0, 0, fullW / 2, fullH);
+                                Bitmap leftBmp = leftDecoder.decodeRegion(rectLeft, opts);
+                                leftDecoder.recycle();
+                                
+                                if (leftBmp == null) throw new Exception("Failed to decode left region");
 
-                                int w = leftBmp.getWidth();
-                                int h = leftBmp.getHeight();
-                                int midW = w / 2;
+                                // Create composite canvas based on the exact downscaled dimensions
+                                int compW = fullW / sampleSize;
+                                int compH = fullH / sampleSize;
+                                int compMid = compW / 2;
 
-                                composite = Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565);
+                                composite = Bitmap.createBitmap(compW, compH, Bitmap.Config.RGB_565);
                                 android.graphics.Canvas canvas = new android.graphics.Canvas(composite);
 
-                                android.graphics.Rect srcLeft = new android.graphics.Rect(0, 0, midW, h);
-                                canvas.drawBitmap(leftBmp, srcLeft, srcLeft, null);
+                                // Paste Left Half
+                                canvas.drawBitmap(leftBmp, 0, 0, null);
                                 
-                                // Free Left RAM immediately to keep memory usage low
                                 leftBmp.recycle();
                                 leftBmp = null;
 
-                                Bitmap rightBmp = BitmapFactory.decodeFile(rightPath, opts);
-                                if (rightBmp == null) throw new Exception("Failed to decode right image");
-
-                                // Failsafe bounds check in case the sensor shifted resolutions between shots
-                                int rightW = rightBmp.getWidth();
-                                int rightH = rightBmp.getHeight();
-                                int safeW = Math.min(w, rightW);
-                                int safeH = Math.min(h, rightH);
-                                int safeMid = safeW / 2;
-
-                                android.graphics.Rect srcRight = new android.graphics.Rect(safeMid, 0, safeW, safeH);
-                                android.graphics.Rect dstRight = new android.graphics.Rect(midW, 0, midW + (safeW - safeMid), safeH);
-                                canvas.drawBitmap(rightBmp, srcRight, dstRight, null);
+                                // 2. Decode ONLY the Right Half
+                                android.graphics.BitmapRegionDecoder rightDecoder = android.graphics.BitmapRegionDecoder.newInstance(rightPath, false);
+                                int rightFullW = rightDecoder.getWidth();
+                                int rightFullH = rightDecoder.getHeight();
                                 
+                                android.graphics.Rect rectRight = new android.graphics.Rect(rightFullW / 2, 0, rightFullW, rightFullH);
+                                Bitmap rightBmp = rightDecoder.decodeRegion(rectRight, opts);
+                                rightDecoder.recycle();
+                                
+                                if (rightBmp == null) throw new Exception("Failed to decode right region");
+
+                                // Paste Right Half
+                                canvas.drawBitmap(rightBmp, compMid, 0, null);
                                 rightBmp.recycle();
                                 rightBmp = null;
 
                                 // Add a clean black divider down the middle for a true analog film strip look
                                 android.graphics.Paint dividerPaint = new android.graphics.Paint();
                                 dividerPaint.setColor(android.graphics.Color.BLACK);
-                                dividerPaint.setStrokeWidth(Math.max(4, w / 400));
-                                canvas.drawLine(midW, 0, midW, h, dividerPaint);
+                                dividerPaint.setStrokeWidth(Math.max(4, compW / 400));
+                                canvas.drawLine(compMid, 0, compMid, compH, dividerPaint);
 
                                 java.io.FileOutputStream out = new java.io.FileOutputStream(rightPath);
                                 composite.compress(Bitmap.CompressFormat.JPEG, 95, out);
