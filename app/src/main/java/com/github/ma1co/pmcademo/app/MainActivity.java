@@ -432,66 +432,69 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
                 @Override
                 public void run() {
                     try {
-                        // 1. THE EXIF HACK: Bypass the 24MP decoder bug completely.
-                        // Rip the embedded 1616x1080 proxy directly from the EXIF header.
-                        android.media.ExifInterface leftExif = new android.media.ExifInterface(leftPath);
-                        byte[] leftThumb = leftExif.getThumbnail();
-                        if (leftThumb == null) throw new Exception("No EXIF thumbnail found in Left image.");
+                        // 1. THE C++ WORKAROUND:
+                        // Create a hidden workspace directory for our temporary proxies
+                        File tempDir = new File(Environment.getExternalStorageDirectory(), "DCIM/DIPTYCH_WORKSPACE");
+                        if (!tempDir.exists()) tempDir.mkdirs();
+                        
+                        // 2. Create an empty recipe profile (all 0's) so the C++ engine just shrinks the image without applying LUTs yet
+                        RTLProfile blankProfile = new RTLProfile();
+                        
+                        // 3. Command C++ to safely downscale the massive Left image into the workspace
+                        mProcessor.processJpeg(leftPath, tempDir.getAbsolutePath(), 0, 100, blankProfile, false);
+                        File leftProxy = new File(tempDir, new File(leftPath).getName());
+                        if (!leftProxy.exists()) throw new Exception("Left proxy failed to generate");
+                        
+                        // 4. Command C++ to safely downscale the massive Right image
+                        mProcessor.processJpeg(rightPath, tempDir.getAbsolutePath(), 0, 100, blankProfile, false);
+                        File rightProxy = new File(tempDir, new File(rightPath).getName());
+                        if (!rightProxy.exists()) throw new Exception("Right proxy failed to generate");
 
-                        // 2. Decode the tiny byte array (Extremely memory safe)
+                        // 5. Now it's 100% safe to load them into Java RAM! (They are tiny ~1MB files now)
                         BitmapFactory.Options opts = new BitmapFactory.Options();
                         opts.inPreferredConfig = Bitmap.Config.RGB_565;
-                        Bitmap leftBmp = BitmapFactory.decodeByteArray(leftThumb, 0, leftThumb.length, opts);
-
+                        
+                        Bitmap leftBmp = BitmapFactory.decodeFile(leftProxy.getAbsolutePath(), opts);
                         int w = leftBmp.getWidth();
                         int h = leftBmp.getHeight();
                         int midW = w / 2;
-
-                        // 3. Create the proxy workspace
+                        
                         Bitmap composite = Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565);
                         android.graphics.Canvas canvas = new android.graphics.Canvas(composite);
-
-                        // 4. Paint Left Half and Destroy
+                        
+                        // Paint Left
                         android.graphics.Rect srcLeft = new android.graphics.Rect(0, 0, midW, h);
                         android.graphics.Rect dstLeft = new android.graphics.Rect(0, 0, midW, h);
                         canvas.drawBitmap(leftBmp, srcLeft, dstLeft, null);
-                        
                         leftBmp.recycle(); 
-                        leftBmp = null;
-                        System.gc(); // Clean the tiny footprint
-
-                        // 5. Rip the Right proxy from EXIF
-                        android.media.ExifInterface rightExif = new android.media.ExifInterface(rightPath);
-                        byte[] rightThumb = rightExif.getThumbnail();
-                        if (rightThumb == null) throw new Exception("No EXIF thumbnail found in Right image.");
-
-                        Bitmap rightBmp = BitmapFactory.decodeByteArray(rightThumb, 0, rightThumb.length, opts);
-
-                        // 6. Paint Right Half and Destroy
+                        
+                        // Paint Right
+                        Bitmap rightBmp = BitmapFactory.decodeFile(rightProxy.getAbsolutePath(), opts);
                         android.graphics.Rect srcRight = new android.graphics.Rect(midW, 0, w, h);
                         android.graphics.Rect dstRight = new android.graphics.Rect(midW, 0, w, h);
                         canvas.drawBitmap(rightBmp, srcRight, dstRight, null);
-                        
                         rightBmp.recycle(); 
-                        rightBmp = null;
-                        System.gc();
-
-                        // 7. Save the EXIF-stitched composite to the SD card
-                        File tempFile = new File(Environment.getExternalStorageDirectory(), "DCIM/DIPTYCH_TEMP.JPG");
-                        java.io.FileOutputStream out = new java.io.FileOutputStream(tempFile);
-                        composite.compress(Bitmap.CompressFormat.JPEG, 95, out);
-                        out.close();
                         
-                        composite.recycle(); 
-                        composite = null;
-                        System.gc();
-
-                        // 8. Hand the safe, stitched file to your C++ Recipe Engine!
+                        // 6. Save the final stitch OVERWRITING the right proxy.
+                        // This forces the stitch to inherit the native DSC00XX filename for the gallery!
+                        java.io.FileOutputStream out = new java.io.FileOutputStream(rightProxy);
+                        composite.compress(Bitmap.CompressFormat.JPEG, 100, out);
+                        out.close();
+                        composite.recycle();
+                        
+                        // Clean up the left proxy immediately
+                        leftProxy.delete();
+                        
+                        // 7. Send the stitched master through your standard Recipe pipeline!
                         File outDir = Filepaths.getGradedDir();
-                        mProcessor.processJpeg(tempFile.getAbsolutePath(), outDir.getAbsolutePath(), 
-                                               0, prefJpegQuality,   // Force QualityIndex 0 (Proxy)
+                        mProcessor.processJpeg(rightProxy.getAbsolutePath(), outDir.getAbsolutePath(), 
+                                               0, prefJpegQuality,   
                                                recipeManager.getCurrentProfile(), prefShowCinemaMattes);
-
+                                               
+                        // Clean up the workspace
+                        rightProxy.delete();
+                        tempDir.delete();
+                                               
                     } catch (Exception e) {
                         e.printStackTrace();
                         isProcessing = false;
