@@ -512,11 +512,6 @@ inline void process_row_yuv(
     const uint8_t* externalGrainTexture = NULL,
     bool is_1024_grain = false, int t_off_x = 0, int t_off_y = 0)
 {
-    int s_chrome = colorChrome * 40;int grain, int grainSize, int scaleDenom,
-    const uint8_t* rolloff_lut,
-    const uint8_t* externalGrainTexture = NULL,
-    bool is_1024_grain = false)
-{
     int s_chrome = colorChrome * 40;
     int s_blue   = chromeBlue * 40;
     int s_sat    = subtractiveSat * 40;
