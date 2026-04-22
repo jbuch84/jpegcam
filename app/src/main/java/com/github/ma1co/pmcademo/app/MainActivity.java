@@ -481,23 +481,25 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
     private void performDiptychStitch(String leftPath, String rightPath, boolean firstShotLeft) {
         try {
+            System.gc(); // Force memory cleanup after heavy C++ pass
             String pathL = firstShotLeft ? leftPath : rightPath;
             String pathR = firstShotLeft ? rightPath : leftPath;
             
             BitmapFactory.Options opts = new BitmapFactory.Options();
             opts.inPreferredConfig = Bitmap.Config.RGB_565;
-            // Decode the already downscaled and graded images
-            Bitmap bmpL = BitmapFactory.decodeFile(pathL, opts);
-            Bitmap bmpR = BitmapFactory.decodeFile(pathR, opts);
+            opts.inPurgeable = true;
+            opts.inInputShareable = true;
             
-            if (bmpL == null || bmpR == null) throw new Exception("Failed to decode graded images.");
+            android.graphics.BitmapRegionDecoder decoderL = android.graphics.BitmapRegionDecoder.newInstance(pathL, false);
+            android.graphics.BitmapRegionDecoder decoderR = android.graphics.BitmapRegionDecoder.newInstance(pathR, false);
+            if (decoderL == null || decoderR == null) throw new Exception("Failed to initialize Region Decoders.");
             
-            int lW = bmpL.getWidth();
-            int lH = bmpL.getHeight();
+            int lW = decoderL.getWidth();
+            int lH = decoderL.getHeight();
             int lMid = lW / 2;
             
-            int rW = bmpR.getWidth();
-            int rH = bmpR.getHeight();
+            int rW = decoderR.getWidth();
+            int rH = decoderR.getHeight();
             int rMid = rW / 2;
             
             int finalW = lMid + (rW - rMid);
@@ -507,14 +509,20 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             android.graphics.Canvas canvas = new android.graphics.Canvas(composite);
             
             android.graphics.Rect srcL = new android.graphics.Rect(0, 0, lMid, lH);
-            android.graphics.Rect dstL = new android.graphics.Rect(0, 0, lMid, finalH);
-            canvas.drawBitmap(bmpL, srcL, dstL, null);
-            bmpL.recycle(); bmpL = null;
+            Bitmap bmpL = decoderL.decodeRegion(srcL, opts);
+            decoderL.recycle();
+            if (bmpL != null) {
+                canvas.drawBitmap(bmpL, 0, 0, null);
+                bmpL.recycle(); bmpL = null;
+            }
             
             android.graphics.Rect srcR = new android.graphics.Rect(rMid, 0, rW, rH);
-            android.graphics.Rect dstR = new android.graphics.Rect(lMid, 0, finalW, finalH);
-            canvas.drawBitmap(bmpR, srcR, dstR, null);
-            bmpR.recycle(); bmpR = null;
+            Bitmap bmpR = decoderR.decodeRegion(srcR, opts);
+            decoderR.recycle();
+            if (bmpR != null) {
+                canvas.drawBitmap(bmpR, lMid, 0, null);
+                bmpR.recycle(); bmpR = null;
+            }
             
             // Draw analog center divider
             android.graphics.Paint dividerPaint = new android.graphics.Paint();
