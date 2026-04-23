@@ -1482,7 +1482,7 @@ public void onEnterPressed() {
         }
     }
 
-    private void updateMainHUD() {
+    public void updateMainHUD() {
         // <--- MOVED TO TOP: Declare this before any UI elements try to use it!
         int selectedColor = isDialLocked ? Color.WHITE : Color.YELLOW;
 
