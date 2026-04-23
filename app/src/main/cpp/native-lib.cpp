@@ -50,6 +50,57 @@ struct WorkerData {
     ThreadWorkspace ws;
 };
 
+static void free_workspace(ThreadWorkspace* ws) {
+    if (!ws) return;
+    free(ws->work_0); ws->work_0 = NULL;
+    free(ws->work_1); ws->work_1 = NULL;
+    free(ws->work_2); ws->work_2 = NULL;
+    free(ws->work_h); ws->work_h = NULL;
+    free(ws->h_line); ws->h_line = NULL;
+}
+
+static bool alloc_workspace(ThreadWorkspace* ws, int ws_s) {
+    if (!ws) return false;
+    ws->work_0 = (int*)malloc(ws_s);
+    ws->work_1 = (int*)malloc(ws_s);
+    ws->work_2 = (int*)malloc(ws_s);
+    ws->work_h = (int*)malloc(ws_s);
+    ws->h_line = (int*)malloc(ws_s);
+    if (!ws->work_0 || !ws->work_1 || !ws->work_2 || !ws->work_h || !ws->h_line) {
+        free_workspace(ws);
+        return false;
+    }
+    return true;
+}
+
+static void process_row_span(WorkerData* d) {
+    for (int i = d->start_i; i < d->end_i; i++) {
+        int ay = d->proc_rows_base + i;
+        if (!d->applyCrop || (ay >= d->skip_top && ay < d->skip_top + d->final_h)) {
+            unsigned char* win[21];
+            for (int w = 0; w < 21; w++) win[w] = d->rows[i + w];
+            memcpy(d->out_rows[i], win[10], d->width * 3);
+            if (d->bloom > 0 || d->halation > 0) {
+                apply_bloom_halation(win, d->out_rows[i], d->width, ay, !d->use_rgb, d->bloom, d->halation,
+                    d->ws.work_0, d->ws.work_1, d->ws.work_2, d->ws.work_h, d->ws.h_line, d->scaleDenom);
+            }
+            int tx = d->start_time % 1021;
+            int ty = (d->start_time / 13) % 1021;
+            if (d->use_rgb) {
+                process_row_rgb(d->out_rows[i], d->width, ay, d->cx, d->cy_center, d->vig_coef,
+                    d->shadowToe, d->rollOff, d->colorChrome, d->chromeBlue, d->subSat, 0, 0,
+                    d->grain, d->grainSize, d->scaleDenom, d->opac_m, d->map, nativeLut.data(),
+                    nativeLutSize, nativeLutSize - 1, nativeLutSize * nativeLutSize,
+                    d->extTex, d->is_1024, tx, ty);
+            } else {
+                process_row_yuv(d->out_rows[i], d->width, ay, d->cx, d->cy_center, d->vig_coef,
+                    d->shadowToe, d->rollOff, d->colorChrome, d->chromeBlue, d->subSat, 0, 0,
+                    d->grain, d->grainSize, d->scaleDenom, d->roll_lut, d->extTex, d->is_1024, tx, ty);
+            }
+        }
+    }
+}
+
 void* persistent_worker_func(void* arg) {
     WorkerData* d = (WorkerData*)arg;
     while (true) {
@@ -59,20 +110,7 @@ void* persistent_worker_func(void* arg) {
         d->start = false;
         pthread_mutex_unlock(&d->mutex);
 
-        for (int i = d->start_i; i < d->end_i; i++) {
-            int ay = d->proc_rows_base + i;
-            if (!d->applyCrop || (ay >= d->skip_top && ay < d->skip_top + d->final_h)) {
-                unsigned char* win[21]; for (int w=0; w<21; w++) win[w] = d->rows[i+w];
-                memcpy(d->out_rows[i], win[10], d->width * 3);
-                if (d->bloom > 0 || d->halation > 0) apply_bloom_halation(win, d->out_rows[i], d->width, ay, !d->use_rgb, d->bloom, d->halation, d->ws.work_0, d->ws.work_1, d->ws.work_2, d->ws.work_h, d->ws.h_line, d->scaleDenom);
-                int tx = d->start_time % 1021; int ty = (d->start_time/13) % 1021;
-                if (d->use_rgb) process_row_rgb(d->out_rows[i], d->width, ay, d->cx, d->cy_center, d->vig_coef,
-                        d->shadowToe, d->rollOff, d->colorChrome, d->chromeBlue, d->subSat, 0, 0, d->grain, d->grainSize, d->scaleDenom, d->opac_m, d->map, nativeLut.data(), nativeLutSize, 
-                        nativeLutSize-1, nativeLutSize*nativeLutSize, d->extTex, d->is_1024, tx, ty);
-                else process_row_yuv(d->out_rows[i], d->width, ay, d->cx, d->cy_center, d->vig_coef,
-                        d->shadowToe, d->rollOff, d->colorChrome, d->chromeBlue, d->subSat, 0, 0, d->grain, d->grainSize, d->scaleDenom, d->roll_lut, d->extTex, d->is_1024, tx, ty);
-            }
-        }
+        process_row_span(d);
 
         pthread_mutex_lock(&d->mutex);
         d->done = true;
@@ -120,7 +158,7 @@ extern "C" JNIEXPORT jboolean JNICALL Java_com_github_ma1co_pmcademo_app_LutEngi
     if(!inf||!ouf){ if(inf)fclose(inf); if(ouf)fclose(ouf); env->ReleaseStringUTFChars(inPath,ifn); env->ReleaseStringUTFChars(outPath,ofn); return JNI_FALSE; }
 
     struct jpeg_decompress_struct cd; struct my_error_mgr jd; cd.err = jpeg_std_error(&jd.pub); jd.pub.error_exit = my_error_exit;
-    if(setjmp(jd.setjmp_buffer)){ jpeg_destroy_decompress(&cd); fclose(inf); fclose(ouf); return JNI_FALSE; }
+    if(setjmp(jd.setjmp_buffer)){ jpeg_destroy_decompress(&cd); fclose(inf); fclose(ouf); env->ReleaseStringUTFChars(inPath,ifn); env->ReleaseStringUTFChars(outPath,ofn); return JNI_FALSE; }
     jpeg_create_decompress(&cd); jpeg_stdio_src(&cd, inf); 
     
     // --- PRESERVE ALL SONY MARKERS ---
@@ -131,7 +169,7 @@ extern "C" JNIEXPORT jboolean JNICALL Java_com_github_ma1co_pmcademo_app_LutEngi
     cd.scale_denom = scaleDenom; cd.out_color_space = JCS_RGB; jpeg_start_decompress(&cd);
 
     struct jpeg_compress_struct cc; struct my_error_mgr jc; cc.err = jpeg_std_error(&jc.pub); jc.pub.error_exit = my_error_exit;
-    if(setjmp(jc.setjmp_buffer)){ jpeg_destroy_compress(&cc); jpeg_destroy_decompress(&cd); fclose(inf); fclose(ouf); return JNI_FALSE; }
+    if(setjmp(jc.setjmp_buffer)){ jpeg_destroy_compress(&cc); jpeg_destroy_decompress(&cd); fclose(inf); fclose(ouf); env->ReleaseStringUTFChars(inPath,ifn); env->ReleaseStringUTFChars(outPath,ofn); return JNI_FALSE; }
     jpeg_create_compress(&cc); jpeg_stdio_dest(&cc, ouf);
     
     int fh = cd.output_height, sk = 0; if(applyCrop){ fh=(int)(cd.output_width/2.71f); sk=(cd.output_height-fh)/2; }
@@ -155,39 +193,129 @@ extern "C" JNIEXPORT jboolean JNICALL Java_com_github_ma1co_pmcademo_app_LutEngi
     // numCores comes from Java's Runtime.availableProcessors() — correct per camera.
     int CHK = (scaleDenom >= 2) ? 200 : 120;
     int BUF = CHK + 20; // r[256] and orw[256] safe: BUF max=220, CHK max=200 < 256
-    int maxTs = (scaleDenom >= 4) ? numCores :
-                (scaleDenom >= 2) ? std::min(numCores, 3) :
-                                    std::min(numCores, 2);
-    int ts = std::min(maxTs, 4); // Hard cap of 4
+    int safeCores = std::max((int)numCores, 1);
+    int maxTs = (scaleDenom >= 4) ? safeCores :
+                (scaleDenom >= 2) ? std::min(safeCores, 3) :
+                                    std::min(safeCores, 2);
+    int ts = std::max(1, std::min(maxTs, 4)); // Hard cap of 4
 
-    unsigned char* rb = (unsigned char*)malloc(BUF*rs); unsigned char* r[256]; for(int i=0; i<BUF; i++) r[i]=rb+(i*rs);
-    unsigned char* ob = (unsigned char*)malloc(CHK*rs); unsigned char* orw[256]; for(int i=0; i<CHK; i++) orw[i]=ob+(i*rs);
+    unsigned char* rb = (unsigned char*)malloc(BUF*rs);
+    unsigned char* ob = (unsigned char*)malloc(CHK*rs);
+    if (!rb || !ob) {
+        if (rb) free(rb);
+        if (ob) free(ob);
+        jpeg_finish_compress(&cc); jpeg_destroy_compress(&cc);
+        jpeg_finish_decompress(&cd); jpeg_destroy_decompress(&cd);
+        fclose(inf); fclose(ouf);
+        env->ReleaseStringUTFChars(inPath,ifn); env->ReleaseStringUTFChars(outPath,ofn);
+        return JNI_FALSE;
+    }
+    unsigned char* r[256];
+    unsigned char* orw[256];
+    for(int i=0; i<BUF; i++) r[i]=rb+(i*rs);
+    for(int i=0; i<CHK; i++) orw[i]=ob+(i*rs);
 
     int map[256]; for(int i=0; i<256; i++) map[i]=(i*(nativeLutSize-1)*128)/255;
     uint8_t roll[256]; generate_rolloff_lut(roll, rollOff);
 
-    int ws_s = cd.output_width*sizeof(int); std::vector<WorkerData> wks(ts);
-    for(int i=0; i<ts; i++){ 
-        WorkerData& w=wks[i]; pthread_mutex_init(&w.mutex,NULL); pthread_cond_init(&w.cond_start,NULL); pthread_cond_init(&w.cond_done,NULL); 
-        w.start=w.done=w.terminate=false; 
-        w.ws.work_0=(int*)malloc(ws_s); w.ws.work_1=(int*)malloc(ws_s); w.ws.work_2=(int*)malloc(ws_s); w.ws.work_h=(int*)malloc(ws_s); w.ws.h_line=(int*)malloc(ws_s); 
-        pthread_create(&w.thread,NULL,persistent_worker_func,&w); 
+    int ws_s = cd.output_width*sizeof(int);
+    ThreadWorkspace fallbackWs = {0};
+    if (!alloc_workspace(&fallbackWs, ws_s)) {
+        free(rb); free(ob);
+        jpeg_finish_compress(&cc); jpeg_destroy_compress(&cc);
+        jpeg_finish_decompress(&cd); jpeg_destroy_decompress(&cd);
+        fclose(inf); fclose(ouf);
+        env->ReleaseStringUTFChars(inPath,ifn); env->ReleaseStringUTFChars(outPath,ofn);
+        return JNI_FALSE;
+    }
+
+    std::vector<WorkerData> wks(ts);
+    bool workersReady = true;
+    int createdWorkers = 0;
+    for(int i=0; i<ts; i++){
+        WorkerData& w=wks[i];
+        memset(&w.ws, 0, sizeof(w.ws));
+        if (pthread_mutex_init(&w.mutex,NULL) != 0 ||
+            pthread_cond_init(&w.cond_start,NULL) != 0 ||
+            pthread_cond_init(&w.cond_done,NULL) != 0 ||
+            !alloc_workspace(&w.ws, ws_s) ||
+            pthread_create(&w.thread,NULL,persistent_worker_func,&w) != 0) {
+            workersReady = false;
+            free_workspace(&w.ws);
+            break;
+        }
+        w.start=w.done=w.terminate=false;
+        createdWorkers++;
+    }
+    if (!workersReady) {
+        for (int i = 0; i < createdWorkers; i++) {
+            WorkerData& w = wks[i];
+            pthread_mutex_lock(&w.mutex);
+            w.terminate = true;
+            pthread_cond_signal(&w.cond_start);
+            pthread_mutex_unlock(&w.mutex);
+            pthread_join(w.thread, NULL);
+            free_workspace(&w.ws);
+            pthread_cond_destroy(&w.cond_start);
+            pthread_cond_destroy(&w.cond_done);
+            pthread_mutex_destroy(&w.mutex);
+        }
     }
 
     const uint8_t* tex = nativeGrainTexture.empty() ? NULL : nativeGrainTexture.data(); bool is1k = nativeGrainTexture.size()>1000000; JSAMPROW rpx[1];
     if(cd.output_height>0){ rpx[0]=r[10]; jpeg_read_scanlines(&cd,rpx,1); for(int i=0; i<10; i++) memcpy(r[i],r[10],rs); }
     for(int i=11; i<BUF; i++){ if(cd.output_scanline < cd.output_height){ rpx[0]=r[i]; jpeg_read_scanlines(&cd,rpx,1); } else memcpy(r[i],r[i-1],rs); }
 
+    WorkerData fallbackWorker;
+    memset(&fallbackWorker, 0, sizeof(fallbackWorker));
+    fallbackWorker.scaleDenom = scaleDenom;
+    fallbackWorker.width = cd.output_width;
+    fallbackWorker.use_rgb = (nativeLutSize>0&&opacity>0);
+    fallbackWorker.bloom = bloom;
+    fallbackWorker.halation = halation;
+    fallbackWorker.start_time = st;
+    fallbackWorker.cx = cd.output_width/2;
+    fallbackWorker.cy_center = cd.output_height/2;
+    fallbackWorker.vig_coef = get_vig_coef(vignette, fallbackWorker.cx*fallbackWorker.cx+fallbackWorker.cy_center*fallbackWorker.cy_center);
+    fallbackWorker.shadowToe = shadowToe;
+    fallbackWorker.rollOff = rollOff;
+    fallbackWorker.colorChrome = colorChrome;
+    fallbackWorker.chromeBlue = chromeBlue;
+    fallbackWorker.subSat = subtractiveSat;
+    fallbackWorker.grain = grain;
+    fallbackWorker.grainSize = grainSize;
+    fallbackWorker.opac_m = (opacity*256)/100;
+    fallbackWorker.map = map;
+    fallbackWorker.roll_lut = roll;
+    fallbackWorker.extTex = tex;
+    fallbackWorker.is_1024 = is1k;
+    fallbackWorker.applyCrop = applyCrop;
+    fallbackWorker.skip_top = sk;
+    fallbackWorker.final_h = fh;
+    fallbackWorker.ws = fallbackWs;
+
     int pr = 0; while(pr < (int)cd.output_height){
         int rtp = std::min(CHK, (int)cd.output_height-pr);
-        for(int i=0; i<ts; i++){ WorkerData& w=wks[i]; pthread_mutex_lock(&w.mutex); w.start_i=i*rtp/ts; w.end_i=(i+1)*rtp/ts; w.proc_rows_base=pr; w.rows=r; w.out_rows=orw; w.width=cd.output_width; w.scaleDenom=scaleDenom; w.use_rgb=(nativeLutSize>0&&opacity>0); w.bloom=bloom; w.halation=halation; w.start_time=st; w.cx=cd.output_width/2; w.cy_center=cd.output_height/2; w.vig_coef=get_vig_coef(vignette, w.cx*w.cx+w.cy_center*w.cy_center); w.shadowToe=shadowToe; w.rollOff=rollOff; w.colorChrome=colorChrome; w.chromeBlue=chromeBlue; w.subSat=subtractiveSat; w.grain=grain; w.grainSize=grainSize; w.opac_m=(opacity*256)/100; w.map=map; w.roll_lut=roll; w.extTex=tex; w.is_1024=is1k; w.applyCrop=applyCrop; w.skip_top=sk; w.final_h=fh; w.start=true; w.done=false; pthread_cond_signal(&w.cond_start); pthread_mutex_unlock(&w.mutex); }
-        for(int i=0; i<ts; i++){ WorkerData& w=wks[i]; pthread_mutex_lock(&w.mutex); while(!w.done) pthread_cond_wait(&w.cond_done,&w.mutex); pthread_mutex_unlock(&w.mutex); }
+        if (workersReady) {
+            for(int i=0; i<ts; i++){ WorkerData& w=wks[i]; pthread_mutex_lock(&w.mutex); w.start_i=i*rtp/ts; w.end_i=(i+1)*rtp/ts; w.proc_rows_base=pr; w.rows=r; w.out_rows=orw; w.width=cd.output_width; w.scaleDenom=scaleDenom; w.use_rgb=(nativeLutSize>0&&opacity>0); w.bloom=bloom; w.halation=halation; w.start_time=st; w.cx=cd.output_width/2; w.cy_center=cd.output_height/2; w.vig_coef=get_vig_coef(vignette, w.cx*w.cx+w.cy_center*w.cy_center); w.shadowToe=shadowToe; w.rollOff=rollOff; w.colorChrome=colorChrome; w.chromeBlue=chromeBlue; w.subSat=subtractiveSat; w.grain=grain; w.grainSize=grainSize; w.opac_m=(opacity*256)/100; w.map=map; w.roll_lut=roll; w.extTex=tex; w.is_1024=is1k; w.applyCrop=applyCrop; w.skip_top=sk; w.final_h=fh; w.start=true; w.done=false; pthread_cond_signal(&w.cond_start); pthread_mutex_unlock(&w.mutex); }
+            for(int i=0; i<ts; i++){ WorkerData& w=wks[i]; pthread_mutex_lock(&w.mutex); while(!w.done) pthread_cond_wait(&w.cond_done,&w.mutex); pthread_mutex_unlock(&w.mutex); }
+        } else {
+            fallbackWorker.start_i = 0;
+            fallbackWorker.end_i = rtp;
+            fallbackWorker.proc_rows_base = pr;
+            fallbackWorker.rows = r;
+            fallbackWorker.out_rows = orw;
+            process_row_span(&fallbackWorker);
+        }
         for(int i=0; i<rtp; i++){ int ay=pr+i; if(!applyCrop||(ay>=sk && ay<sk+fh)){ rpx[0]=orw[i]; jpeg_write_scanlines(&cc,rpx,1); } }
         unsigned char* tmpx[256]; for(int i=0; i<rtp; i++) tmpx[i]=r[i]; for(int i=0; i<BUF-rtp; i++) r[i]=r[i+rtp];
         for(int i=0; i<rtp; i++){ int di=BUF-rtp+i; r[di]=tmpx[i]; if(cd.output_scanline<cd.output_height){ rpx[0]=r[di]; jpeg_read_scanlines(&cd,rpx,1); } else memcpy(r[di],r[di-1],rs); }
         pr += rtp;
     }
-    for(int i=0; i<ts; i++){ WorkerData& w=wks[i]; pthread_mutex_lock(&w.mutex); w.terminate=true; pthread_cond_signal(&w.cond_start); pthread_mutex_unlock(&w.mutex); pthread_join(w.thread,NULL); free(w.ws.work_0); free(w.ws.work_1); free(w.ws.work_2); free(w.ws.work_h); free(w.ws.h_line); }
+    if (workersReady) {
+        for(int i=0; i<ts; i++){ WorkerData& w=wks[i]; pthread_mutex_lock(&w.mutex); w.terminate=true; pthread_cond_signal(&w.cond_start); pthread_mutex_unlock(&w.mutex); pthread_join(w.thread,NULL); free_workspace(&w.ws); pthread_cond_destroy(&w.cond_start); pthread_cond_destroy(&w.cond_done); pthread_mutex_destroy(&w.mutex); }
+    }
+    free_workspace(&fallbackWs);
     free(rb); free(ob); jpeg_finish_compress(&cc); jpeg_destroy_compress(&cc); jpeg_finish_decompress(&cd); jpeg_destroy_decompress(&cd); fclose(inf); fclose(ouf); env->ReleaseStringUTFChars(inPath,ifn); env->ReleaseStringUTFChars(outPath,ofn); return JNI_TRUE;
 }
 
@@ -240,11 +368,18 @@ extern "C" JNIEXPORT jboolean JNICALL Java_com_github_ma1co_pmcademo_app_Diptych
             memcpy(combined, row1, half1 * 3);
             memcpy(combined + half1 * 3, row2 + half2 * 3, half2 * 3);
         } else {
-            memcpy(combined, row2, half2 * 3);
-            memcpy(combined + half2 * 3, row1 + half1 * 3, half1 * 3);
+            memcpy(combined, row2 + half2 * 3, half2 * 3);
+            memcpy(combined + half2 * 3, row1, half1 * 3);
         }
         // Draw Divider
-        for(int d=-2; d<=2; d++) { int di = (half1 + d) * 3; combined[di]=combined[di+1]=combined[di+2]=0; }
+        int dividerX = firstShotLeft ? half1 : half2;
+        for(int d=-2; d<=2; d++) {
+            int dx = dividerX + d;
+            if (dx >= 0 && dx < finalW) {
+                int di = dx * 3;
+                combined[di]=combined[di+1]=combined[di+2]=0;
+            }
+        }
         jpeg_write_scanlines(&co, rpo, 1);
     }
     

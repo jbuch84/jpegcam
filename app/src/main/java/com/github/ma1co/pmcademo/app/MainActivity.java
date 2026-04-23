@@ -320,11 +320,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         @Override public void onProcessFinished(String res) { 
             if (diptychManager != null && diptychManager.isEnabled()) {
                 if (res != null && !res.toUpperCase().contains("ERROR")) {
-                    if (diptychManager.getState() == 1) {
+                    if (diptychManager.getState() == DiptychManager.STATE_NEED_SECOND) {
                         final String gradedLeft = new File(Filepaths.getGradedDir(), diptychManager.getLeftFilename()).getAbsolutePath();
                         diptychManager.processFirstShot(gradedLeft);
                         return;
-                    } else if (diptychManager.getState() == 2) {
+                    } else if (diptychManager.getState() == DiptychManager.STATE_STITCHING) {
                         final String gradedLeft = new File(Filepaths.getGradedDir(), diptychManager.getLeftFilename()).getAbsolutePath();
                         final String gradedRight = new File(Filepaths.getGradedDir(), diptychManager.getRightFilename()).getAbsolutePath();
                         diptychManager.processSecondShot(gradedLeft, gradedRight);
@@ -461,13 +461,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         // Diptych mode: shift AF bracket to the active (open) side before focusing
         if (afOverlay != null && diptychManager != null && diptychManager.isEnabled()) {
             int dipW = afOverlay.getWidth();
-            if (diptychManager.getState() == 1) {
+            if (diptychManager.getState() == DiptychManager.STATE_NEED_SECOND) {
                 // Shot 2: active side is opposite to the shot-1 thumbnail
                 boolean tLeft = diptychManager.isThumbOnLeft();
                 afOverlay.setDiptychCenterX(tLeft ? dipW * 3 / 4 : dipW / 4);
-            } else {
+            } else if (diptychManager.getState() == DiptychManager.STATE_NEED_FIRST) {
                 // Shot 1 (state 0): active half is the left
                 afOverlay.setDiptychCenterX(dipW / 4);
+            } else {
+                afOverlay.setDiptychCenterX(-1);
             }
         } else if (afOverlay != null) {
             afOverlay.setDiptychCenterX(-1);
@@ -482,7 +484,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         if (displayState == 0 && !menuController.isOpen() && !playbackController.isActive()) setHUDVisibility(View.VISIBLE);
         if (afOverlay != null && cameraManager != null && cameraManager.getCamera() != null) {
             afOverlay.stopFocus(cameraManager.getCamera());
+            afOverlay.setDiptychCenterX(-1);
         }
+        armFileScanner();
+    }
+
+    public void armFileScanner() {
         if (mScanner != null) {
             mScanner.start();
         }
@@ -714,7 +721,7 @@ public void onEnterPressed() {
             return true;
         }
         
-        if (diptychManager != null && diptychManager.isEnabled() && diptychManager.getState() == 1) {
+        if (diptychManager != null && diptychManager.isEnabled() && diptychManager.getState() == DiptychManager.STATE_NEED_SECOND) {
             diptychManager.setThumbOnLeft(true);
             return true;
         }
@@ -749,7 +756,7 @@ public void onEnterPressed() {
             return true;
         }
         
-        if (diptychManager != null && diptychManager.isEnabled() && diptychManager.getState() == 1) {
+        if (diptychManager != null && diptychManager.isEnabled() && diptychManager.getState() == DiptychManager.STATE_NEED_SECOND) {
             diptychManager.setThumbOnLeft(false);
             return true;
         }
@@ -1531,9 +1538,12 @@ public void onEnterPressed() {
         
         // --- 3. UPDATE TEXT FIELDS ---
         if (!isProcessing && tvTopStatus != null) {
-            if (diptychManager != null && diptychManager.isEnabled() && diptychManager.getState() == 1) {
+            if (diptychManager != null && diptychManager.isEnabled() && diptychManager.getState() == DiptychManager.STATE_NEED_SECOND) {
                 tvTopStatus.setText("SHOT 1 SAVED. [L/R] TO SWAP SIDE.");
                 tvTopStatus.setTextColor(Color.GREEN);
+            } else if (diptychManager != null && diptychManager.isEnabled() && diptychManager.getState() == DiptychManager.STATE_STITCHING) {
+                tvTopStatus.setText("STITCHING DIPTYCH...");
+                tvTopStatus.setTextColor(Color.YELLOW);
             } else {
                 int slotNum = recipeManager.getCurrentSlot() + 1;
                 tvTopStatus.setText("SLOT " + slotNum + ": " + customName + "\n" + (isReady ? "READY" : "LOADING.."));

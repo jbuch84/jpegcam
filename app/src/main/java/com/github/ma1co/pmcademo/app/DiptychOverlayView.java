@@ -15,7 +15,7 @@ public class DiptychOverlayView extends View {
     private Paint framePaint;
     private Bitmap thumbnail;
     private boolean thumbOnLeft = true;
-    private int state = 0; // 0: Need Shot 1, 1: Need Shot 2
+    private int state = DiptychManager.STATE_NEED_FIRST;
 
     public DiptychOverlayView(Context context) {
         super(context);
@@ -40,7 +40,7 @@ public class DiptychOverlayView extends View {
 
     public void setState(int state) {
         this.state = state;
-        if (state == 0) {
+        if (state == DiptychManager.STATE_NEED_FIRST) {
             if (thumbnail != null && !thumbnail.isRecycled()) {
                 thumbnail.recycle();
             }
@@ -71,7 +71,7 @@ public class DiptychOverlayView extends View {
         int h = getHeight();
         int mid = w / 2;
 
-        if (state == 0) {
+        if (state == DiptychManager.STATE_NEED_FIRST) {
             // HALF FRAME STYLE for shot 1:
             // Light mask on the inactive right half so the user focuses on the left.
             // Corner brackets on the active left half evoke a half-frame camera viewfinder.
@@ -103,7 +103,7 @@ public class DiptychOverlayView extends View {
             canvas.drawLine(cx0 - crossLen, cy0, cx0 + crossLen, cy0, framePaint);
             canvas.drawLine(cx0, cy0 - crossLen, cx0, cy0 + crossLen, framePaint);
 
-        } else if (state == 1) {
+        } else if (state == DiptychManager.STATE_NEED_SECOND || state == DiptychManager.STATE_STITCHING) {
             if (thumbOnLeft) {
                 canvas.drawRect(0, 0, mid, h, darkPaint);
             } else {
@@ -127,6 +127,12 @@ public class DiptychOverlayView extends View {
                 }
                 
                 canvas.drawBitmap(thumbnail, srcRect, dstRect, thumbPaint);
+            }
+
+            if (state == DiptychManager.STATE_STITCHING) {
+                darkPaint.setAlpha(120);
+                canvas.drawRect(0, 0, w, h, darkPaint);
+                darkPaint.setAlpha(180);
             }
         }
         
