@@ -87,7 +87,7 @@ public class DiptychOverlayView extends View {
                     srcRect = new Rect(0, 0, tMid, tH);
                     dstRect = new Rect(0, 0, mid, h);
                 } else {
-                    srcRect = new Rect(tMid, 0, tW, tH);
+                    srcRect = new Rect(0, 0, tMid, tH); // ALWAYS take the left crop of the first shot
                     dstRect = new Rect(mid, 0, w, h);
                 }
                 

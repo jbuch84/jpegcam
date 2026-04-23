@@ -170,7 +170,7 @@ public class DiptychManager {
             opts.inPurgeable = true;
             opts.inInputShareable = true;
             // PREVENT OOM on Sony Dalvik VM!
-            opts.inSampleSize = 2; // Decodes image to 1/2 width and 1/2 height
+            opts.inSampleSize = 4; // Decodes image to 1/4 width and 1/4 height
 
             BitmapRegionDecoder decoderL = BitmapRegionDecoder.newInstance(pathL, false);
             BitmapRegionDecoder decoderR = BitmapRegionDecoder.newInstance(pathR, false);
@@ -185,14 +185,14 @@ public class DiptychManager {
             int origRH = decoderR.getHeight();
             int origRMid = origRW / 2;
 
-            // Calculate scaled down dimensions (since inSampleSize = 2)
-            int scaledLW = origLW / 2;
-            int scaledLH = origLH / 2;
-            int scaledLMid = origLMid / 2;
+            // Calculate scaled down dimensions (since inSampleSize = 4)
+            int scaledLW = origLW / 4;
+            int scaledLH = origLH / 4;
+            int scaledLMid = origLMid / 4;
 
-            int scaledRW = origRW / 2;
-            int scaledRH = origRH / 2;
-            int scaledRMid = origRMid / 2;
+            int scaledRW = origRW / 4;
+            int scaledRH = origRH / 4;
+            int scaledRMid = origRMid / 4;
 
             int finalW = scaledLMid + (scaledRW - scaledRMid);
             int finalH = Math.min(scaledLH, scaledRH);
@@ -201,7 +201,16 @@ public class DiptychManager {
             Canvas canvas = new Canvas(composite);
 
             // Region is specified in ORIGINAL image coordinates
-            Rect srcL = new Rect(0, 0, origLMid, origLH);
+            Rect srcL;
+            Rect srcR;
+            if (firstShotLeft) {
+                srcL = new Rect(0, 0, origLMid, origLH); // LEFT half of 1st shot
+                srcR = new Rect(origRMid, 0, origRW, origRH); // RIGHT half of 2nd shot
+            } else {
+                srcR = new Rect(0, 0, origRMid, origRH); // LEFT half of 1st shot
+                srcL = new Rect(0, 0, origLMid, origLH); // LEFT half of 2nd shot
+            }
+
             Bitmap bmpL = decoderL.decodeRegion(srcL, opts);
             decoderL.recycle();
             if (bmpL != null) {
@@ -210,7 +219,6 @@ public class DiptychManager {
                 bmpL = null;
             }
 
-            Rect srcR = new Rect(origRMid, 0, origRW, origRH);
             Bitmap bmpR = decoderR.decodeRegion(srcR, opts);
             decoderR.recycle();
             if (bmpR != null) {
