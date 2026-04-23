@@ -195,12 +195,13 @@ public class SonyFileScanner {
                                     
                                     if (f.length() < 1024) continue; 
 
-                                    knownFiles.add(currentFilePath);
-                                    
-                                    // SUCCESS! Kill the loop immediately
-                                    isPolling = false; 
-                                    
-                                    if (triggerCallback && mCallback != null && mCallback.isReadyToProcess()) {
+                                    if (!triggerCallback) {
+                                        // Silent baseline scan: mark as known without firing callback
+                                        knownFiles.add(currentFilePath);
+                                    } else if (mCallback != null && mCallback.isReadyToProcess()) {
+                                        // Ready: record the file, stop polling, fire callback
+                                        knownFiles.add(currentFilePath);
+                                        isPolling = false;
                                         final String finalPathToProcess = currentFilePath; 
                                         mainHandler.post(new Runnable() {
                                             @Override public void run() { 
@@ -208,6 +209,9 @@ public class SonyFileScanner {
                                             }
                                         });
                                     }
+                                    // Not ready to process: leave out of knownFiles so the
+                                    // next poll (500ms later) retries. This handles diptych
+                                    // mode where shot-2 may arrive while shot-1 is still grading.
                                 }
                             }
                         }
