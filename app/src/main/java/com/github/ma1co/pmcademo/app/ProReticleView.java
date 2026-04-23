@@ -19,6 +19,8 @@ public class ProReticleView extends View {
     public static final int STATE_FAILED = 3;
     private int fallbackState = STATE_IDLE;
     private boolean isPolling = false;
+    /** -1 means use the normal horizontal center (getWidth()/2). */
+    private int diptychCenterX = -1;
 
     public ProReticleView(Context context) {
         super(context);
@@ -29,6 +31,15 @@ public class ProReticleView extends View {
     }
     
     public boolean isPolling() { return isPolling; }
+
+    /**
+     * Shift the AF bracket to a specific horizontal position.
+     * Call with -1 to restore the normal center (non-diptych mode).
+     */
+    public void setDiptychCenterX(int x) {
+        diptychCenterX = x;
+        invalidate();
+    }
 
     public void startFocus(Camera cam) {
         if (cam == null) return;
@@ -68,7 +79,9 @@ public class ProReticleView extends View {
             case STATE_FAILED:    paint.setColor(Color.RED); break;
         }
         
-        int cx = getWidth() / 2, cy = getHeight() / 2, size = 60, bracket = 15;
+        // Use diptych-shifted center when active, otherwise default to screen center
+        int cx = (diptychCenterX >= 0) ? diptychCenterX : getWidth() / 2;
+        int cy = getHeight() / 2, size = 60, bracket = 15;
         
         // Draw AF Corners
         canvas.drawLine(cx-size, cy-size, cx-size+bracket, cy-size, paint);
