@@ -95,6 +95,14 @@ public class DiptychOverlayView extends View {
             canvas.drawLine(mid - mg, h - mg,        mid - mg - bl, h - mg,        framePaint);
             canvas.drawLine(mid - mg, h - mg,        mid - mg,      h - mg - bl,   framePaint);
 
+            // Center reference crosshair — shows exact center of the active left half
+            // so the user knows where to place their subject for the half-frame shot.
+            int cx0 = mid / 2;
+            int cy0 = h / 2;
+            int crossLen = 14;
+            canvas.drawLine(cx0 - crossLen, cy0, cx0 + crossLen, cy0, framePaint);
+            canvas.drawLine(cx0, cy0 - crossLen, cx0, cy0 + crossLen, framePaint);
+
         } else if (state == 1) {
             if (thumbOnLeft) {
                 canvas.drawRect(0, 0, mid, h, darkPaint);
