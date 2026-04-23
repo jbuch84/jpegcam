@@ -316,15 +316,15 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
     int opac_mapped   = (opacity * 256) / 100;
 
     // --- MEMORY-SAFE THREADED BUFFER ---
-    int CHUNK_SIZE = 120;
-    int BUFFER_SIZE = CHUNK_SIZE + 20;
+    const int CHUNK_SIZE = 200; // Increased chunk size for better parallelism
+    const int BUFFER_SIZE = CHUNK_SIZE + 20;
 
     unsigned char* row_block = (unsigned char*)malloc(BUFFER_SIZE * row_stride);
-    unsigned char* rows[140]; // Since BUFFER_SIZE is 140
+    unsigned char* rows[220]; // Buffer for CHUNK_SIZE + 20 rows
     for (int i = 0; i < BUFFER_SIZE; i++) rows[i] = row_block + (i * row_stride);
 
     unsigned char* out_block = (unsigned char*)malloc(CHUNK_SIZE * row_stride);
-    unsigned char* out_rows[120];
+    unsigned char* out_rows[200]; 
     for (int i = 0; i < CHUNK_SIZE; i++) out_rows[i] = out_block + (i * row_stride);
 
     JSAMPROW row_pointer[1];
@@ -362,14 +362,15 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
 
     // --- MAIN PROCESSING LOOP ---
     int processed_rows = 0;
-    while (processed_rows < cinfo_d.output_height) {
+    while (processed_rows < (int)cinfo_d.output_height) {
         int rows_to_process = std::min(CHUNK_SIZE, (int)cinfo_d.output_height - processed_rows);
 
-        std::vector<pthread_t> threads(numCores);
-        std::vector<ThreadTask> tasks(numCores);
+        pthread_t threads[16]; // Max 16 cores supported
+        ThreadTask tasks[16];
         int active_threads = 0;
+        int threads_to_spawn = std::min(numCores, 16);
         
-        for (int core = 0; core < numCores; core++) {
+        for (int core = 0; core < threads_to_spawn; core++) {
             int start_i = core * rows_to_process / numCores;
             int end_i = (core + 1) * rows_to_process / numCores;
             if (start_i >= end_i) continue;

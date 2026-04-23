@@ -29,7 +29,8 @@ public class DiptychManager {
         this.tvTopStatus = tvTopStatus;
         this.overlayView = new DiptychOverlayView(activity);
         this.overlayView.setVisibility(View.GONE);
-        container.addView(this.overlayView, new FrameLayout.LayoutParams(-1, -1));
+        // ADD AT INDEX 0 to be behind HUD elements
+        container.addView(this.overlayView, 0, new FrameLayout.LayoutParams(-1, -1));
     }
 
     public void setEnabled(boolean enabled) {
@@ -170,7 +171,8 @@ public class DiptychManager {
             opts.inPurgeable = true;
             opts.inInputShareable = true;
             // PREVENT OOM on Sony Dalvik VM!
-            opts.inSampleSize = 4; // Decodes image to 1/4 width and 1/4 height
+            // Decode at 1/8th scale (approx 750px wide halves) for 1500px total width
+            opts.inSampleSize = 8; 
 
             BitmapRegionDecoder decoderL = BitmapRegionDecoder.newInstance(pathL, false);
             BitmapRegionDecoder decoderR = BitmapRegionDecoder.newInstance(pathR, false);
@@ -185,14 +187,14 @@ public class DiptychManager {
             int origRH = decoderR.getHeight();
             int origRMid = origRW / 2;
 
-            // Calculate scaled down dimensions (since inSampleSize = 4)
-            int scaledLW = origLW / 4;
-            int scaledLH = origLH / 4;
-            int scaledLMid = origLMid / 4;
+            // Calculate scaled down dimensions (since inSampleSize = 8)
+            int scaledLW = origLW / 8;
+            int scaledLH = origLH / 8;
+            int scaledLMid = origLMid / 8;
 
-            int scaledRW = origRW / 4;
-            int scaledRH = origRH / 4;
-            int scaledRMid = origRMid / 4;
+            int scaledRW = origRW / 8;
+            int scaledRH = origRH / 8;
+            int scaledRMid = origRMid / 8;
 
             int finalW = scaledLMid + (scaledRW - scaledRMid);
             int finalH = Math.min(scaledLH, scaledRH);
