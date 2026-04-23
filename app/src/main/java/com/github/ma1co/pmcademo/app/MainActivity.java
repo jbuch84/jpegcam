@@ -101,6 +101,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         this.isProcessing = v;
     }
 
+    /**
+     * Called by DiptychManager after shot-1 finishes grading.
+     * Opens a fresh scanner window so shot-2's file is detected
+     * even if the original shutter-half-release window has expired.
+     */
+    public void startScannerForShot2() {
+        if (mScanner != null) {
+            mScanner.start();
+        }
+    }
+
     private boolean isReady = false;
     private int displayState = 0; 
     
@@ -1785,7 +1796,6 @@ public void onEnterPressed() {
     // --- PlaybackController.HostCallback ---
     @Override public FrameLayout getMainUIContainer() { return mainUIContainer; }
     @Override public int getDisplayState()      { return displayState; }
-
     // --- LensCalibrationController.HostCallback ---
     @Override public LensProfileManager getLensManager()     { return lensManager; }
     @Override public boolean isNativeLensAttached()          { return isNativeLensAttached; }
