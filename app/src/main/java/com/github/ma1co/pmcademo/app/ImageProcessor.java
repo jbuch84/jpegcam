@@ -116,13 +116,16 @@ public class ImageProcessor {
                     finalBloom = bloomMap[Math.max(0, currentBloomIdx - 1)];
                 }
 
+                int numCores = Runtime.getRuntime().availableProcessors();
+                Log.d("JPEG.CAM", "Using " + numCores + " cores for processing.");
+
                 if (mEngine.applyLutToJpeg(
                     original.getAbsolutePath(), outFile.getAbsolutePath(),
                     scale, p.opacity, p.grain, finalGrainSize, p.vignette, p.rollOff,
                     p.colorChrome, p.chromeBlue, p.shadowToe, p.subtractiveSat,
                     p.halation, finalBloom, 
                     finalJpegQuality, 
-                    applyCrop)) {  // <--- ADDED HERE
+                    applyCrop, numCores)) {  // <--- ADDED numCores HERE
                 return "SAVED";
             }
             } catch (Exception e) { Log.e("COOKBOOK", "Java error: " + e.getMessage()); }

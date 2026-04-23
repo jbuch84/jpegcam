@@ -17,7 +17,7 @@ public class LutEngine {
         int grain, int grainSize, int vignette, int rollOff,
         int colorChrome, int chromeBlue, int shadowToe,
         int subtractiveSat, int halation, int bloom, int jpegQuality,
-        boolean applyCrop // <-- ADDED: Anamorphic Crop Flag
+        boolean applyCrop, int numCores
     );
 
     /**
@@ -37,11 +37,11 @@ public class LutEngine {
                                   int colorChrome, int chromeBlue, int shadowToe,
                                   int subtractiveSat, int halation, int bloom,
                                   int quality,
-                                  boolean applyCrop) { // <-- ADDED: XPAN Crop Flag
+                                  boolean applyCrop, int numCores) { 
         return processImageNative(in, out, scale, opacity, grain, grainSize, vignette,
                                  rollOff, colorChrome, chromeBlue, shadowToe,
                                  subtractiveSat, halation, bloom, quality,
-                                 applyCrop); // <-- ADDED: XPAN Crop Flag
+                                 applyCrop, numCores); 
     }
 
     // NEW: Public wrapper to load the grain texture safely

@@ -10,6 +10,7 @@
 #include "jpeglib.h"
 #include <android/log.h>
 #include "process_kernel.h"
+#include "thread_pool.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
@@ -182,8 +183,7 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
     jint scaleDenom, jint opacity, jint grain, jint grainSize,
     jint vignette, jint rollOff, jint colorChrome, jint chromeBlue,
     jint shadowToe, jint subtractiveSat, jint halation,
-    jint bloom, jint jpegQuality,
-    jboolean applyCrop) { // <-- ADDED XPAN CROP FLAG
+    jint bloom, jint jpegQuality, jboolean applyCrop, jint numCores) { // <-- ADDED XPAN CROP FLAG
 
     long long start_time = get_time_ms();
 
@@ -304,10 +304,18 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
     long long vig_coef    = get_vig_coef(vignette, max_dist_sq);
     int opac_mapped   = (opacity * 256) / 100;
 
-    // --- MEMORY-SAFE 21-ROW SYMMETRIC BUFFER (~400KB overhead) ---
-    unsigned char* row_block = (unsigned char*)malloc(22 * row_stride);
-    unsigned char* rows[22];
-    for (int i = 0; i < 22; i++) rows[i] = row_block + (i * row_stride);
+    // --- MEMORY-SAFE THREADED BUFFER ---
+    int CHUNK_SIZE = 120;
+    int BUFFER_SIZE = CHUNK_SIZE + 20;
+
+    unsigned char* row_block = (unsigned char*)malloc(BUFFER_SIZE * row_stride);
+    unsigned char* rows[140]; // Since BUFFER_SIZE is 140
+    for (int i = 0; i < BUFFER_SIZE; i++) rows[i] = row_block + (i * row_stride);
+
+    unsigned char* out_block = (unsigned char*)malloc(CHUNK_SIZE * row_stride);
+    unsigned char* out_rows[120];
+    for (int i = 0; i < CHUNK_SIZE; i++) out_rows[i] = out_block + (i * row_stride);
+
     JSAMPROW row_pointer[1];
 
     int map[256];
@@ -322,21 +330,9 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
         generate_rolloff_lut(rolloff_lut, rollOff);
     }
 
-    // --- PRE-ALLOCATE WORKSPACE FOR BLOOM & HALATION ---
-    int* work_0 = NULL; int* work_1 = NULL; int* work_2 = NULL; 
-    int* work_h = NULL; int* h_line = NULL;
-    if (bloom > 0 || halation > 0) {
-        int w_size = cinfo_d.output_width * sizeof(int);
-        work_0 = (int*)malloc(w_size);
-        work_1 = (int*)malloc(w_size);
-        work_2 = (int*)malloc(w_size);
-        work_h = (int*)malloc(w_size);
-        if (halation > 0) h_line = (int*)malloc(w_size);
-    }
+    ThreadPool pool(numCores);
 
-
-
-    // --- PRE-LOAD BUFFER (Initialize the 21-row window) ---
+    // --- PRE-LOAD BUFFER (Initialize the 140-row window) ---
     const uint8_t* externalTex = nativeGrainTexture.empty() ? NULL : nativeGrainTexture.data();
     bool is_1024_grain = nativeGrainTexture.size() > 1000000;
 
@@ -346,7 +342,7 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
         for (int i = 0; i < 10; i++) memcpy(rows[i], rows[10], row_stride);
     }
     
-    for (int i = 11; i <= 20; i++) {
+    for (int i = 11; i < BUFFER_SIZE; i++) {
         if (cinfo_d.output_scanline < cinfo_d.output_height) {
             row_pointer[0] = rows[i];
             jpeg_read_scanlines(&cinfo_d, row_pointer, 1);
@@ -358,70 +354,118 @@ Java_com_github_ma1co_pmcademo_app_LutEngine_processImageNative(
     // --- MAIN PROCESSING LOOP ---
     int processed_rows = 0;
     while (processed_rows < cinfo_d.output_height) {
-        int abs_y = processed_rows;
+        int rows_to_process = std::min(CHUNK_SIZE, (int)cinfo_d.output_height - processed_rows);
+
+        std::vector<std::future<void>> futures;
         
-        // --- NEW: SKIP PROCESSING INVISIBLE ROWS ---
-        // If we are applying the matte, only process and save the middle rows!
-        bool is_visible = !applyCrop || (abs_y >= skip_top && abs_y < skip_top + final_height);
+        for (int core = 0; core < numCores; core++) {
+            int start_i = core * rows_to_process / numCores;
+            int end_i = (core + 1) * rows_to_process / numCores;
+            if (start_i >= end_i) continue;
 
-        if (is_visible) {
-            // Copy original curr data into out buffer (rows[21]) to safely modify it
-            memcpy(rows[21], rows[10], row_stride);
+            futures.push_back(pool.enqueue([&, start_i, end_i]() {
+                int w_size = cinfo_d.output_width * sizeof(int);
+                int* work_0 = NULL; int* work_1 = NULL; int* work_2 = NULL; 
+                int* work_h = NULL; int* h_line = NULL;
+                if (bloom > 0 || halation > 0) {
+                    work_0 = (int*)malloc(w_size);
+                    work_1 = (int*)malloc(w_size);
+                    work_2 = (int*)malloc(w_size);
+                    work_h = (int*)malloc(w_size);
+                    if (halation > 0) h_line = (int*)malloc(w_size);
+                }
 
-            // Optical Bloom & Halation pre-pass
-            if (bloom > 0 || halation > 0) {
-                apply_bloom_halation(rows, rows[21], cinfo_d.output_width, abs_y, !use_rgb_path, bloom, halation, 
-                                     work_0, work_1, work_2, work_h, h_line, scaleDenom);
+                for (int i = start_i; i < end_i; i++) {
+                    int abs_y = processed_rows + i;
+                    
+                    // --- NEW: SKIP PROCESSING INVISIBLE ROWS ---
+                    // If we are applying the matte, only process and save the middle rows!
+                    bool is_visible = !applyCrop || (abs_y >= skip_top && abs_y < skip_top + final_height);
+                    
+                    if (is_visible) {
+                        unsigned char* window[21];
+                        for (int w = 0; w < 21; w++) {
+                            window[w] = rows[i + w];
+                        }
+                        
+                        // Copy original curr data into out buffer to safely modify it
+                        memcpy(out_rows[i], window[10], row_stride);
+
+                        // Optical Bloom & Halation pre-pass
+                        if (bloom > 0 || halation > 0) {
+                            apply_bloom_halation(window, out_rows[i], cinfo_d.output_width, abs_y, !use_rgb_path, bloom, halation, 
+                                                 work_0, work_1, work_2, work_h, h_line, scaleDenom);
+                        }
+
+                        // --- NEW: Generate a random seed based on the millisecond timestamp for temporal variation ---
+                        int t_off_x = start_time % 1021; 
+                        int t_off_y = (start_time / 13) % 1021;
+
+                        if (use_rgb_path) {
+                            process_row_rgb(
+                                out_rows[i], cinfo_d.output_width, abs_y, cx, cy_center, vig_coef,
+                                shadowToe, rollOff, colorChrome, chromeBlue, subtractiveSat, 0, vignette,
+                                grain, grainSize, scaleDenom,
+                                opac_mapped, map, nativeLut.data(), nativeLutSize, lutMax, lutSize2,
+                                externalTex, is_1024_grain, t_off_x, t_off_y
+                            );
+                        } else {
+                            process_row_yuv(
+                                out_rows[i], cinfo_d.output_width, abs_y, cx, cy_center, vig_coef,
+                                shadowToe, rollOff, colorChrome, chromeBlue, subtractiveSat, 0, vignette,
+                                grain, grainSize, scaleDenom,
+                                rolloff_lut,
+                                externalTex, is_1024_grain, t_off_x, t_off_y
+                            );
+                        }
+                    }
+                }
+
+                if (work_0) free(work_0);
+                if (work_1) free(work_1);
+                if (work_2) free(work_2);
+                if (work_h) free(work_h);
+                if (h_line) free(h_line);
+            }));
+        }
+
+        // Wait for all threads to finish their part of the chunk
+        for (auto& f : futures) {
+            f.wait();
+        }
+
+        // Write the processed chunk sequentially
+        for (int i = 0; i < rows_to_process; i++) {
+            int abs_y = processed_rows + i;
+            bool is_visible = !applyCrop || (abs_y >= skip_top && abs_y < skip_top + final_height);
+            if (is_visible) {
+                row_pointer[0] = out_rows[i];
+                jpeg_write_scanlines(&cinfo_c, row_pointer, 1);
             }
+        }
 
-            // --- NEW: Generate a random seed based on the millisecond timestamp for temporal variation ---
-            int t_off_x = start_time % 1021; 
-            int t_off_y = (start_time / 13) % 1021;
-
-            if (use_rgb_path) {
-                process_row_rgb(
-                    rows[21], cinfo_d.output_width, abs_y, cx, cy_center, vig_coef,
-                    shadowToe, rollOff, colorChrome, chromeBlue, subtractiveSat, 0, vignette,
-                    grain, grainSize, scaleDenom,
-                    opac_mapped, map, nativeLut.data(), nativeLutSize, lutMax, lutSize2,
-                    externalTex, is_1024_grain, t_off_x, t_off_y
-                );
+        // Slide the window: move pointers up
+        unsigned char* temp_ptrs[140];
+        for (int i = 0; i < rows_to_process; i++) temp_ptrs[i] = rows[i];
+        for (int i = 0; i < BUFFER_SIZE - rows_to_process; i++) rows[i] = rows[i + rows_to_process];
+        for (int i = 0; i < rows_to_process; i++) rows[BUFFER_SIZE - rows_to_process + i] = temp_ptrs[i];
+        
+        // Read the next scanlines into the bottom of the window
+        for (int i = 0; i < rows_to_process; i++) {
+            int dest_idx = BUFFER_SIZE - rows_to_process + i;
+            if (cinfo_d.output_scanline < cinfo_d.output_height) {
+                row_pointer[0] = rows[dest_idx];
+                jpeg_read_scanlines(&cinfo_d, row_pointer, 1);
             } else {
-                process_row_yuv(
-                    rows[21], cinfo_d.output_width, abs_y, cx, cy_center, vig_coef,
-                    shadowToe, rollOff, colorChrome, chromeBlue, subtractiveSat, 0, vignette,
-                    grain, grainSize, scaleDenom,
-                    rolloff_lut,
-                    externalTex, is_1024_grain, t_off_x, t_off_y
-                );
+                memcpy(rows[dest_idx], rows[dest_idx - 1], row_stride);
             }
-
-            row_pointer[0] = rows[21];
-            jpeg_write_scanlines(&cinfo_c, row_pointer, 1);
-        }
-
-        // Slide the window: move rows up (We MUST do this even for invisible rows!)
-        unsigned char* oldest = rows[0];
-        for (int i = 0; i < 20; i++) rows[i] = rows[i+1];
-        rows[20] = oldest; 
-
-        // Read the next scanline into the bottom of the window
-        if (cinfo_d.output_scanline < cinfo_d.output_height) {
-            row_pointer[0] = rows[20];
-            jpeg_read_scanlines(&cinfo_d, row_pointer, 1);
-        } else {
-            memcpy(rows[20], rows[19], row_stride);
         }
         
-        processed_rows++;
+        processed_rows += rows_to_process;
     }
 
     free(row_block);
-    if (work_0) free(work_0);
-    if (work_1) free(work_1);
-    if (work_2) free(work_2);
-    if (work_h) free(work_h);
-    if (h_line) free(h_line);
+    free(out_block);
 
     jpeg_finish_compress(&cinfo_c);  jpeg_destroy_compress(&cinfo_c);
     jpeg_finish_decompress(&cinfo_d); jpeg_destroy_decompress(&cinfo_d);
