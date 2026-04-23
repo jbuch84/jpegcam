@@ -99,10 +99,14 @@ public class DiptychManager {
     }
 
     public void processFirstShot(final String gradedPath) {
-        // Unlock shutter after grading is done
+        // Unlock shutter and open a fresh scanner window so shot-2 is reliably detected.
+        // Without the scanner restart, shot-2's file can arrive inside the 5-second window
+        // while isProcessing is still true — the scanner would then permanently blacklist
+        // the file and the user would have to take a third shot.
         activity.runOnUiThread(new Runnable() {
             public void run() {
                 activity.setProcessing(false);
+                activity.startScannerForShot2(); // Ensure shot-2 can be detected
                 if (tvTopStatus != null) {
                     tvTopStatus.setText("SHOT 1 SAVED. [L/R] TO SWAP SIDE.");
                     tvTopStatus.setTextColor(Color.GREEN);
