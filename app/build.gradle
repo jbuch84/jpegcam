@@ -11,12 +11,12 @@ android {
         targetSdkVersion 25
         
         // Bumped versioning for the JPEG.CAM era
-        versionCode 18
-        versionName "1.76"
+        versionCode 19
+        versionName "1.77"
         
         externalNativeBuild {
             cmake {
-                cppFlags ""
+                cppFlags "-std=c++11"
                 // THE SILVER BULLET: Forces CMake to build for max speed
                 arguments "-DCMAKE_BUILD_TYPE=Release"
             }
