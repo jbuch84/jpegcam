@@ -353,7 +353,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         @Override public void onProcessFinished(String res) { 
             if (diptychManager != null && diptychManager.isEnabled()) {
                 if (res != null && !res.toUpperCase().contains("ERROR")) {
-                    if (diptychManager.getState() == DiptychManager.STATE_NEED_SECOND) {
+                    if (diptychManager.getState() == DiptychManager.STATE_PROCESSING_FIRST) {
                         final String gradedLeft = new File(Filepaths.getGradedDir(), diptychManager.getLeftFilename()).getAbsolutePath();
                         diptychManager.processFirstShot(gradedLeft);
                         return;
@@ -493,7 +493,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         if (displayState == 0 && !menuController.isOpen()) setHUDVisibility(View.GONE);
         // Diptych mode: shift AF bracket to the active (open) side before focusing
         if (afOverlay != null && diptychManager != null && diptychManager.isEnabled()) {
-            afOverlay.setDiptychCenterX(-1);
+            if (diptychManager.getState() == DiptychManager.STATE_NEED_SECOND) {
+                int width = afOverlay.getWidth();
+                if (width <= 0) width = getPreviewWindowWidth();
+                int offset = diptychManager.isThumbOnLeft() ? width / 4 : -(width / 4);
+                afOverlay.setDiptychCenterX((width / 2) + offset);
+            } else {
+                afOverlay.setDiptychCenterX(-1);
+            }
         } else if (afOverlay != null) {
             afOverlay.setDiptychCenterX(-1);
         }

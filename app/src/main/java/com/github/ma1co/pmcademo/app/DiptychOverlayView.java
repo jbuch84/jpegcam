@@ -119,6 +119,8 @@ public class DiptychOverlayView extends View {
             }
         }
 
-        canvas.drawLine(mid, 0, mid, h, linePaint);
+        if (state != DiptychManager.STATE_NEED_FIRST) {
+            canvas.drawLine(mid, 0, mid, h, linePaint);
+        }
     }
 }

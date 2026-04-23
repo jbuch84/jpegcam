@@ -2,23 +2,19 @@ package com.github.ma1co.pmcademo.app;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.graphics.BitmapRegionDecoder;
-import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.Rect;
 import android.util.Log;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
 import java.io.File;
-import java.io.FileOutputStream;
 
 public class DiptychManager {
     public static final int STATE_NEED_FIRST = 0;
     public static final int STATE_NEED_SECOND = 1;
     public static final int STATE_STITCHING = 2;
+    public static final int STATE_PROCESSING_FIRST = 3;
 
     private MainActivity activity;
     private DiptychOverlayView overlayView;
@@ -34,7 +30,6 @@ public class DiptychManager {
         this.tvTopStatus = tvTopStatus;
         this.overlayView = new DiptychOverlayView(activity);
         this.overlayView.setVisibility(View.GONE);
-        // ADD AT INDEX 0 to be behind HUD elements
         container.addView(this.overlayView, 0, new FrameLayout.LayoutParams(-1, -1));
     }
 
@@ -59,10 +54,12 @@ public class DiptychManager {
     }
 
     public int getState() { return state; }
+
     public void setThumbOnLeft(boolean left) {
         if (overlayView != null) overlayView.setThumbOnLeft(left);
         if (activity != null) activity.updateDiptychPreviewWindow();
     }
+
     public boolean isThumbOnLeft() { return overlayView != null && overlayView.isThumbOnLeft(); }
     public String getLeftFilename() { return leftFilename; }
     public String getRightFilename() { return rightFilename; }
@@ -74,32 +71,8 @@ public class DiptychManager {
         if (state == STATE_NEED_FIRST) {
             leftFilename = filename;
             rightFilename = null;
-            state = STATE_NEED_SECOND;
-            // INSTANT PREVIEW: Decode a tiny thumbnail from the original un-graded photo.
-            // inSampleSize=16 gives ~375x250 — fast decode on slow ARM, plenty for a guide.
-            // Wait loop shortened to 4x50ms (200ms max) instead of 10x100ms (1s max).
-            new Thread(new Runnable() {
-                public void run() {
-                    File f = new File(originalPath);
-                    long last = -1;
-                    for (int i = 0; i < 4; i++) {
-                        if (f.exists() && f.length() > 0 && f.length() == last) break;
-                        last = f.length();
-                        try { Thread.sleep(50); } catch (Exception e) {}
-                    }
-                    final Bitmap thumb = getDiptychThumbnail(originalPath);
-                    activity.runOnUiThread(new Runnable() {
-                        public void run() {
-                            if (overlayView != null) {
-                                overlayView.setThumbnail(thumb);
-                                overlayView.setState(STATE_NEED_SECOND);
-                            }
-                            activity.updateDiptychPreviewWindow();
-                            activity.updateMainHUD();
-                        }
-                    });
-                }
-            }).start();
+            state = STATE_PROCESSING_FIRST;
+            if (activity != null) activity.updateDiptychPreviewWindow();
             return true;
         } else if (state == STATE_NEED_SECOND) {
             rightFilename = filename;
@@ -112,9 +85,14 @@ public class DiptychManager {
     }
 
     public void processFirstShot(final String gradedPath) {
-        // Unlock shutter after grading is done
+        state = STATE_NEED_SECOND;
+        final Bitmap thumb = getDiptychThumbnail(gradedPath);
         activity.runOnUiThread(new Runnable() {
             public void run() {
+                if (overlayView != null) {
+                    overlayView.setThumbnail(thumb);
+                    overlayView.setState(STATE_NEED_SECOND);
+                }
                 activity.setProcessing(false);
                 activity.armFileScanner();
                 if (tvTopStatus != null) {
@@ -148,18 +126,19 @@ public class DiptychManager {
     private Bitmap getDiptychThumbnail(String path) {
         try {
             BitmapFactory.Options opts = new BitmapFactory.Options();
-            opts.inSampleSize = 16; // ~375x250 — fast decode, plenty for a composition guide
+            opts.inSampleSize = 16;
             opts.inPreferredConfig = Bitmap.Config.RGB_565;
             return BitmapFactory.decodeFile(path, opts);
-        } catch (Throwable t) { return null; }
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     private void performDiptychStitch(String leftPath, String rightPath, boolean firstShotLeft) {
         try {
             System.gc();
             File finalOut = new File(Filepaths.getGradedDir(), "DIPTYCH_" + new File(rightPath).getName());
-            
-            // USE C++ ENGINE FOR FULL RESOLUTION STITCHING!
+
             Log.d("JPEG.CAM", "Diptych stitch start: left=" + leftPath + " right=" + rightPath + " out=" + finalOut.getAbsolutePath());
             final boolean success = stitchDiptychNative(leftPath, rightPath, finalOut.getAbsolutePath(), firstShotLeft, activity.getPrefJpegQuality());
             Log.d("JPEG.CAM", "Diptych stitch result: " + success);
@@ -181,6 +160,7 @@ public class DiptychManager {
                 }
             });
         } catch (Throwable e) {
+            Log.e("JPEG.CAM", "Diptych stitch exception", e);
             activity.runOnUiThread(new Runnable() {
                 public void run() {
                     activity.setProcessing(false);
