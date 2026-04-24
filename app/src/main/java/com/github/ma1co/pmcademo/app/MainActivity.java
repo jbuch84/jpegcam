@@ -526,6 +526,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
     @Override
     public void onShutterHalfReleased() {
         if (displayState == 0 && !menuController.isOpen() && !playbackController.isActive()) setHUDVisibility(View.VISIBLE);
+        
+        // --- HARDWARE RESET ---
+        if (diptychManager != null && diptychManager.isEnabled()) {
+            updateDiptychFocusArea(false);
+        }
+        
+        // --- HARDWARE RESET ---
+        if (diptychManager != null && diptychManager.isEnabled()) {
+            updateDiptychFocusArea(false);
+        }
+
         if (afOverlay != null && cameraManager != null && cameraManager.getCamera() != null) {
             afOverlay.stopFocus(cameraManager.getCamera());
             afOverlay.setDiptychCenterX(-1);
@@ -1950,38 +1961,6 @@ public void onEnterPressed() {
             c.setParameters(p);
         } catch (Exception e) {
             android.util.Log.e("JPEG.CAM", "Hardware focus sync failed: " + e.getMessage());
-        }
-    }
-                    
-                    // We want to focus on the center of the active diptych half.
-                    // If thumb is on Left, active area is RIGHT half.
-                    // Right half center is +500 horizontally. Left half center is -500.
-                    boolean targetRight = diptychManager.isThumbOnLeft();
-                    int centerX = targetRight ? 500 : -500;
-                    
-                    // Define a focus rectangle around that point
-                    Rect rect = new Rect(centerX - 150, -200, centerX + 150, 200);
-                    areas.add(new Camera.Area(rect, 1000));
-                    p.setFocusAreas(areas);
-                    
-                    // Sony specific: ensure "Flexible Spot" logic is active internally
-                    if (p.get("sony-focus-area") != null) {
-                        p.set("sony-focus-area", "flexible-spot");
-                        // Format: x,y,w,h where x,y is center in 0-100 scale
-                        int sonyX = (centerX + 1000) / 20;
-                        int sonyY = 50; // Middle vertically
-                        p.set("sony-focus-area-rect", sonyX + "," + sonyY + ",15,20");
-                        p.set("sony-focus-area-point", sonyX + "," + sonyY);
-                    }
-                }
-            } else {
-                // Restore center/wide focus immediately
-                if (p.getMaxNumFocusAreas() > 0) p.setFocusAreas(null);
-                if (p.get("sony-focus-area") != null) p.set("sony-focus-area", "wide");
-            }
-            c.setParameters(p);
-        } catch (Exception e) {
-            android.util.Log.e("JPEG.CAM", "Failed to update Diptych focus area: " + e.getMessage());
         }
     }
     
