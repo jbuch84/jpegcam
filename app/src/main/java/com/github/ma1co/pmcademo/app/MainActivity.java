@@ -1934,28 +1934,20 @@ public void onEnterPressed() {
             Camera c = cameraManager.getCamera();
             Camera.Parameters p = c.getParameters();
             
-            if (shift && diptychManager != null && diptychManager.isEnabled()) {
-                // Shift hardware AF sensor to side via Sony parameters
-                if (p.get("sony-focus-area") != null) {
-                    p.set("sony-focus-area", "flexible-spot");
-                    
-                    boolean targetRight = diptychManager.isThumbOnLeft();
-                    int centerX = targetRight ? 500 : -500;
-                    int sonyX = (centerX + 1000) / 20; // 0-100 scale
-                    int sonyY = 50; 
-                    
-                    p.set("sony-focus-area-rect", sonyX + "," + sonyY + ",15,20");
-                    p.set("sony-focus-area-point", sonyX + "," + sonyY);
-                }
-            } else {
-                // Reset hardware to center focus
-                if (p.get("sony-focus-area") != null) {
-                    p.set("sony-focus-area", "wide");
-                }
+            // --- FOCUS SYNC FIX ---
+            // Because the preview shift centers the subject on the physical sensor,
+            // we should ALWAYS use Wide/Center focus for maximum hardware accuracy.
+            if (p.get("sony-focus-area") != null) {
+                p.set("sony-focus-area", "wide");
+            }
+            if (android.os.Build.VERSION.SDK_INT >= 14) {
+                try {
+                    if (p.getMaxNumFocusAreas() > 0) p.setFocusAreas(null);
+                } catch (Throwable t) {}
             }
             c.setParameters(p);
         } catch (Exception e) {
-            android.util.Log.e("JPEG.CAM", "AF Hardware Handshake Failed: " + e.getMessage());
+            android.util.Log.e("JPEG.CAM", "Hardware focus sync failed: " + e.getMessage());
         }
     }
     
