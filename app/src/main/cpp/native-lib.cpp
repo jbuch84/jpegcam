@@ -278,6 +278,12 @@ extern "C" JNIEXPORT jboolean JNICALL Java_com_github_ma1co_pmcademo_app_Diptych
     }
     jpeg_create_compress(&co); jpeg_stdio_dest(&co, fo);
     
+    // Extract dimensions from decompressed images
+    int w1 = c1.output_width;
+    int h1 = c1.output_height;
+    int w2 = c2.output_width;
+    int h2 = c2.output_height;
+    
     // Calculate framing: We take the center-half of each image.
     // If w1=3000, half=1500. We want to take from 750 to 2250.
     int half1 = w1 / 2, half2 = w2 / 2;
