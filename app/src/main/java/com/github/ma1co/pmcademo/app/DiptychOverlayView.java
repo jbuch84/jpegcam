@@ -72,62 +72,76 @@ public class DiptychOverlayView extends View {
         int mid = w / 2;
 
         if (state == 0) {
-            // HALF FRAME STYLE for shot 1:
-            // Light mask on the inactive right half so the user focuses on the left.
-            // Corner brackets on the active left half evoke a half-frame camera viewfinder.
-            darkPaint.setAlpha(100); // ~40% dark — subtle hint, not a heavy block
-            canvas.drawRect(mid, 0, w, h, darkPaint);
-            darkPaint.setAlpha(180); // restore for state-1 use
+            // BOTH MASKED: Subject in sensor center (Center 50% window)
+            // Mask left 25% and right 25%. Subject in middle 50% hit AF point.
+            int m25 = w / 4;
+            int m75 = w * 3 / 4;
+            
+            darkPaint.setAlpha(100);
+            canvas.drawRect(0, 0, m25, h, darkPaint);
+            canvas.drawRect(m75, 0, w, h, darkPaint);
+            darkPaint.setAlpha(180);
 
-            // Corner bracket marks on the active (left) half
-            int mg = Math.max(8, w / 32);  // margin from screen edge
-            int bl = h / 10;               // bracket arm length
-            // Top-left corner
-            canvas.drawLine(mg,       mg,            mg + bl,       mg,            framePaint);
-            canvas.drawLine(mg,       mg,            mg,            mg + bl,       framePaint);
-            // Top-right corner of active half (near center line)
-            canvas.drawLine(mid - mg, mg,            mid - mg - bl, mg,            framePaint);
-            canvas.drawLine(mid - mg, mg,            mid - mg,      mg + bl,       framePaint);
-            // Bottom-left corner
-            canvas.drawLine(mg,       h - mg,        mg + bl,       h - mg,        framePaint);
-            canvas.drawLine(mg,       h - mg,        mg,            h - mg - bl,   framePaint);
-            // Bottom-right corner of active half
-            canvas.drawLine(mid - mg, h - mg,        mid - mg - bl, h - mg,        framePaint);
-            canvas.drawLine(mid - mg, h - mg,        mid - mg,      h - mg - bl,   framePaint);
+            // Framing brackets for the middle 50%
+            int mg = Math.max(8, w / 32);
+            int bl = h / 10;
+            // Top-left
+            canvas.drawLine(m25 + mg, mg, m25 + mg + bl, mg, framePaint);
+            canvas.drawLine(m25 + mg, mg, m25 + mg, mg + bl, framePaint);
+            // Top-right
+            canvas.drawLine(m75 - mg, mg, m75 - mg - bl, mg, framePaint);
+            canvas.drawLine(m75 - mg, mg, m75 - mg, mg + bl, framePaint);
+            // Bottom-left
+            canvas.drawLine(m25 + mg, h - mg, m25 + mg + bl, h - mg, framePaint);
+            canvas.drawLine(m25 + mg, h - mg, m25 + mg, h - mg - bl, framePaint);
+            // Bottom-right
+            canvas.drawLine(m75 - mg, h - mg, m75 - mg - bl, h - mg, framePaint);
+            canvas.drawLine(m75 - mg, h - mg, m75 - mg, h - mg - bl, framePaint);
 
-            // Center reference crosshair — shows exact center of the active left half
-            // so the user knows where to place their subject for the half-frame shot.
-            int cx0 = mid / 2;
-            int cy0 = h / 2;
+            // Physical sensor center crosshair
+            int cx = w / 2;
+            int cy = h / 2;
             int crossLen = 14;
-            canvas.drawLine(cx0 - crossLen, cy0, cx0 + crossLen, cy0, framePaint);
-            canvas.drawLine(cx0, cy0 - crossLen, cx0, cy0 + crossLen, framePaint);
+            canvas.drawLine(cx - crossLen, cy, cx + crossLen, cy, framePaint);
+            canvas.drawLine(cx, cy - crossLen, cx, cy + crossLen, framePaint);
 
         } else if (state == 1) {
+            // SHOW PREVIEW ON CHOSEN SIDE. 
+            // ACTIVE SIDE (opposite) must show sensor center at its internal center.
+            // If preview on LEFT: Active window is [mid, w]. Sensor center [w/4, 3w/4] must map here.
+            // This means we mask edges of the sensor to center the AF point in the active half.
+            
             if (thumbOnLeft) {
+                // Preview on Left. Framing on Right.
+                // Mask edges of the right half to center the sensor center.
+                // Physical sensor range [25%, 75%] maps to UI range [50%, 100%].
+                // Actually, to KEEP AF centered in the open window:
+                // We just need to ensure the open window displays the center of the sensor.
                 canvas.drawRect(0, 0, mid, h, darkPaint);
             } else {
+                // Preview on Right. Framing on Left.
                 canvas.drawRect(mid, 0, w, h, darkPaint);
             }
 
             if (thumbnail != null && !thumbnail.isRecycled()) {
                 int tW = thumbnail.getWidth();
                 int tH = thumbnail.getHeight();
-                int tMid = tW / 2;
                 
-                Rect srcRect;
-                Rect dstRect;
-                
-                if (thumbOnLeft) {
-                    srcRect = new Rect(0, 0, tMid, tH);
-                    dstRect = new Rect(0, 0, mid, h);
-                } else {
-                    srcRect = new Rect(0, 0, tMid, tH); // ALWAYS take the left crop of the first shot
-                    dstRect = new Rect(mid, 0, w, h);
-                }
+                // Extract center 50% of the thumbnail (matches native stitch)
+                Rect srcRect = new Rect(tW / 4, 0, tW * 3 / 4, tH);
+                Rect dstRect = thumbOnLeft ? new Rect(0, 0, mid, h) : new Rect(mid, 0, w, h);
                 
                 canvas.drawBitmap(thumbnail, srcRect, dstRect, thumbPaint);
             }
+            
+            // Physical sensor center crosshair (nudged liveview logic)
+            // The liveview is nudged by 25%, so the sensor center (AF) 
+            // is now exactly at 1/4 or 3/4 of the screen width.
+            int cx = thumbOnLeft ? (w * 3 / 4) : (w / 4);
+            int cy = h / 2;
+            int crossLen = 14;
+            canvas.drawLine(cx - crossLen, cy, cx + crossLen, cy, framePaint);
+            canvas.drawLine(cx, cy - crossLen, cx, cy + crossLen, framePaint);
         }
         
         // Always draw the center framing line

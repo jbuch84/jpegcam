@@ -2,7 +2,6 @@ package com.github.ma1co.pmcademo.app;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.graphics.BitmapRegionDecoder;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -162,8 +161,8 @@ public class DiptychManager {
                 public void run() {
                     activity.setProcessing(false);
                     if (tvTopStatus != null) {
-                        tvTopStatus.setText("DIPTYCH SAVED");
-                        tvTopStatus.setTextColor(Color.WHITE);
+                        tvTopStatus.setText(success ? "DIPTYCH SAVED" : "DIPTYCH FAILED");
+                        tvTopStatus.setTextColor(success ? Color.WHITE : Color.RED);
                     }
                     activity.updateMainHUD();
                 }

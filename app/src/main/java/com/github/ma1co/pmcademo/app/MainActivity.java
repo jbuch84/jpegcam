@@ -469,17 +469,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
         // mDialMode = DIAL_MODE_RTL; <-- DELETED. Cursor memory is now permanent!
         
         if (displayState == 0 && !menuController.isOpen()) setHUDVisibility(View.GONE);
-        // Diptych mode: shift AF bracket to the active (open) side before focusing
+        // Diptych mode: subject is always in the center of the sensor (AF point)
+        // for both shots, so we keep the bracket centered.
         if (afOverlay != null && diptychManager != null && diptychManager.isEnabled()) {
-            int dipW = afOverlay.getWidth();
-            if (diptychManager.getState() == 1) {
-                // Shot 2: active side is opposite to the shot-1 thumbnail
-                boolean tLeft = diptychManager.isThumbOnLeft();
-                afOverlay.setDiptychCenterX(tLeft ? dipW * 3 / 4 : dipW / 4);
-            } else {
-                // Shot 1 (state 0): active half is the left
-                afOverlay.setDiptychCenterX(dipW / 4);
-            }
+            afOverlay.setDiptychCenterX(afOverlay.getWidth() / 2);
         } else if (afOverlay != null) {
             afOverlay.setDiptychCenterX(-1);
         }
@@ -1634,6 +1627,29 @@ public void onEnterPressed() {
                 // Force conflicting UI elements off while Diptych is active
                 if (cinemaMattes != null) cinemaMattes.setVisibility(View.GONE);
                 if (gridLines != null) gridLines.setVisibility(View.GONE);
+                
+                // LIVEVIEW NUDGE: Move sensor center into the active framing window
+                if (mSurfaceView != null) {
+                    FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) mSurfaceView.getLayoutParams();
+                    int w = mainUIContainer.getWidth();
+                    if (diptychManager.getState() == 1) {
+                        // Shot 2: Slide feed so sensor center (AF) is at 25% or 75% screen width
+                        int nudge = w / 4;
+                        lp.leftMargin = diptychManager.isThumbOnLeft() ? -nudge : nudge;
+                        lp.rightMargin = -lp.leftMargin;
+                    } else {
+                        // Shot 1 or Diptych Off: Keep centered
+                        lp.leftMargin = 0; lp.rightMargin = 0;
+                    }
+                    mSurfaceView.setLayoutParams(lp);
+                }
+            } else if (mSurfaceView != null) {
+                // Reset liveview position when diptych is disabled
+                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) mSurfaceView.getLayoutParams();
+                if (lp.leftMargin != 0) {
+                    lp.leftMargin = 0; lp.rightMargin = 0;
+                    mSurfaceView.setLayoutParams(lp);
+                }
             }
         }
 
