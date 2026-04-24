@@ -183,6 +183,21 @@ extern "C" JNIEXPORT jboolean JNICALL Java_com_github_ma1co_pmcademo_app_LutEngi
     free(rb); free(ob); jpeg_finish_compress(&cc); jpeg_destroy_compress(&cc); jpeg_finish_decompress(&cd); jpeg_destroy_decompress(&cd); fclose(inf); fclose(ouf); env->ReleaseStringUTFChars(inPath,ifn); env->ReleaseStringUTFChars(outPath,ofn); return JNI_TRUE;
 }
 
+#include <errno.h>
+#include <unistd.h>
+
+// Helper to open files with retries for handling OS locks
+FILE* fopen_retry(const char* path, const char* mode) {
+    for (int i = 0; i < 5; i++) {
+        FILE* f = fopen(path, mode);
+        if (f) return f;
+        if (errno != EBUSY && errno != EAGAIN && errno != EINTR) break;
+        LOGD("File %s busy, retrying... (%d)", path, i + 1);
+        usleep(200000); // 200ms
+    }
+    return fopen(path, mode);
+}
+
 // --- FULL RESOLUTION DIPTYCH STITCH ENGINE (FULL STABILITY) ---
 extern "C" JNIEXPORT jboolean JNICALL Java_com_github_ma1co_pmcademo_app_DiptychManager_stitchDiptychNative(
     JNIEnv* env, jobject obj, jstring path1, jstring path2, jstring outPath, jboolean firstShotLeft, jint quality) {
@@ -190,10 +205,28 @@ extern "C" JNIEXPORT jboolean JNICALL Java_com_github_ma1co_pmcademo_app_Diptych
     const char *p1 = env->GetStringUTFChars(path1, NULL);
     const char *p2 = env->GetStringUTFChars(path2, NULL);
     const char *po = env->GetStringUTFChars(outPath, NULL);
-    FILE *f1 = fopen(p1, "rb"), *f2 = fopen(p2, "rb"), *fo = fopen(po, "wb");
-    if (!f1 || !f2 || !fo) {
-        LOGD("Diptych open failed: %s | %s | %s", p1, p2, po);
-        if(f1)fclose(f1); if(f2)fclose(f2); if(fo)fclose(fo);
+    
+    LOGD("NATIVE STITCH START: %s + %s -> %s", p1, p2, po);
+
+    FILE *f1 = fopen_retry(p1, "rb");
+    if (!f1) {
+        LOGD("Diptych open failed (p1): %s, error: %s", p1, strerror(errno));
+        env->ReleaseStringUTFChars(path1, p1); env->ReleaseStringUTFChars(path2, p2); env->ReleaseStringUTFChars(outPath, po);
+        return JNI_FALSE;
+    }
+    
+    FILE *f2 = fopen_retry(p2, "rb");
+    if (!f2) {
+        LOGD("Diptych open failed (p2): %s, error: %s", p2, strerror(errno));
+        fclose(f1);
+        env->ReleaseStringUTFChars(path1, p1); env->ReleaseStringUTFChars(path2, p2); env->ReleaseStringUTFChars(outPath, po);
+        return JNI_FALSE;
+    }
+
+    FILE *fo = fopen_retry(po, "wb");
+    if (!fo) {
+        LOGD("Diptych open failed (out): %s, error: %s", po, strerror(errno));
+        fclose(f1); fclose(f2);
         env->ReleaseStringUTFChars(path1, p1); env->ReleaseStringUTFChars(path2, p2); env->ReleaseStringUTFChars(outPath, po);
         return JNI_FALSE;
     }

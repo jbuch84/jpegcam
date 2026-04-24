@@ -149,8 +149,8 @@ public class DiptychManager {
         new Thread(new Runnable() {
             public void run() {
                 try {
-                    // Increased wait time: Ensure OS file system handles and UI thread cleanup are fully settled
-                    Thread.sleep(500); 
+                    // Increased wait time: Give the Media Scanner more room to finish indexing
+                    Thread.sleep(1000); 
                 } catch (Exception ignored) {}
                 
                 performDiptychStitch(gradedLeftPath, gradedRightPath, firstShotLeft);
