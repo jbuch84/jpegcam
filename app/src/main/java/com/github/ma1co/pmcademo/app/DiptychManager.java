@@ -174,12 +174,39 @@ public class DiptychManager {
             System.gc();
             File fL = new File(leftPath);
             File fR = new File(rightPath);
-            File finalOut = new File(Filepaths.getGradedDir(), "DIPTYCH_" + fR.getName());
+            
+            // --- 8.3 FILENAME COMPLIANCE ---
+            // Sony cameras enforce a strict 8-character filename limit for DCIM.
+            // Example: DSC07127.JPG -> DIP07127.JPG
+            String originalName = fR.getName();
+            String diptychName = "DIPTYCH.JPG"; // Failsafe
+            
+            try {
+                String namePart = originalName;
+                int dotIdx = originalName.lastIndexOf(".");
+                if (dotIdx != -1) namePart = originalName.substring(0, dotIdx);
+                
+                if (namePart.length() > 5) {
+                    // Take the last 5 digits/chars (e.g., 07127) and prefix with DIP
+                    diptychName = "DIP" + namePart.substring(namePart.length() - 5) + ".JPG";
+                } else {
+                    diptychName = "DIP" + namePart + ".JPG";
+                }
+                
+                // Final safety truncate to 8 chars + extension
+                if (diptychName.length() > 12) {
+                    diptychName = diptychName.substring(0, 8) + ".JPG";
+                }
+            } catch (Exception e) {
+                Log.e("JPEG.CAM", "Filename generation error: " + e.getMessage());
+            }
+            
+            File finalOut = new File(Filepaths.getGradedDir(), diptychName);
 
             Log.d("JPEG.CAM", "DIPTYCH STITCH ATTEMPT:");
-            Log.d("JPEG.CAM", "  - Left Path (" + fL.exists() + "): " + leftPath + " size: " + fL.length());
-            Log.d("JPEG.CAM", "  - Right Path (" + fR.exists() + "): " + rightPath + " size: " + fR.length());
-            Log.d("JPEG.CAM", "  - Output Path: " + finalOut.getAbsolutePath());
+            Log.d("JPEG.CAM", "  - Left Path (" + fL.exists() + "): " + leftPath);
+            Log.d("JPEG.CAM", "  - Right Path (" + fR.exists() + "): " + rightPath);
+            Log.d("JPEG.CAM", "  - Output Name: " + diptychName + " (Compliant=" + (diptychName.length() <= 12) + ")");
 
             if (!fL.exists() || !fR.exists()) {
                 Log.e("JPEG.CAM", "STITCH ABORTED: Source files missing!");
