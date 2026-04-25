@@ -158,10 +158,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
 
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(width, -1);
         int offset = 0;
-        // REMOVED: !isProcessing guard. We want the preview to stay shifted while the 2nd photo is being developed.
         if (diptychManager != null && diptychManager.isEnabled()
                 && (diptychManager.getState() == DiptychManager.STATE_NEED_SECOND || diptychManager.getState() == DiptychManager.STATE_STITCHING)) {
-            offset = diptychManager.isThumbOnLeft() ? width / 4 : -(width / 4);
+            offset = DiptychFraming.getPreviewOffset(width, diptychManager.isThumbOnLeft());
         }
         params.leftMargin = offset;
         mSurfaceView.setLayoutParams(params);
@@ -510,8 +509,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback,
             if (diptychManager.getState() == DiptychManager.STATE_NEED_SECOND) {
                 int width = afOverlay.getWidth();
                 if (width <= 0) width = getPreviewWindowWidth();
-                int offset = diptychManager.isThumbOnLeft() ? width / 4 : -(width / 4);
-                afOverlay.setDiptychCenterX((width / 2) + offset);
+                afOverlay.setDiptychCenterX(DiptychFraming.getActiveCenterX(width, diptychManager.isThumbOnLeft()));
             } else {
                 afOverlay.setDiptychCenterX(-1);
             }
